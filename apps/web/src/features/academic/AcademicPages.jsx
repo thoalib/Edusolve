@@ -2580,49 +2580,227 @@ export function VerificationsPage() {
 }
 
 /* ═══════ Top-Ups ═══════ */
+function UploadInstallmentModal({ item, onClose, onSuccess }) {
+  const [amount, setAmount] = useState('');
+  const [financeNote, setFinanceNote] = useState('');
+  const [screenshotFile, setScreenshotFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!amount || Number(amount) <= 0) return alert('Enter a valid amount');
+    if (!screenshotFile) return alert('Please upload a screenshot');
+    setSaving(true);
+    try {
+      setUploading(true);
+      const presignData = await apiFetch('/upload/presigned-url', {
+        method: 'POST', body: JSON.stringify({ filename: screenshotFile.name, contentType: screenshotFile.type })
+      });
+      const uploadRes = await fetch(presignData.uploadUrl, {
+        method: 'PUT', headers: { 'Content-Type': screenshotFile.type }, body: screenshotFile
+      });
+      if (!uploadRes.ok) throw new Error('Failed to upload file');
+      setUploading(false);
+      await apiFetch('/finance/installments', {
+        method: 'POST',
+        body: JSON.stringify({
+          reference_type: 'student_topup',
+          reference_id: item.id,
+          amount: Number(amount),
+          finance_note: financeNote,
+          screenshot_url: presignData.publicUrl
+        })
+      });
+      alert('Installment submitted!');
+      onSuccess();
+    } catch (err) {
+      setUploading(false);
+      alert('Error: ' + err.message);
+    } finally { setSaving(false); }
+  }
+
+  const studentName = item.students?.student_name || item.student_id;
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '420px', padding: '24px', borderRadius: '10px', background: 'white' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ margin: 0 }}>Upload Installment</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#6b7280' }}>×</button>
+        </div>
+        <p style={{ fontSize: '13px', color: '#4b5563', marginBottom: '16px', background: '#f9fafb', padding: '10px', borderRadius: '6px' }}>
+          Student: <strong>{studentName}</strong><br />
+          Total: ₹{item.total_amount} &nbsp;|&nbsp; Paid: ₹{item.amount || 0} &nbsp;|&nbsp; <span style={{ color: '#dc2626', fontWeight: 700 }}>Remaining: ₹{Number(item.total_amount) - Number(item.amount || 0)}</span>
+        </p>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>Amount (₹) *
+            <input type="number" value={amount} onChange={e => setAmount(e.target.value)} required min="1" max={Number(item.total_amount) - Number(item.amount || 0)}
+              style={{ width: '100%', padding: '8px 12px', marginTop: '4px', border: '1px solid #d1d5db', borderRadius: '6px' }} />
+          </label>
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>Payment Screenshot *
+            <input type="file" accept="image/*" onChange={e => setScreenshotFile(e.target.files[0])} required style={{ width: '100%', marginTop: '4px' }} />
+          </label>
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>Note
+            <textarea value={financeNote} onChange={e => setFinanceNote(e.target.value)} rows={2}
+              style={{ width: '100%', padding: '8px 12px', marginTop: '4px', border: '1px solid #d1d5db', borderRadius: '6px', resize: 'vertical' }} />
+          </label>
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+            <button type="button" onClick={onClose} className="secondary">Cancel</button>
+            <button type="submit" className="primary" disabled={saving || uploading}>{saving || uploading ? 'Submitting...' : 'Submit Installment'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function TopUpsPage() {
   const [students, setStudents] = useState([]);
   const [requests, setRequests] = useState([]);
+  const [pendingBalances, setPendingBalances] = useState([]);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const [sid, setSid] = useState('');
   const [hrs, setHrs] = useState('');
+  const [totalAmt, setTotalAmt] = useState('');
   const [amt, setAmt] = useState('');
+  const [fNote, setFNote] = useState('');
   const [scrFile, setScrFile] = useState(null);
+  const [activeTab, setActiveTab] = useState('all');
+  const [showInstallmentModal, setShowInstallmentModal] = useState(null);
+  const [loadingPending, setLoadingPending] = useState(false);
+  const [myInstallments, setMyInstallments] = useState([]);
+  const [loadingMyInstallments, setLoadingMyInstallments] = useState(false);
 
-  const load = useCallback(async () => { try { const [s, t] = await Promise.all([apiFetch('/students'), apiFetch('/students/topup-requests?status=all')]); setStudents(s.items || []); setRequests(t.items || []); } catch (e) { setError(e.message); }; }, []);
+  const load = useCallback(async () => {
+    try {
+      const [s, t] = await Promise.all([apiFetch('/students'), apiFetch('/students/topup-requests?status=all')]);
+      setStudents(s.items || []);
+      setRequests(t.items || []);
+    } catch (e) { setError(e.message); }
+  }, []);
+
+  const loadPending = useCallback(async () => {
+    setLoadingPending(true);
+    try {
+      const data = await apiFetch('/finance/pending-balances');
+      setPendingBalances((data.items || []).filter(it => it._type === 'student_topup'));
+    } catch (e) { setError(e.message); } finally { setLoadingPending(false); }
+  }, []);
+
+  const loadMyInstallments = useCallback(async () => {
+    setLoadingMyInstallments(true);
+    try {
+      const data = await apiFetch('/finance/my-installments');
+      setMyInstallments((data.items || []).filter(it => it.reference_type === 'student_topup'));
+    } catch (e) { console.error(e); } finally { setLoadingMyInstallments(false); }
+  }, []);
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (activeTab === 'pending') { loadPending(); loadMyInstallments(); } }, [activeTab, loadPending, loadMyInstallments]);
 
   async function submit(e) {
     e.preventDefault(); setError(''); setMsg('');
     let scrUrl = null;
-
     if (scrFile) {
       try {
         const formData = new FormData();
         formData.append('file', scrFile);
         const res = await apiFetch('/upload/screenshot', { method: 'POST', body: formData });
         scrUrl = res.url;
-      } catch (e) {
-        setError('Upload failed: ' + e.message);
-        return;
-      }
+      } catch (e) { setError('Upload failed: ' + e.message); return; }
     }
-
     try {
       await apiFetch(`/students/${sid}/topup-requests`, {
         method: 'POST',
-        body: JSON.stringify({ hours_added: Number(hrs), amount: Number(amt), screenshot_url: scrUrl })
+        body: JSON.stringify({ hours_added: Number(hrs), total_amount: Number(totalAmt), amount: Number(amt), finance_note: fNote || null, screenshot_url: scrUrl })
       });
-      setMsg('Sent to finance.'); setHrs(''); setAmt(''); setScrFile(null); await load();
+      setMsg('Sent to finance.'); setHrs(''); setTotalAmt(''); setAmt(''); setFNote(''); setScrFile(null); await load();
     } catch (e) { setError(e.message); }
   }
 
   return (
     <section className="panel">
       {error ? <p className="error">{error}</p> : null}
-      <article className="card"><h3>Create Top-Up</h3><form className="form-grid form-row" onSubmit={submit}><label>Student<select value={sid} onChange={e => setSid(e.target.value)} required><option value="">Select</option>{students.map(s => <option key={s.id} value={s.id}>{s.student_code || s.id} — {s.student_name} ({s.remaining_hours}h)</option>)}</select></label><label>Hours<input type="number" value={hrs} onChange={e => setHrs(e.target.value)} required /></label><label>Amount (₹)<input type="number" value={amt} onChange={e => setAmt(e.target.value)} required /></label><label>Screenshot (Upload)<input type="file" accept="image/*" onChange={e => setScrFile(e.target.files[0])} /></label><button type="submit">Submit</button></form>{msg ? <p>{msg}</p> : null}</article>
-      <article className="card"><h3>All Requests</h3><div className="table-wrap mobile-friendly-table"><table><thead><tr><th>Student</th><th>Hrs</th><th>₹</th><th>Status</th><th>Date</th></tr></thead><tbody>{requests.map(r => <tr key={r.id}><td data-label="Student">{r.students?.student_code || r.student_id}</td><td data-label="Hrs">{r.hours_added}</td><td data-label="₹">₹{r.amount}</td><td data-label="Status"><span className={`status-tag ${r.status === 'approved' ? 'success' : ''}`}>{r.status}</span></td><td data-label="Date">{new Date(r.created_at).toLocaleDateString('en-IN')}</td></tr>)}{!requests.length ? <tr><td colSpan="5">No requests.</td></tr> : null}</tbody></table></div></article>
+      <article className="card"><h3>Create Top-Up</h3><form className="form-grid form-row" onSubmit={submit}><label>Student<select value={sid} onChange={e => setSid(e.target.value)} required><option value="">Select</option>{students.map(s => <option key={s.id} value={s.id}>{s.student_code || s.id} — {s.student_name} ({s.remaining_hours}h)</option>)}</select></label><label>Hours<input type="number" value={hrs} onChange={e => setHrs(e.target.value)} required /></label><label>Total Amount (₹)<input type="number" value={totalAmt} onChange={e => setTotalAmt(e.target.value)} required /></label><label>Paid Amount (₹)<input type="number" value={amt} onChange={e => setAmt(e.target.value)} required /></label><label>Finance Note<textarea value={fNote} onChange={e => setFNote(e.target.value)} rows={2} style={{ resize: 'vertical' }} /></label><label>Screenshot (Upload)<input type="file" accept="image/*" onChange={e => setScrFile(e.target.files[0])} /></label><button type="submit" style={{ alignSelf: 'flex-end', marginTop: '16px' }}>Submit</button></form>{msg ? <p>{msg}</p> : null}</article>
+
+      <article className="card" style={{ marginTop: '24px' }}>
+        <div style={{ display: 'flex', gap: '8px', borderBottom: '2px solid #e5e7eb', marginBottom: '16px' }}>
+          {[{ key: 'all', label: 'All Requests' }, { key: 'pending', label: 'Pending Payments' }].map(t => (
+            <button key={t.key} type="button" onClick={() => setActiveTab(t.key)} style={{
+              padding: '8px 16px', fontWeight: 600, fontSize: '14px', cursor: 'pointer', background: 'none', border: 'none',
+              borderBottom: activeTab === t.key ? '3px solid #4338ca' : '3px solid transparent',
+              color: activeTab === t.key ? '#4338ca' : '#6b7280', marginBottom: '-2px'
+            }}>{t.label}</button>
+          ))}
+        </div>
+
+        {activeTab === 'all' && (
+          <div className="table-wrap mobile-friendly-table"><table><thead><tr><th>Student</th><th>Hrs</th><th>Total ₹</th><th>Paid ₹</th><th>Note</th><th>Screenshot</th><th>Status</th><th>Date</th></tr></thead><tbody>{requests.map(r => <tr key={r.id}><td data-label="Student">{r.students?.student_code || r.student_id}</td><td data-label="Hrs">{r.hours_added}</td><td data-label="Total ₹">₹{r.total_amount ? r.total_amount : '—'}</td><td data-label="Paid ₹">₹{r.amount}</td><td data-label="Note" style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.finance_note || '—'}</td><td data-label="Screenshot">{r.screenshot_url ? <a href={r.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca' }}>View</a> : '—'}</td><td data-label="Status"><span className={`status-tag ${r.status === 'approved' ? 'success' : ''}`}>{r.status}</span></td><td data-label="Date">{new Date(r.created_at).toLocaleDateString('en-IN')}</td></tr>)}{!requests.length ? <tr><td colSpan="8">No requests.</td></tr> : null}</tbody></table></div>
+        )}
+
+        {activeTab === 'pending' && (
+          loadingPending ? <p>Loading...</p> : (
+            <>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Student</th><th>Total ₹</th><th>Paid ₹</th><th>Remaining</th><th>Action</th></tr></thead>
+                  <tbody>
+                    {pendingBalances.map(item => (
+                      <tr key={item.id}>
+                        <td style={{ fontWeight: 500 }}>{item.students?.student_name || item.student_id}</td>
+                        <td>₹{item.total_amount}</td>
+                        <td style={{ color: '#16a34a', fontWeight: 600 }}>₹{item.amount || 0}</td>
+                        <td style={{ color: '#dc2626', fontWeight: 700 }}>₹{item.remaining_amount}</td>
+                        <td>
+                          <button className="primary small" onClick={() => setShowInstallmentModal(item)}>Upload Installment</button>
+                        </td>
+                      </tr>
+                    ))}
+                    {!pendingBalances.length && <tr><td colSpan="5" style={{ textAlign: 'center', color: '#6b7280', padding: '24px' }}>No pending balances.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ marginTop: '24px' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '12px' }}>My Submitted Installments</h3>
+                {loadingMyInstallments ? <p style={{ color: '#6b7280' }}>Loading...</p> : (
+                  <div className="table-wrap">
+                    <table>
+                      <thead><tr><th>Student</th><th>Amount</th><th>Note</th><th>Screenshot</th><th>Status</th><th>Submitted</th></tr></thead>
+                      <tbody>
+                        {myInstallments.map(inst => {
+                          const sm = { pending: { bg: '#fef3c7', color: '#92400e', label: '⏳ Pending' }, verified: { bg: '#dcfce7', color: '#15803d', label: '✅ Verified' }, rejected: { bg: '#fee2e2', color: '#dc2626', label: '❌ Rejected' } };
+                          const s = sm[inst.status] || { bg: '#f3f4f6', color: '#6b7280', label: inst.status };
+                          return (
+                            <tr key={inst.id}>
+                              <td style={{ fontWeight: 500 }}>{inst.student_name}</td>
+                              <td style={{ fontWeight: 700, color: '#15803d' }}>₹{Number(inst.amount).toLocaleString('en-IN')}</td>
+                              <td style={{ fontSize: '12px', color: '#6b7280', maxWidth: '130px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{inst.finance_note || '—'}</td>
+                              <td>{inst.screenshot_url ? <a href={inst.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca', fontSize: '12px' }}>View</a> : '—'}</td>
+                              <td><span style={{ padding: '3px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 600, background: s.bg, color: s.color }}>{s.label}</span></td>
+                              <td style={{ fontSize: '12px', color: '#6b7280' }}>{new Date(inst.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                            </tr>
+                          );
+                        })}
+                        {!myInstallments.length && <tr><td colSpan="6" style={{ textAlign: 'center', color: '#9ca3af', padding: '20px' }}>No installments submitted yet.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
+          )
+        )}
+      </article>
+
+      {showInstallmentModal && (
+        <UploadInstallmentModal
+          item={showInstallmentModal}
+          onClose={() => setShowInstallmentModal(null)}
+          onSuccess={() => { setShowInstallmentModal(null); loadPending(); loadMyInstallments(); }}
+        />
+      )}
     </section>
   );
 }

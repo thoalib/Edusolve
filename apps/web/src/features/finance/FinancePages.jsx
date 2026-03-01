@@ -265,7 +265,7 @@ export function IncomeManagementPage() {
                     <td data-label="Date">{i.entry_date}</td>
                     <td data-label="Description">{i.description || '—'}</td>
                     <td data-label="Account">{i.finance_accounts?.name || '—'}</td>
-                    <td data-label="Party">{i.finance_parties?.name || '—'}</td>
+                    <td data-label="Party">{i.finance_parties?.name || i.students?.student_name || i.users?.full_name || i.employees?.full_name || '—'}</td>
                     <td data-label="Amount" style={{ fontWeight: 600, color: '#15803d' }}>₹{Number(i.amount).toLocaleString()}</td>
                   </tr>
                 ))}
@@ -275,7 +275,7 @@ export function IncomeManagementPage() {
           </div>
         </article>
       )}
-      {showAdd ? <AddEntryModal type="income" accounts={accounts} parties={parties} onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); load(); }} /> : null}
+      {showAdd ? <AddEntryModal type="income" accounts={accounts} onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); load(); }} /> : null}
     </section>
   );
 }
@@ -314,10 +314,7 @@ export function ExpenseManagementPage() {
           <h2 style={{ margin: 0, fontSize: '20px' }}>Expenses</h2>
           <p className="text-muted" style={{ margin: '2px 0 0', fontSize: '13px' }}>Total: ₹{total.toLocaleString()}</p>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button className="secondary" onClick={() => setShowCategories(true)}>Manage Categories</button>
-          <button className="primary" onClick={() => setShowAdd(true)}>+ Add Expense</button>
-        </div>
+        <button className="primary" onClick={() => setShowAdd(true)}>+ Add Expense</button>
       </div>
       {loading ? <p>Loading...</p> : (
         <article className="card" style={{ padding: '16px' }}>
@@ -331,7 +328,7 @@ export function ExpenseManagementPage() {
                     <td data-label="Category"><span style={{ textTransform: 'capitalize' }}>{i.category}</span></td>
                     <td data-label="Description">{i.description || '—'}</td>
                     <td data-label="Account">{i.finance_accounts?.name || '—'}</td>
-                    <td data-label="Party">{i.finance_parties?.name || '—'}</td>
+                    <td data-label="Party">{i.finance_parties?.name || i.students?.student_name || i.users?.full_name || i.employees?.full_name || '—'}</td>
                     <td data-label="Amount" style={{ fontWeight: 600, color: '#dc2626' }}>₹{Number(i.amount).toLocaleString()}</td>
                   </tr>
                 ))}
@@ -341,8 +338,7 @@ export function ExpenseManagementPage() {
           </div>
         </article>
       )}
-      {showAdd ? <AddExpenseModal accounts={accounts} parties={parties} categories={categoryNames} onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); load(); }} /> : null}
-      {showCategories ? <CategoriesModal type="expense" onClose={() => setShowCategories(false)} onUpdate={load} /> : null}
+      {showAdd ? <AddExpenseModal accounts={accounts} categories={categoryNames} onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); load(); }} /> : null}
     </section>
   );
 }
@@ -397,162 +393,371 @@ export function AccountsPage() {
   );
 }
 
+/* ═══════ LEDGER MODAL ═══════ */
+function LedgerModal({ type, party, onClose }) {
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiFetch(`/finance/ledgers/${type}/${party.id}`).then(d => {
+      setHistory(d.history || []);
+      setLoading(false);
+    }).catch(e => alert(e.message));
+  }, [type, party.id]);
+
+  const isStudent = type === 'students';
+  const isPayroll = type === 'teachers' || type === 'employees';
+
+  // Compute summary
+  const totalReceivable = history.filter(r => r.__type === 'receivable').reduce((s, r) => s + Number(r.amount), 0);
+  const totalReceived = history.filter(r => r.__type === 'income').reduce((s, r) => s + Number(r.amount), 0);
+  const outstanding = totalReceivable - totalReceived;
+
+  const totalPayable = history.filter(r => r.__type === 'payable').reduce((s, r) => s + Number(r.amount), 0);
+  const totalExpense = history.filter(r => r.__type === 'expense').reduce((s, r) => s + Number(r.amount), 0);
+  const balanceOwed = totalPayable - totalExpense;
+
+  // Running balance: income credits increase balance, receivable is informational (not used in running total for non-student ledgers)
+  const chronological = [...history].reverse();
+  let runningBalance = 0;
+  const rows = chronological.map(row => {
+    if (row.__type === 'income') runningBalance += Number(row.amount);
+    else if (row.__type === 'expense') runningBalance -= Number(row.amount);
+    // receivable and payable are informational — don't move cash balance
+    return { ...row, runningBalance };
+  }).reverse();
+
+  const typeStyle = {
+    income: { bg: '#dcfce7', color: '#166534', label: 'Payment' },
+    receivable: { bg: '#fef3c7', color: '#92400e', label: 'Receivable' },
+    payable: { bg: '#fef3c7', color: '#92400e', label: 'Payable' },
+    expense: { bg: '#fee2e2', color: '#991b1b', label: 'Paid Out' },
+  };
+
+  return (
+    <div className="modal-overlay"><div className="modal card" style={{ maxWidth: '700px', width: '95%', padding: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <h3 style={{ margin: 0, fontSize: '18px' }}>{party.name || party.full_name || party.student_name} — Ledger</h3>
+        <button className="text-danger" onClick={onClose} style={{ fontSize: '24px', padding: 0, background: 'none', border: 'none', cursor: 'pointer' }}>×</button>
+      </div>
+
+      {/* AR Summary (students) */}
+      {isStudent && !loading && totalReceivable > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '16px' }}>
+          <div style={{ background: '#fef3c7', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+            <p style={{ margin: 0, fontSize: '11px', color: '#78350f', fontWeight: 600 }}>TOTAL RECEIVABLE</p>
+            <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 700, color: '#92400e' }}>₹{totalReceivable.toLocaleString('en-IN')}</p>
+          </div>
+          <div style={{ background: '#dcfce7', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+            <p style={{ margin: 0, fontSize: '11px', color: '#166534', fontWeight: 600 }}>TOTAL RECEIVED</p>
+            <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 700, color: '#15803d' }}>₹{totalReceived.toLocaleString('en-IN')}</p>
+          </div>
+          <div style={{ background: outstanding > 0 ? '#fee2e2' : '#dcfce7', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+            <p style={{ margin: 0, fontSize: '11px', color: outstanding > 0 ? '#991b1b' : '#166534', fontWeight: 600 }}>OUTSTANDING</p>
+            <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 700, color: outstanding > 0 ? '#dc2626' : '#15803d' }}>₹{outstanding.toLocaleString('en-IN')}</p>
+          </div>
+        </div>
+      )}
+
+      {/* AP Summary (teachers / employees) */}
+      {isPayroll && !loading && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '16px' }}>
+          <div style={{ background: '#fef3c7', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+            <p style={{ margin: 0, fontSize: '11px', color: '#78350f', fontWeight: 600 }}>TOTAL PAYABLE</p>
+            <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 700, color: '#92400e' }}>₹{totalPayable.toLocaleString('en-IN')}</p>
+          </div>
+          <div style={{ background: '#dcfce7', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+            <p style={{ margin: 0, fontSize: '11px', color: '#166534', fontWeight: 600 }}>TOTAL PAID</p>
+            <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 700, color: '#15803d' }}>₹{totalExpense.toLocaleString('en-IN')}</p>
+          </div>
+          <div style={{ background: balanceOwed > 0 ? '#fee2e2' : '#dcfce7', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
+            <p style={{ margin: 0, fontSize: '11px', color: balanceOwed > 0 ? '#991b1b' : '#166534', fontWeight: 600 }}>BALANCE OWED</p>
+            <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 700, color: balanceOwed > 0 ? '#dc2626' : '#15803d' }}>₹{balanceOwed.toLocaleString('en-IN')}</p>
+          </div>
+        </div>
+      )}
+
+      {loading ? <p>Loading ledger...</p> : (
+        <div className="table-wrap mobile-friendly-table" style={{ maxHeight: '380px', overflowY: 'auto' }}>
+          <table>
+            <thead><tr><th>Date</th><th>Type</th><th>Description</th><th style={{ textAlign: 'right' }}>Amount</th><th style={{ textAlign: 'right' }}>Balance</th></tr></thead>
+            <tbody>
+              {rows.map((r, i) => {
+                const s = typeStyle[r.__type] || { bg: '#f3f4f6', color: '#6b7280', label: r.__type };
+                const amtColor = r.__type === 'income' ? '#15803d' : r.__type === 'receivable' ? '#92400e' : '#dc2626';
+                const prefix = r.__type === 'income' ? '+' : r.__type === 'receivable' ? '' : '-';
+                return (
+                  <tr key={i}>
+                    <td data-label="Date">{new Date(r.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                    <td data-label="Type">
+                      <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: s.bg, color: s.color }}>{s.label}</span>
+                    </td>
+                    <td data-label="Description">{r.description || '—'}</td>
+                    <td data-label="Amount" style={{ color: amtColor, fontWeight: 600, textAlign: 'right' }}>
+                      {prefix}₹{Number(r.amount).toLocaleString('en-IN')}
+                    </td>
+                    <td data-label="Balance" style={{ fontWeight: 700, textAlign: 'right', color: r.__type === 'receivable' ? '#9ca3af' : undefined }}>
+                      {r.__type === 'receivable' ? '—' : `₹${r.runningBalance.toLocaleString('en-IN')}`}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!rows.length ? <tr><td colSpan="5" style={{ textAlign: 'center' }}>No ledger entries found.</td></tr> : null}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div></div>
+  );
+}
+
 /* ═══════ PARTIES PAGE ═══════ */
 export function PartiesPage() {
+  const [activeTab, setActiveTab] = useState('students');
   const [items, setItems] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [selectedParty, setSelectedParty] = useState(null);
+  const [showCategories, setShowCategories] = useState(false);
+
+  const TABS = [
+    { id: 'students', label: 'Students' },
+    { id: 'teachers', label: 'Teachers' },
+    { id: 'employees', label: 'Employees' },
+    { id: 'others', label: 'Others' }
+  ];
 
   async function load() {
-    try { const d = await apiFetch('/finance/parties'); setItems(d.items || []); } catch (e) { }
+    setLoading(true);
+    try { const d = await apiFetch(`/finance/ledgers/${activeTab}`); setItems(d.items || []); } catch (e) { }
     setLoading(false);
   }
-  useEffect(() => { load(); }, []);
-
-  const typeColors = { vendor: '#f59e0b', client: '#10b981', employee: '#6366f1', other: '#6b7280' };
+  useEffect(() => { load(); }, [activeTab]);
 
   return (
     <section className="panel">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-        <h2 style={{ margin: 0, fontSize: '20px' }}>Parties ({items.length})</h2>
-        <button className="primary" onClick={() => setShowAdd(true)}>+ Add Party</button>
+        <h2 style={{ margin: 0, fontSize: '20px' }}>Parties & Ledgers</h2>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {activeTab === 'others' && <button className="secondary" onClick={() => setShowCategories(true)}>Manage Categories</button>}
+          {activeTab === 'others' && <button className="primary" onClick={() => setShowAdd(true)}>+ Add Party</button>}
+        </div>
       </div>
+
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #e5e7eb', paddingBottom: '8px', overflowX: 'auto' }}>
+        {TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => { setActiveTab(t.id); setSelectedParty(null); }}
+            style={{
+              padding: '8px 16px', border: 'none', background: activeTab === t.id ? '#eff6ff' : 'transparent',
+              color: activeTab === t.id ? '#1d4ed8' : '#4b5563', fontWeight: activeTab === t.id ? 600 : 400,
+              borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap'
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {loading ? <p>Loading...</p> : (
-        <div className="today-leads-grid">
-          {items.map(p => (
-            <div key={p.id} className="card" style={{
-              padding: '16px', borderLeft: `4px solid ${typeColors[p.type] || '#6b7280'}`
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>{p.name}</h3>
-                <span style={{ padding: '3px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: 600, textTransform: 'capitalize', background: `${typeColors[p.type]}18`, color: typeColors[p.type] }}>{p.type}</span>
-              </div>
-              <div style={{ marginTop: '8px', fontSize: '12px' }}>
-                {p.phone ? <p style={{ margin: '2px 0', display: 'flex', alignItems: 'center', gap: '6px' }}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style={{ width: '12px', height: '12px' }}><path fillRule="evenodd" d="M2 3.5A1.5 1.5 0 013.5 2h1.148a1.5 1.5 0 011.465 1.175l.716 3.223a1.5 1.5 0 01-1.052 1.767l-.933.267c-.41.117-.643.555-.48.95a11.542 11.542 0 006.254 6.254c.395.163.833-.07.95-.48l.267-.933a1.5 1.5 0 011.767-1.052l3.223.716A1.5 1.5 0 0118 15.352V16.5a1.5 1.5 0 01-1.5 1.5H15c-1.149 0-2.263-.15-3.326-.43A13.022 13.022 0 012.43 8.326 13.019 13.019 0 012 5V3.5z" clipRule="evenodd" /></svg> {p.phone}</p> : null}
-                {p.email ? <p style={{ margin: '2px 0', display: 'flex', alignItems: 'center', gap: '6px' }}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style={{ width: '12px', height: '12px' }}><path d="M3 4a2 2 0 00-2 2v1.161l8.441 4.221a1.25 1.25 0 001.118 0L19 7.162V6a2 2 0 00-2-2H3z" /><path d="M19 8.839l-7.77 3.885a2.75 2.75 0 01-2.46 0L1 8.839V14a2 2 0 002 2h14a2 2 0 002-2V8.839z" /></svg> {p.email}</p> : null}
-                {p.address ? <p style={{ margin: '2px 0', color: '#6b7280', display: 'flex', alignItems: 'center', gap: '6px' }}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style={{ width: '12px', height: '12px' }}><path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 103 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 002.273 1.765 11.842 11.842 0 00.976.544l.062.029.018.008.006.003zM10 11.25a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5z" clipRule="evenodd" /></svg> {p.address}</p> : null}
-              </div>
-            </div>
-          ))}
-          {!items.length ? <div className="card" style={{ padding: '40px', textAlign: 'center' }}><p className="text-muted">No parties added yet.</p></div> : null}
+        <div className="table-wrap mobile-friendly-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                {activeTab === 'others' && <th>Type</th>}
+                {activeTab === 'students' ? (
+                  <>
+                    <th style={{ textAlign: 'right' }}>Total Receivable</th>
+                    <th style={{ textAlign: 'right' }}>Received</th>
+                    <th style={{ textAlign: 'right' }}>Outstanding</th>
+                  </>
+                ) : (activeTab === 'teachers' || activeTab === 'employees') ? (
+                  <>
+                    <th style={{ textAlign: 'right' }}>Total Payable</th>
+                    <th style={{ textAlign: 'right' }}>Paid</th>
+                    <th style={{ textAlign: 'right' }}>Balance Owed</th>
+                  </>
+                ) : (
+                  <>
+                    <th style={{ textAlign: 'right' }}>Total Income</th>
+                    <th style={{ textAlign: 'right' }}>Total Expense</th>
+                    <th style={{ textAlign: 'right' }}>Net Balance</th>
+                  </>
+                )}
+                <th style={{ textAlign: 'center' }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map(p => (
+                <tr key={p.id}>
+                  <td data-label="Name" style={{ fontWeight: 600 }}>{p.name || p.full_name || p.student_name}</td>
+                  {activeTab === 'others' && <td data-label="Type" style={{ textTransform: 'capitalize' }}>{p.type}</td>}
+                  {activeTab === 'students' ? (
+                    <>
+                      <td data-label="Total Receivable" style={{ textAlign: 'right' }}>₹{Number(p.total_receivable || 0).toLocaleString('en-IN')}</td>
+                      <td data-label="Received" style={{ color: '#15803d', fontWeight: 600, textAlign: 'right' }}>₹{Number(p.total_income || 0).toLocaleString('en-IN')}</td>
+                      <td data-label="Outstanding" style={{ fontWeight: 700, textAlign: 'right', color: Number(p.outstanding || 0) > 0 ? '#dc2626' : '#15803d' }}>
+                        ₹{Number(p.outstanding || 0).toLocaleString('en-IN')}
+                      </td>
+                    </>
+                  ) : (activeTab === 'teachers' || activeTab === 'employees') ? (
+                    <>
+                      <td data-label="Total Payable" style={{ textAlign: 'right' }}>₹{Number(p.total_payable || 0).toLocaleString('en-IN')}</td>
+                      <td data-label="Paid" style={{ color: '#15803d', fontWeight: 600, textAlign: 'right' }}>₹{Number(p.total_paid || p.total_expense || 0).toLocaleString('en-IN')}</td>
+                      <td data-label="Balance Owed" style={{ fontWeight: 700, textAlign: 'right', color: Number(p.balance_owed || 0) > 0 ? '#dc2626' : '#15803d' }}>
+                        ₹{Number(p.balance_owed || 0).toLocaleString('en-IN')}
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td data-label="Income" style={{ color: '#15803d', textAlign: 'right' }}>₹{Number(p.total_income || 0).toLocaleString('en-IN')}</td>
+                      <td data-label="Expense" style={{ color: '#dc2626', textAlign: 'right' }}>₹{Number(p.total_expense || 0).toLocaleString('en-IN')}</td>
+                      <td data-label="Net Balance" style={{ fontWeight: 700, textAlign: 'right' }}>₹{Number(p.balance || 0).toLocaleString('en-IN')}</td>
+                    </>
+                  )}
+                  <td data-label="Action" style={{ textAlign: 'center' }}>
+                    <button className="small secondary" onClick={() => setSelectedParty(p)}>View Ledger</button>
+                  </td>
+                </tr>
+              ))}
+              {!items.length ? <tr><td colSpan={6} style={{ textAlign: 'center' }}>No records found.</td></tr> : null}
+            </tbody>
+          </table>
         </div>
       )}
-      {showAdd ? <AddPartyModal onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); load(); }} /> : null}
+      {showAdd && activeTab === 'others' ? <AddPartyModal onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); load(); }} /> : null}
+      {showCategories ? <CategoriesModal type="expense" onClose={() => setShowCategories(false)} onUpdate={() => { }} /> : null}
+      {selectedParty ? <LedgerModal type={activeTab} party={selectedParty} onClose={() => setSelectedParty(null)} /> : null}
     </section>
   );
 }
 
-/* ═══════ PAYROLL PAGE ═══════ */
-export function PayrollPage() {
-  const [cycles, setCycles] = useState([]);
-  const [selectedCycle, setSelectedCycle] = useState(null);
+/* ═══════ HR PAYROLL REQUESTS PAGE ═══════ */
+export function PayrollRequestsPage() {
+  const [requests, setRequests] = useState([]);
+  const [selectedRequest, setSelectedRequest] = useState(null);
   const [payrollItems, setPayrollItems] = useState([]);
-  const [showCreate, setShowCreate] = useState(false);
+  const [accounts, setAccounts] = useState([]);
+  const [selectedAccountId, setSelectedAccountId] = useState('');
   const [loading, setLoading] = useState(true);
+  const [paying, setPaying] = useState(false);
 
-  async function loadCycles() {
-    try { const d = await apiFetch('/finance/payroll'); setCycles(d.items || []); } catch (e) { }
+  async function loadData() {
+    try {
+      const [reqs, accs] = await Promise.all([
+        apiFetch('/finance/hr-payment-requests'),
+        apiFetch('/finance/accounts')
+      ]);
+      setRequests(reqs.items || []);
+      setAccounts((accs.items || []).filter(a => a.type === 'bank' || a.type === 'cash'));
+      if (accs.items?.length > 0) setSelectedAccountId(accs.items[0].id);
+    } catch (e) {
+      console.error(e);
+    }
     setLoading(false);
   }
-  useEffect(() => { loadCycles(); }, []);
+  useEffect(() => { loadData(); }, []);
 
-  async function viewCycle(cycle) {
-    setSelectedCycle(cycle);
-    try { const d = await apiFetch(`/finance/payroll/${cycle.id}`); setPayrollItems(d.items || []); } catch (e) { alert(e.message); }
-  }
-
-  async function generatePayroll(cycleId) {
+  async function viewRequest(req) {
+    setSelectedRequest(req);
     try {
-      await apiFetch('/finance/payroll/generate', { method: 'POST', body: JSON.stringify({ cycle_id: cycleId }) });
-      alert('Payroll generated!');
-      await viewCycle(selectedCycle);
+      const d = await apiFetch(`/finance/hr-payroll/${req.cycle_id}`);
+      setPayrollItems(d.items || []);
     } catch (e) { alert(e.message); }
   }
 
-  async function updateCycleStatus(cycleId, status) {
+  async function payRequest() {
+    if (!selectedAccountId) return alert('Select an account to pay from');
+    if (!confirm(`Are you sure you want to pay ₹${selectedRequest.total_amount.toLocaleString()}?`)) return;
+    setPaying(true);
     try {
-      await apiFetch(`/finance/payroll/${cycleId}`, { method: 'PATCH', body: JSON.stringify({ status }) });
-      await loadCycles();
-      if (selectedCycle?.id === cycleId) setSelectedCycle({ ...selectedCycle, status });
-    } catch (e) { alert(e.message); }
+      await apiFetch(`/finance/hr-payment-requests/${selectedRequest.id}/pay`, {
+        method: 'POST', body: JSON.stringify({ account_id: selectedAccountId })
+      });
+      alert('Payroll Paid successfully.');
+      setSelectedRequest(null);
+      await loadData();
+    } catch (e) {
+      alert(e.message);
+    }
+    setPaying(false);
   }
 
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const statusColors = { draft: '#f59e0b', approved: '#10b981', paid: '#4338ca', reopened: '#ef4444' };
-  const totalPayroll = payrollItems.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const statusColors = { pending: '#f59e0b', paid: '#10b981' };
 
   return (
     <section className="panel">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-        <h2 style={{ margin: 0, fontSize: '20px' }}>Payroll</h2>
-        <button className="primary" onClick={() => setShowCreate(true)}>+ Create Cycle</button>
+        <h2 style={{ margin: 0, fontSize: '20px' }}>HR Payroll Requests</h2>
       </div>
 
       {loading ? <p>Loading...</p> : null}
 
-      {/* Payroll Cycles Grid */}
       <div className="today-leads-grid" style={{ marginBottom: '20px' }}>
-        {cycles.map(c => (
-          <div key={c.id} className="card" style={{
-            padding: '16px', cursor: 'pointer', borderLeft: `4px solid ${statusColors[c.status] || '#6b7280'}`,
-            background: selectedCycle?.id === c.id ? '#f0f4ff' : ''
-          }} onClick={() => viewCycle(c)}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: '16px' }}>{MONTHS[c.month - 1]} {c.year}</h3>
-              <span style={{ padding: '3px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', background: `${statusColors[c.status]}18`, color: statusColors[c.status] }}>{c.status}</span>
+        {requests.map(r => (
+          <div key={r.id} className="card" style={{
+            padding: '16px', cursor: 'pointer', borderLeft: `4px solid ${statusColors[r.status] || '#6b7280'}`,
+            background: selectedRequest?.id === r.id ? '#f0f4ff' : ''
+          }} onClick={() => viewRequest(r)}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '15px' }}>
+                  {r.hr_payroll_cycles ? `${MONTHS[r.hr_payroll_cycles.month - 1]} ${r.hr_payroll_cycles.year}` : 'Unknown Cycle'}
+                </h3>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#6b7280' }}>Req By: {r.users?.full_name}</p>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ padding: '3px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', background: `${statusColors[r.status]}18`, color: statusColors[r.status] }}>{r.status}</span>
+                <p style={{ margin: '4px 0 0', fontWeight: 600, fontSize: '14px', color: '#1d4ed8' }}>₹{Number(r.total_amount).toLocaleString()}</p>
+              </div>
             </div>
-            <p className="text-muted" style={{ margin: '4px 0 0', fontSize: '12px' }}>{c.start_date} → {c.end_date}</p>
           </div>
         ))}
+        {!requests.length && !loading ? <div className="card" style={{ padding: '40px', textAlign: 'center', gridColumn: '1 / -1' }}><p className="text-muted">No payroll requests found.</p></div> : null}
       </div>
 
-      {/* Selected Cycle Details */}
-      {selectedCycle ? (
+      {selectedRequest ? (
         <article className="card" style={{ padding: '20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-            <h3 style={{ margin: 0, fontSize: '16px' }}>{MONTHS[selectedCycle.month - 1]} {selectedCycle.year} — Payroll Items</h3>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              <button className="small secondary" onClick={() => generatePayroll(selectedCycle.id)}>
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style={{ width: '14px', height: '14px', marginRight: '4px', verticalAlign: 'text-bottom' }}><path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" /></svg>
-                Generate
-              </button>
-              {selectedCycle.status === 'draft' ? (
-                <button className="small primary" onClick={() => updateCycleStatus(selectedCycle.id, 'approved')}>
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style={{ width: '14px', height: '14px', marginRight: '4px', verticalAlign: 'text-bottom' }}><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                  Approve
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+            <h3 style={{ margin: 0, fontSize: '16px' }}>Payroll Items Details</h3>
+            {selectedRequest.status === 'pending' ? (
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <select className="input" style={{ width: 'auto', padding: '6px 12px', fontSize: '13px' }} value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)}>
+                  <option value="">-- Select Account to Deduct --</option>
+                  {accounts.map(a => <option key={a.id} value={a.id}>{a.name} (₹{Number(a.balance).toLocaleString()})</option>)}
+                </select>
+                <button className="primary" onClick={payRequest} disabled={paying || !selectedAccountId}>
+                  {paying ? 'Processing...' : 'Mark as Paid'}
                 </button>
-              ) : null}
-              {selectedCycle.status === 'approved' ? (
-                <button className="small primary" onClick={() => updateCycleStatus(selectedCycle.id, 'paid')}>
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style={{ width: '14px', height: '14px', marginRight: '4px', verticalAlign: 'text-bottom' }}><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
-                  Mark Paid
-                </button>
-              ) : null}
-            </div>
+              </div>
+            ) : (
+              <span style={{ color: '#10b981', fontWeight: 600, fontSize: '14px' }}>Paid on: {new Date(selectedRequest.updated_at).toLocaleDateString()}</span>
+            )}
           </div>
-          <p className="text-muted" style={{ fontSize: '13px', marginBottom: '8px' }}>Total Payroll: <strong style={{ color: '#1d4ed8' }}>₹{totalPayroll.toLocaleString()}</strong></p>
+          <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#4b5563' }}>{selectedRequest.notes}</p>
+
           <div className="table-wrap mobile-friendly-table">
             <table>
-              <thead><tr><th>Teacher</th><th>Hours</th><th>Rate</th><th>Amount</th><th>Adj</th><th>Total</th></tr></thead>
+              <thead><tr><th>Employee</th><th>Designation</th><th>Basic</th><th>Allowances</th><th>Deductions</th><th>Net Salary</th></tr></thead>
               <tbody>
                 {payrollItems.map(item => (
                   <tr key={item.id}>
-                    <td data-label="Teacher">{item.users?.full_name || '—'}</td>
-                    <td data-label="Hours">{item.verified_hours}h</td>
-                    <td data-label="Rate">₹{Number(item.rate_per_hour).toLocaleString()}</td>
-                    <td data-label="Amount">₹{Number(item.amount).toLocaleString()}</td>
-                    <td data-label="Adj">₹{Number(item.adjustment_amount).toLocaleString()}</td>
-                    <td data-label="Total" style={{ fontWeight: 600, color: '#15803d' }}>₹{(Number(item.amount) + Number(item.adjustment_amount)).toLocaleString()}</td>
+                    <td data-label="Employee">{item.employees?.full_name || '—'}</td>
+                    <td data-label="Designation">{item.employees?.designation || '—'}</td>
+                    <td data-label="Basic">₹{Number(item.basic_salary).toLocaleString()}</td>
+                    <td data-label="Allowances">₹{Number(item.allowances).toLocaleString()}</td>
+                    <td data-label="Deductions" style={{ color: '#ef4444' }}>₹{Number(item.deductions).toLocaleString()}</td>
+                    <td data-label="Net Salary" style={{ fontWeight: 600, color: '#15803d' }}>₹{Number(item.net_salary).toLocaleString()}</td>
                   </tr>
                 ))}
-                {!payrollItems.length ? <tr><td colSpan="6" style={{ textAlign: 'center' }}>No items. Click "Generate" to auto-calculate from sessions.</td></tr> : null}
               </tbody>
             </table>
           </div>
         </article>
       ) : null}
-
-      {showCreate ? <CreatePayrollCycleModal onClose={() => setShowCreate(false)} onDone={() => { setShowCreate(false); loadCycles(); }} /> : null}
     </section>
   );
 }
@@ -705,19 +910,27 @@ export function FinanceReportsPage() {
 export function PaymentVerificationPage() {
   const [payments, setPayments] = useState([]);
   const [topups, setTopups] = useState([]);
+  const [installments, setInstallments] = useState([]);
   const [activeTab, setActiveTab] = useState('payments');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedPayment, setSelectedPayment] = useState(null);
+  const [selectedTopup, setSelectedTopup] = useState(null);
+  const [selectedInstallment, setSelectedInstallment] = useState(null);
+  const [accounts, setAccounts] = useState([]);
 
   async function load() {
     setLoading(true); setError('');
     try {
-      const [p, t] = await Promise.all([
+      const [p, t, inst, accs] = await Promise.all([
         apiFetch('/finance/payment-requests?status=all'),
-        apiFetch('/finance/topup-requests?status=all')
+        apiFetch('/finance/topup-requests?status=all'),
+        apiFetch('/finance/installments?status=all'),
+        apiFetch('/finance/accounts')
       ]);
       setPayments(p.items || []); setTopups(t.items || []);
+      setInstallments(inst.items || []);
+      setAccounts(accs.items || []);
     } catch (e) { setError(e.message); }
     setLoading(false);
   }
@@ -743,7 +956,8 @@ export function PaymentVerificationPage() {
 
   const tabs = [
     { key: 'payments', label: `Payments (${payments.filter(p => p.status === 'pending').length})` },
-    { key: 'topups', label: `Top-ups (${topups.filter(t => t.status === 'pending_finance').length})` }
+    { key: 'topups', label: `Top-ups (${topups.filter(t => t.status === 'pending_finance').length})` },
+    { key: 'installments', label: `Pending Payments (${installments.filter(i => i.status === 'pending').length})` }
   ];
 
   const statusColors = { pending: '#f59e0b', pending_finance: '#f59e0b', verified: '#10b981', rejected: '#ef4444' };
@@ -767,6 +981,7 @@ export function PaymentVerificationPage() {
           <div className="table-wrap mobile-friendly-table">
             <table>
               <thead><tr>
+                <th>Requested By</th>
                 <th>Lead</th>
                 <th>Phone</th>
                 <th>Total Amt</th>
@@ -780,6 +995,7 @@ export function PaymentVerificationPage() {
               <tbody>
                 {payments.map(item => (
                   <tr key={item.id}>
+                    <td data-label="Requested By">{item.users?.full_name || item.requested_by || '—'}</td>
                     <td data-label="Lead" style={{ fontWeight: 500 }}>{item.leads?.student_name || item.lead_id}</td>
                     <td data-label="Phone">{item.leads?.contact_number || '—'}</td>
                     <td data-label="Total Amt" style={{ fontWeight: 600 }}>{item.total_amount ? `₹${Number(item.total_amount).toLocaleString('en-IN')}` : '—'}</td>
@@ -812,53 +1028,197 @@ export function PaymentVerificationPage() {
         <article className="card" style={{ padding: '16px' }}>
           <div className="table-wrap mobile-friendly-table">
             <table>
-              <thead><tr><th>Student</th><th>Hours</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Requested By</th><th>Student</th><th>Hrs</th><th>Total ₹</th><th>Paid ₹</th><th>Note</th><th>Screenshot</th><th>Status</th><th>Actions</th></tr></thead>
               <tbody>
                 {topups.map(item => (
                   <tr key={item.id}>
+                    <td data-label="Requested By">{item.users?.full_name || item.requested_by || '—'}</td>
                     <td data-label="Student">{item.students?.student_name || '—'} <span className="text-muted" style={{ fontSize: '11px' }}>({item.students?.student_code || ''})</span></td>
-                    <td data-label="Hours">{item.hours_added}h</td>
-                    <td data-label="Amount" style={{ fontWeight: 600 }}>₹{Number(item.amount).toLocaleString()}</td>
+                    <td data-label="Hrs">{item.hours_added}h</td>
+                    <td data-label="Total ₹" style={{ fontWeight: 600 }}>{item.total_amount ? `₹${Number(item.total_amount).toLocaleString('en-IN')}` : '—'}</td>
+                    <td data-label="Paid ₹" style={{ fontWeight: 600, color: '#15803d' }}>₹{Number(item.amount).toLocaleString('en-IN')}</td>
+                    <td data-label="Note" style={{ fontSize: '12px', color: '#6b7280', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.finance_note || '—'}</td>
+                    <td data-label="Screenshot">
+                      {item.screenshot_url ? <a href={item.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca' }}>View</a> : '—'}
+                    </td>
                     <td data-label="Status">
                       <span style={{ padding: '3px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: 700, background: `${statusColors[item.status]}18`, color: statusColors[item.status] }}>{item.status}</span>
                     </td>
                     <td data-label="Actions" className="actions">
                       {item.status === 'pending_finance' ? (
-                        <>
-                          <button className="small primary" onClick={() => verifyTopup(item.id, true)}>✅ Verify</button>
-                          <button className="small danger" onClick={() => verifyTopup(item.id, false)}>✕ Reject</button>
-                        </>
+                        <button className="small primary" onClick={() => setSelectedTopup(item)}>🔍 Review</button>
                       ) : '—'}
                     </td>
                   </tr>
                 ))}
-                {!topups.length ? <tr><td colSpan="5" style={{ textAlign: 'center' }}>No top-up requests</td></tr> : null}
+                {!topups.length ? <tr><td colSpan="8" style={{ textAlign: 'center' }}>No top-up requests</td></tr> : null}
               </tbody>
             </table>
           </div>
         </article>
       ) : null}
+
+      {/* Pending Payments (Installments) Tab */}
+      {activeTab === 'installments' ? (
+        <article className="card" style={{ padding: '16px' }}>
+          <div className="table-wrap mobile-friendly-table">
+            <table>
+              <thead><tr>
+                <th>Submitted By</th>
+                <th>Student</th>
+                <th>Type</th>
+                <th>Amount</th>
+                <th>Note</th>
+                <th>Screenshot</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr></thead>
+              <tbody>
+                {installments.map(item => (
+                  <tr key={item.id}>
+                    <td data-label="Submitted By">{item.users?.full_name || '—'}</td>
+                    <td data-label="Student" style={{ fontWeight: 500 }}>
+                      {item.parent?.leads?.student_name || item.parent?.students?.student_name || '—'}
+                    </td>
+                    <td data-label="Type">
+                      <span style={{ padding: '2px 8px', background: '#eff6ff', color: '#1d4ed8', borderRadius: '12px', fontSize: '11px', fontWeight: 600 }}>
+                        {item.reference_type === 'payment_request' ? 'Onboarding' : 'Top-Up'}
+                      </span>
+                    </td>
+                    <td data-label="Amount" style={{ fontWeight: 700, color: '#15803d' }}>₹{Number(item.amount).toLocaleString('en-IN')}</td>
+                    <td data-label="Note" style={{ fontSize: '12px', color: '#6b7280', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.finance_note || '—'}</td>
+                    <td data-label="Screenshot">
+                      {item.screenshot_url ? <a href={item.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca' }}>View</a> : '—'}
+                    </td>
+                    <td data-label="Status">
+                      {(() => {
+                        const sm = { pending: { bg: '#fef3c7', color: '#92400e' }, verified: { bg: '#dcfce7', color: '#15803d' }, rejected: { bg: '#fee2e2', color: '#dc2626' } };
+                        const s = sm[item.status] || { bg: '#f3f4f6', color: '#6b7280' };
+                        return <span style={{ padding: '3px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: 700, background: s.bg, color: s.color }}>{item.status}</span>;
+                      })()}
+                    </td>
+                    <td data-label="Actions" className="actions">
+                      {item.status === 'pending' ? (
+                        <button className="small primary" onClick={() => setSelectedInstallment(item)}>🔍 Review</button>
+                      ) : '—'}
+                    </td>
+                  </tr>
+                ))}
+                {!installments.length ? <tr><td colSpan="8" style={{ textAlign: 'center', color: '#6b7280', padding: '24px' }}>No installment records found.</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      ) : null}
+
       {selectedPayment && (
         <PaymentVerifyModal
           payment={selectedPayment}
+          accounts={accounts}
           onClose={() => setSelectedPayment(null)}
           onDone={() => { setSelectedPayment(null); load(); }}
+        />
+      )}
+      {selectedTopup && (
+        <TopupVerifyModal
+          topup={selectedTopup}
+          accounts={accounts}
+          onClose={() => setSelectedTopup(null)}
+          onDone={() => { setSelectedTopup(null); load(); }}
+        />
+      )}
+      {selectedInstallment && (
+        <InstallmentVerifyModal
+          item={selectedInstallment}
+          accounts={accounts}
+          onClose={() => setSelectedInstallment(null)}
+          onDone={() => { setSelectedInstallment(null); load(); }}
         />
       )}
     </section>
   );
 }
 
-function PaymentVerifyModal({ payment, onClose, onDone }) {
+function InstallmentVerifyModal({ item, accounts, onClose, onDone }) {
+  const [financeNote, setFinanceNote] = useState(item.finance_note || '');
+  const [accountId, setAccountId] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const studentName = item.parent?.leads?.student_name || item.parent?.students?.student_name || 'Unknown Student';
+  const refType = item.reference_type === 'payment_request' ? 'Onboarding Payment' : 'Top-Up';
+
+  async function handle(approved) {
+    if (approved && !accountId) { alert('Please select a Finance Account'); return; }
+    setSaving(true);
+    try {
+      await apiFetch(`/finance/installments/${item.id}/verify`, {
+        method: 'POST',
+        body: JSON.stringify({ approved, account_id: approved ? accountId : undefined, finance_note: financeNote })
+      });
+      onDone();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '480px', padding: '28px', borderRadius: '12px', background: 'white' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>Review Installment Payment</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '22px', cursor: 'pointer', color: '#9ca3af' }}>×</button>
+        </div>
+
+        <div style={{ background: '#f9fafb', borderRadius: '10px', padding: '16px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#6b7280' }}>Student</span><strong>{studentName}</strong></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#6b7280' }}>Type</span><span>{refType}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#6b7280' }}>Submitted By</span><span>{item.users?.full_name || '—'}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: '#6b7280' }}>Installment Amount</span>
+            <strong style={{ color: '#15803d', fontSize: '16px' }}>₹{Number(item.amount).toLocaleString('en-IN')}</strong>
+          </div>
+          {item.finance_note && <div style={{ marginTop: '4px', color: '#4b5563', fontSize: '13px', borderTop: '1px solid #e5e7eb', paddingTop: '8px' }}>Note: {item.finance_note}</div>}
+          {item.screenshot_url && (
+            <a href={item.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca', fontWeight: 600, fontSize: '13px' }}>📎 View Screenshot</a>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>Select Finance Account *
+            <select value={accountId} onChange={e => setAccountId(e.target.value)}
+              style={{ width: '100%', padding: '8px 12px', marginTop: '4px', border: '1px solid #d1d5db', borderRadius: '6px' }}>
+              <option value="">-- Select Account --</option>
+              {accounts.map(a => <option key={a.id} value={a.id}>{a.name} (₹{Number(a.balance).toLocaleString('en-IN')})</option>)}
+            </select>
+          </label>
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>Finance Note
+            <textarea value={financeNote} onChange={e => setFinanceNote(e.target.value)} rows={2}
+              style={{ width: '100%', padding: '8px 12px', marginTop: '4px', border: '1px solid #d1d5db', borderRadius: '6px', resize: 'vertical' }} />
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
+          <button onClick={onClose} className="secondary" disabled={saving}>Cancel</button>
+          <button onClick={() => handle(false)} className="secondary" style={{ color: '#dc2626', borderColor: '#dc2626' }} disabled={saving}>✕ Reject</button>
+          <button onClick={() => handle(true)} className="primary" disabled={saving}>{saving ? 'Processing...' : '✅ Verify'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaymentVerifyModal({ payment, accounts, onClose, onDone }) {
   const [financeNote, setFinanceNote] = useState(payment.finance_note || '');
+  const [accountId, setAccountId] = useState('');
   const [saving, setSaving] = useState(false);
 
   async function handle(approved) {
+    if (approved && !accountId) { alert('Please select a Finance Account'); return; }
     setSaving(true);
     try {
       await apiFetch(`/finance/payment-requests/${payment.id}/verify`, {
         method: 'POST',
-        body: JSON.stringify({ approved, finance_note: financeNote || null })
+        body: JSON.stringify({ approved, finance_note: financeNote || null, account_id: accountId })
       });
       onDone();
     } catch (e) {
@@ -885,6 +1245,7 @@ function PaymentVerifyModal({ payment, onClose, onDone }) {
         </div>
 
         <div style={{ marginBottom: '16px' }}>
+          {row('Requested By', payment.users?.full_name || payment.requested_by || '—')}
           {row('Student Name', payment.leads?.student_name || '—')}
           {row('Phone', payment.leads?.contact_number || '—')}
           {row('Total Package Amount', payment.total_amount ? `₹${Number(payment.total_amount).toLocaleString('en-IN')}` : '—')}
@@ -902,6 +1263,14 @@ function PaymentVerifyModal({ payment, onClose, onDone }) {
         <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '13px', color: '#92400e' }}>
           ⚠️ <strong>Clicking Verify will convert this lead to a student</strong>, add their purchased hours to their account, and mark them as Joined in the counselor dashboard.
         </div>
+
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', fontWeight: 600, marginBottom: '16px' }}>
+          Select Finance Account *
+          <select value={accountId} onChange={e => setAccountId(e.target.value)} required style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', fontWeight: 400 }}>
+            <option value="">— Select Account —</option>
+            {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </label>
 
         <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', fontWeight: 600, marginBottom: '16px' }}>
           Finance Note (optional)
@@ -928,17 +1297,122 @@ function PaymentVerifyModal({ payment, onClose, onDone }) {
   );
 }
 
+function TopupVerifyModal({ topup, accounts, onClose, onDone }) {
+  const [financeNote, setFinanceNote] = useState(topup.finance_note || '');
+  const [accountId, setAccountId] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function handle(approved) {
+    if (approved && !accountId) { alert('Please select a Finance Account'); return; }
+    setSaving(true);
+    try {
+      await apiFetch(`/finance/topup-requests/${topup.id}/verify`, {
+        method: 'POST',
+        body: JSON.stringify({ approved, finance_note: financeNote || null, account_id: accountId })
+      });
+      onDone();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const row = (label, value) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f3f4f6', fontSize: '13px' }}>
+      <span style={{ color: '#6b7280', fontWeight: 500 }}>{label}</span>
+      <span style={{ fontWeight: 600, textAlign: 'right', maxWidth: '60%' }}>{value}</span>
+    </div>
+  );
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}
+        style={{ maxWidth: '480px', background: 'white', padding: '24px', borderRadius: '12px', width: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h3 style={{ margin: 0, fontSize: '17px' }}>Top-up Request Review</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#6b7280' }}>×</button>
+        </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          {row('Requested By', topup.users?.full_name || topup.requested_by || '—')}
+          {row('Student Name', topup.students?.student_name || '—')}
+          {row('Student Code', topup.students?.student_code || '—')}
+          {row('Total Package Amount', topup.total_amount ? `₹${Number(topup.total_amount).toLocaleString('en-IN')}` : '—')}
+          {row('Hours Added', topup.hours_added ? `${topup.hours_added} hrs` : '—')}
+          {row('Paid Amount', `₹${Number(topup.amount).toLocaleString('en-IN')}`)}
+          {row('Coordinator Note', topup.finance_note || '—')}
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f3f4f6', fontSize: '13px' }}>
+            <span style={{ color: '#6b7280', fontWeight: 500 }}>Screenshot</span>
+            {topup.screenshot_url
+              ? <a href={topup.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca', fontWeight: 600 }}>View Screenshot ↗</a>
+              : <span style={{ fontWeight: 600 }}>—</span>}
+          </div>
+        </div>
+
+        <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '13px', color: '#92400e' }}>
+          ⚠️ <strong>Clicking Verify will credit these hours</strong> to the student's available balance in the system.
+        </div>
+
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', fontWeight: 600, marginBottom: '16px' }}>
+          Select Finance Account *
+          <select value={accountId} onChange={e => setAccountId(e.target.value)} required style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', fontWeight: 400 }}>
+            <option value="">— Select Account —</option>
+            {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </label>
+
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', fontWeight: 600, marginBottom: '16px' }}>
+          Finance Note (optional)
+          <textarea
+            value={financeNote}
+            onChange={e => setFinanceNote(e.target.value)}
+            rows={2}
+            placeholder="Add or update note for records…"
+            style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', resize: 'vertical', fontWeight: 400 }}
+          />
+        </label>
+
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button className="secondary" onClick={onClose} disabled={saving} style={{ fontSize: '13px' }}>Cancel</button>
+          <button className="danger" onClick={() => handle(false)} disabled={saving} style={{ fontSize: '13px' }}>
+            {saving ? '…' : '✕ Reject'}
+          </button>
+          <button className="primary" onClick={() => handle(true)} disabled={saving} style={{ fontSize: '13px', background: '#15803d' }}>
+            {saving ? 'Processing…' : '✅ Verify & Credit Hours'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ═══════ MODALS ═══════ */
 
-function AddEntryModal({ type, accounts, parties, onClose, onDone }) {
-  const [form, setForm] = useState({ amount: '', description: '', entry_date: new Date().toISOString().slice(0, 10), account_id: '', party_id: '' });
+function AddEntryModal({ type, accounts, onClose, onDone }) {
+  const [form, setForm] = useState({ amount: '', description: '', entry_date: new Date().toISOString().slice(0, 10), account_id: '' });
+  const [partyType, setPartyType] = useState('');
+  const [partyId, setPartyId] = useState('');
+  const [partiesList, setPartiesList] = useState([]);
   const [err, setErr] = useState('');
+
+  useEffect(() => {
+    if (!partyType) { setPartiesList([]); setPartyId(''); return; }
+    apiFetch(`/finance/ledgers/${partyType}`).then(d => setPartiesList(d.items || []));
+  }, [partyType]);
+
   function upd(k, v) { setForm(f => ({ ...f, [k]: v })); }
+
   async function submit(e) {
     e.preventDefault(); setErr('');
     try {
-      await apiFetch(`/finance/${type}`, { method: 'POST', body: JSON.stringify({ ...form, amount: Number(form.amount), account_id: form.account_id || null, party_id: form.party_id || null }) });
+      const payload = { ...form, amount: Number(form.amount), account_id: form.account_id || null };
+      if (partyType === 'students') payload.student_id = partyId || null;
+      else if (partyType === 'teachers') payload.teacher_id = partyId || null;
+      else if (partyType === 'employees') payload.employee_id = partyId || null;
+      else if (partyType === 'others') payload.party_id = partyId || null;
+
+      await apiFetch(`/finance/${type}`, { method: 'POST', body: JSON.stringify(payload) });
       onDone();
     } catch (e) { setErr(e.message); }
   }
@@ -950,7 +1424,25 @@ function AddEntryModal({ type, accounts, parties, onClose, onDone }) {
         <label>Date<input type="date" value={form.entry_date} onChange={e => upd('entry_date', e.target.value)} /></label>
         <label>Description<input value={form.description} onChange={e => upd('description', e.target.value)} /></label>
         <label>Account<select value={form.account_id} onChange={e => upd('account_id', e.target.value)}><option value="">— None —</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
-        <label>Party<select value={form.party_id} onChange={e => upd('party_id', e.target.value)}><option value="">— None —</option>{parties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+
+        <label>Party Type
+          <select value={partyType} onChange={e => { setPartyType(e.target.value); setPartyId(''); }}>
+            <option value="">— None —</option>
+            <option value="students">Student</option>
+            <option value="teachers">Teacher</option>
+            <option value="employees">Employee</option>
+            <option value="others">Other (Vendor/Client)</option>
+          </select>
+        </label>
+        {partyType && (
+          <label>Select Person/Entity
+            <select value={partyId} onChange={e => setPartyId(e.target.value)}>
+              <option value="">— Select —</option>
+              {partiesList.map(p => <option key={p.id} value={p.id}>{p.name || p.full_name || p.student_name}</option>)}
+            </select>
+          </label>
+        )}
+
         {err ? <p className="error">{err}</p> : null}
         <div className="actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button type="submit">Add</button></div>
       </form>
@@ -958,14 +1450,30 @@ function AddEntryModal({ type, accounts, parties, onClose, onDone }) {
   );
 }
 
-function AddExpenseModal({ accounts, parties, categories, onClose, onDone }) {
-  const [form, setForm] = useState({ amount: '', category: 'other', description: '', expense_date: new Date().toISOString().slice(0, 10), account_id: '', party_id: '' });
+function AddExpenseModal({ accounts, categories, onClose, onDone }) {
+  const [form, setForm] = useState({ amount: '', description: '', expense_date: new Date().toISOString().slice(0, 10), account_id: '' });
+  const [partyType, setPartyType] = useState('');
+  const [partyId, setPartyId] = useState('');
+  const [partiesList, setPartiesList] = useState([]);
   const [err, setErr] = useState('');
+
+  useEffect(() => {
+    if (!partyType) { setPartiesList([]); setPartyId(''); return; }
+    apiFetch(`/finance/ledgers/${partyType}`).then(d => setPartiesList(d.items || []));
+  }, [partyType]);
+
   function upd(k, v) { setForm(f => ({ ...f, [k]: v })); }
+
   async function submit(e) {
     e.preventDefault(); setErr('');
     try {
-      await apiFetch('/finance/expenses', { method: 'POST', body: JSON.stringify({ ...form, amount: Number(form.amount), account_id: form.account_id || null, party_id: form.party_id || null }) });
+      const payload = { ...form, amount: Number(form.amount), account_id: form.account_id || null, category: partyType || 'other' };
+      if (partyType === 'students') payload.student_id = partyId || null;
+      else if (partyType === 'teachers') payload.teacher_id = partyId || null;
+      else if (partyType === 'employees') payload.employee_id = partyId || null;
+      else if (partyType === 'others') payload.party_id = partyId || null;
+
+      await apiFetch('/finance/expenses', { method: 'POST', body: JSON.stringify(payload) });
       onDone();
     } catch (e) { setErr(e.message); }
   }
@@ -974,11 +1482,28 @@ function AddExpenseModal({ accounts, parties, categories, onClose, onDone }) {
       <h3>Add Expense</h3>
       <form className="form-grid" onSubmit={submit}>
         <label>Amount *<input type="number" value={form.amount} onChange={e => upd('amount', e.target.value)} required /></label>
-        <label>Category *<select value={form.category} onChange={e => upd('category', e.target.value)}>{categories.map(c => <option key={c} value={c} style={{ textTransform: 'capitalize' }}>{c}</option>)}</select></label>
         <label>Date<input type="date" value={form.expense_date} onChange={e => upd('expense_date', e.target.value)} /></label>
         <label>Description<input value={form.description} onChange={e => upd('description', e.target.value)} /></label>
         <label>Account<select value={form.account_id} onChange={e => upd('account_id', e.target.value)}><option value="">— None —</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
-        <label>Party<select value={form.party_id} onChange={e => upd('party_id', e.target.value)}><option value="">— None —</option>{parties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+
+        <label>Party Type (Category)
+          <select value={partyType} onChange={e => { setPartyType(e.target.value); setPartyId(''); }}>
+            <option value="">— None —</option>
+            <option value="students">Student</option>
+            <option value="teachers">Teacher</option>
+            <option value="employees">Employee</option>
+            <option value="others">Other (Vendor/Client)</option>
+          </select>
+        </label>
+        {partyType && (
+          <label>Select Person/Entity
+            <select value={partyId} onChange={e => setPartyId(e.target.value)}>
+              <option value="">— Select —</option>
+              {partiesList.map(p => <option key={p.id} value={p.id}>{p.name || p.full_name || p.student_name}</option>)}
+            </select>
+          </label>
+        )}
+
         {err ? <p className="error">{err}</p> : null}
         <div className="actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button type="submit">Add</button></div>
       </form>
@@ -1017,22 +1542,56 @@ function AddAccountModal({ onClose, onDone }) {
 }
 
 function AddPartyModal({ onClose, onDone }) {
-  const [form, setForm] = useState({ name: '', type: 'vendor', phone: '', email: '', address: '', notes: '' });
+  const [form, setForm] = useState({ name: '', type: 'vendor', customType: '', phone: '', email: '', address: '', notes: '' });
   const [err, setErr] = useState('');
+  const [categories, setCategories] = useState([]);
+
+  useEffect(() => {
+    apiFetch('/finance/categories?type=expense').then(d => {
+      setCategories(d.items || []);
+    }).catch(e => console.error(e));
+  }, []);
+
   function upd(k, v) { setForm(f => ({ ...f, [k]: v })); }
+
   async function submit(e) {
     e.preventDefault(); setErr('');
     try {
-      await apiFetch('/finance/parties', { method: 'POST', body: JSON.stringify(form) });
+      const finalType = form.type === 'custom' ? form.customType.toLowerCase().trim() : form.type;
+      if (!finalType) { setErr('Type is required'); return; }
+
+      // Auto-add the new category if it's custom so it appears everywhere
+      if (form.type === 'custom') {
+        await apiFetch('/finance/categories', { method: 'POST', body: JSON.stringify({ name: finalType, type: 'expense' }) }).catch(() => { });
+      }
+
+      await apiFetch('/finance/parties', { method: 'POST', body: JSON.stringify({ ...form, type: finalType }) });
       onDone();
     } catch (e) { setErr(e.message); }
   }
+
+  const defaultOpts = ['vendor', 'client', 'employee', 'contractor', 'other'];
+  const allOpts = [...new Set([...defaultOpts, ...categories.map(c => c.name.toLowerCase())])];
+
   return (
     <div className="modal-overlay"><div className="modal card" style={{ maxWidth: '450px' }}>
       <h3>Add Party</h3>
       <form className="form-grid" onSubmit={submit}>
         <label>Name *<input value={form.name} onChange={e => upd('name', e.target.value)} required /></label>
-        <label>Type<select value={form.type} onChange={e => upd('type', e.target.value)}><option value="vendor">Vendor</option><option value="client">Client</option><option value="employee">Employee</option><option value="other">Other</option></select></label>
+
+        <label>Type
+          <select value={form.type} onChange={e => upd('type', e.target.value)}>
+            {allOpts.map(opt => <option key={opt} value={opt} style={{ textTransform: 'capitalize' }}>{opt}</option>)}
+            <option value="custom">-- Add Custom Type --</option>
+          </select>
+        </label>
+
+        {form.type === 'custom' && (
+          <label>Custom Type *
+            <input value={form.customType} onChange={e => upd('customType', e.target.value)} required placeholder="Enter new type..." autoFocus />
+          </label>
+        )}
+
         <label>Phone<input value={form.phone} onChange={e => upd('phone', e.target.value)} /></label>
         <label>Email<input type="email" value={form.email} onChange={e => upd('email', e.target.value)} /></label>
         <label>Address<input value={form.address} onChange={e => upd('address', e.target.value)} /></label>

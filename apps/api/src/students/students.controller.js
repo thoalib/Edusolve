@@ -673,9 +673,14 @@ export async function handleStudents(req, res, url) {
       const studentId = parts[1];
       const payload = await readJson(req);
       const hoursAdded = Number(payload.hours_added);
+      const totalAmount = Number(payload.total_amount);
       const amount = Number(payload.amount);
       if (!Number.isFinite(hoursAdded) || hoursAdded <= 0) {
         sendJson(res, 400, { ok: false, error: 'hours_added must be positive number' });
+        return true;
+      }
+      if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+        sendJson(res, 400, { ok: false, error: 'total_amount must be positive number' });
         return true;
       }
       if (!Number.isFinite(amount) || amount <= 0) {
@@ -697,7 +702,9 @@ export async function handleStudents(req, res, url) {
         .insert({
           student_id: studentId,
           hours_added: hoursAdded,
+          total_amount: totalAmount,
           amount,
+          finance_note: payload.finance_note || null,
           payment_verified: false,
           status: 'pending_finance',
           screenshot_url: payload.screenshot_url || null,

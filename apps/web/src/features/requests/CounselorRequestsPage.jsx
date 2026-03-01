@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../../lib/api.js';
 import { ROLES } from '../../lib/roles.js';
+import { Pagination } from '../../components/ui/Pagination.jsx';
 
 function AddRequestModal({ onClose, onSuccess, initialData }) {
     const [subject, setSubject] = useState(initialData?.subject || '');
@@ -196,6 +197,9 @@ function RequestDetailsModal({ request, onClose, onCloseRequest, onOpenLeadDetai
 
 export function CounselorRequestsPage({ role, onOpenLeadDetails }) {
     const [items, setItems] = useState([]);
+    const [total, setTotal] = useState(0);
+    const [page, setPage] = useState(1);
+    const limit = 20;
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [showModal, setShowModal] = useState(false);
@@ -214,15 +218,16 @@ export function CounselorRequestsPage({ role, onOpenLeadDetails }) {
     const isCounselor = role === ROLES.COUNSELOR;
     const isHead = role === ROLES.COUNSELOR_HEAD || role === ROLES.SUPER_ADMIN;
 
-    async function load() {
+    async function load(currentPage = page) {
         setLoading(true);
         try {
             const [requestsData, counselorsData] = await Promise.all([
-                apiFetch('/requests'),
+                apiFetch(`/requests?page=${currentPage}&limit=${limit}`),
                 isHead ? apiFetch('/counselors').then(res => res.items || []) : Promise.resolve([])
             ]);
 
             setItems(requestsData.items || []);
+            setTotal(requestsData.total || 0);
             if (isHead) setCounselors(counselorsData);
 
         } catch (err) {
@@ -232,7 +237,7 @@ export function CounselorRequestsPage({ role, onOpenLeadDetails }) {
         }
     }
 
-    useEffect(() => { load(); }, []);
+    useEffect(() => { load(page); }, [page]);
 
     async function handleDelete(id) {
         if (!confirm('Are you sure you want to delete this request?')) return;
@@ -363,6 +368,9 @@ export function CounselorRequestsPage({ role, onOpenLeadDetails }) {
                         </tbody>
                     </table>
                 </div>
+                {!loading && total > 0 && (
+                    <Pagination page={page} limit={limit} total={total} onPageChange={setPage} />
+                )}
             </div>
 
             {showModal && (

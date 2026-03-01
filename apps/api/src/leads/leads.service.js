@@ -102,7 +102,7 @@ export class LeadsService {
     return data || [];
   }
 
-  async list({ scope, actor }) {
+  async list({ scope, actor, page, limit }) {
     const adminClient = getSupabaseAdminClient();
 
     if (!isCounselor(actor) && !isCounselorHead(actor) && !isSuperAdmin(actor)) {
@@ -113,33 +113,46 @@ export class LeadsService {
 
     if (!adminClient) {
       const base = memoryLeads.filter((lead) => !lead.deleted_at);
-      if (resolvedScope === 'joined') return base.filter((lead) => lead.status === 'joined');
-      return resolvedScope === 'mine'
-        ? base.filter((lead) => lead.counselor_id === actor.userId)
-        : base;
+      let filtered = base;
+      if (resolvedScope === 'joined') filtered = base.filter((lead) => lead.status === 'joined');
+      else if (resolvedScope === 'mine') filtered = base.filter((lead) => lead.counselor_id === actor.userId);
+
+      const total = filtered.length;
+      if (page && limit) {
+        const from = (page - 1) * limit;
+        return { items: filtered.slice(from, from + limit), total, page, limit };
+      }
+      return { items: filtered, total, page: 1, limit: total || 10 };
     }
 
     let selectQuery = '*';
-  if (resolvedScope === 'joined') {
-    selectQuery = '*, students!students_lead_id_fkey(academic_coordinator_id, users!students_academic_coordinator_id_fkey(full_name, email))';
-  }
+    if (resolvedScope === 'joined') {
+      selectQuery = '*, students!students_lead_id_fkey(academic_coordinator_id, users!students_academic_coordinator_id_fkey(full_name, email))';
+    }
 
-  let query = adminClient
-    .from('leads')
-    .select(selectQuery)
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false });
+    let query = adminClient
+      .from('leads')
+      .select(selectQuery, { count: 'exact' })
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false });
 
     if (resolvedScope === 'mine') {
       query = query.eq('counselor_id', actor.userId);
     } else if (resolvedScope === 'joined') {
       // Fetch leads without any ambiguous joins
-      const { data: joinedLeads, error: joinedError } = await adminClient
+      let joinedQuery = adminClient
         .from('leads')
-        .select('*')
+        .select('*', { count: 'exact' })
         .is('deleted_at', null)
         .eq('status', 'joined')
         .order('updated_at', { ascending: false });
+
+      if (page && limit) {
+        const from = (page - 1) * limit;
+        joinedQuery = joinedQuery.range(from, from + limit - 1);
+      }
+
+      const { data: joinedLeads, count: joinedCount, error: joinedError } = await joinedQuery;
       if (joinedError) throw new Error(joinedError.message);
 
       // Fetch corresponding students to get AC assignments
@@ -152,7 +165,7 @@ export class LeadsService {
           .from('students')
           .select('id, lead_id, student_code, academic_coordinator_id')
           .in('lead_id', leadIds);
-          
+
         (studentsData || []).forEach(s => {
           studentsMap[s.lead_id] = s;
           if (s.academic_coordinator_id) acUserIds.add(s.academic_coordinator_id);
@@ -164,7 +177,7 @@ export class LeadsService {
         ...(joinedLeads || []).map(l => l.counselor_id).filter(Boolean),
         ...Array.from(acUserIds)
       ])];
-      
+
       let userMap = {};
       if (userIds.length > 0) {
         const { data: users } = await adminClient
@@ -174,7 +187,7 @@ export class LeadsService {
         (users || []).forEach(u => { userMap[u.id] = { id: u.id, full_name: u.full_name, email: u.email }; });
       }
 
-      return (joinedLeads || []).map(l => {
+      const mapped = (joinedLeads || []).map(l => {
         const student = studentsMap[l.id];
         return {
           ...l,
@@ -186,11 +199,17 @@ export class LeadsService {
           } : null
         };
       });
+      return { items: mapped, total: joinedCount || 0, page, limit };
     }
 
-    const { data, error } = await query;
+    if (page && limit) {
+      const from = (page - 1) * limit;
+      query = query.range(from, from + limit - 1);
+    }
+
+    const { data, count, error } = await query;
     if (error) throw new Error(error.message);
-    return data || [];
+    return { items: data || [], total: count || 0, page, limit };
   }
 
   async get(id, actor) {
@@ -532,16 +551,16 @@ export class LeadsService {
     return demoRequest;
   }
 
-  async listPaymentRequests(actor) {
+  async listPaymentRequests(actor, page, limit) {
     const adminClient = getSupabaseAdminClient();
     if (!isCounselor(actor) && !isCounselorHead(actor) && !isSuperAdmin(actor)) {
       return { error: 'payment request access is not allowed for this role' };
     }
-    if (!adminClient) return [];
+    if (!adminClient) return { items: [], total: 0, page: 1, limit: 10 };
 
     let query = adminClient
       .from('payment_requests')
-      .select('*, leads(student_name, subject, class_level, contact_number, counselor_id)')
+      .select('*, leads(student_name, subject, class_level, contact_number, counselor_id)', { count: 'exact' })
       .order('created_at', { ascending: false });
 
     // Counselors see only their own requests
@@ -549,9 +568,14 @@ export class LeadsService {
       query = query.eq('requested_by', actor.userId);
     }
 
-    const { data, error } = await query;
+    if (page && limit) {
+      const from = (page - 1) * limit;
+      query = query.range(from, from + limit - 1);
+    }
+
+    const { data, count, error } = await query;
     if (error) throw new Error(error.message);
-    return data || [];
+    return { items: data || [], total: count || 0, page, limit };
   }
 
   async submitPaymentRequest(id, actor, payload) {
@@ -784,23 +808,29 @@ export class LeadsService {
     return { count: updated.length };
   }
 
-  async listOverdueLeads() {
+  async listOverdueLeads(page, limit) {
     const adminClient = getSupabaseAdminClient();
-    if (!adminClient) return [];
+    if (!adminClient) return { items: [], total: 0, page: 1, limit: 10 };
 
     const thirteenDaysAgo = new Date(Date.now() - 13 * 24 * 60 * 60 * 1000).toISOString();
 
-    const { data, error } = await adminClient
+    let query = adminClient
       .from('leads')
-      .select('*, users:counselor_id(id, full_name)')
+      .select('*, users:counselor_id(id, full_name)', { count: 'exact' })
       .not('counselor_id', 'is', null)
       .is('deleted_at', null)
       .lt('assigned_at', thirteenDaysAgo)
       .not('status', 'in', '(joined,dropped)')
       .order('assigned_at', { ascending: true });
 
+    if (page && limit) {
+      const from = (page - 1) * limit;
+      query = query.range(from, from + limit - 1);
+    }
+
+    const { data, count, error } = await query;
     if (error) throw new Error(error.message);
-    return data || [];
+    return { items: data || [], total: count || 0, page, limit };
   }
 
   async listAcademicCoordinators() {

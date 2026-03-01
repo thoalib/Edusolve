@@ -21,12 +21,15 @@ export async function handleRequests(req, res, url) {
     try {
         // GET /requests
         if (req.method === 'GET' && url.pathname === '/requests') {
-            const items = await requestsService.list(role, userId);
-            if (items.error) {
-                sendJson(res, 500, { error: items.error });
+            const page = parseInt(url.searchParams.get('page')) || 1;
+            const limit = parseInt(url.searchParams.get('limit')) || 20;
+
+            const result = await requestsService.list(role, userId, page, limit);
+            if (result.error) {
+                sendJson(res, 500, { error: result.error });
                 return true;
             }
-            sendJson(res, 200, { items });
+            sendJson(res, 200, { ...result });
             return true;
         }
 

@@ -485,6 +485,28 @@ export async function handleHR(req, res, url) {
       }).select('*').single();
       if (error) throw new Error(error.message);
 
+      // Insert per-employee payable ledger entries (what we owe them)
+      const { data: payrollItems } = await adminClient
+        .from('hr_payroll_items')
+        .select('employee_id, net_salary')
+        .eq('cycle_id', payload.cycle_id);
+
+      if (payrollItems && payrollItems.length > 0) {
+        const payableEntries = payrollItems
+          .filter(item => Number(item.net_salary) > 0)
+          .map(item => ({
+            entry_date: new Date().toISOString().slice(0, 10),
+            entry_type: 'payable',
+            amount: item.net_salary,
+            description: `Salary Payable — ${cycle.year}/${String(cycle.month).padStart(2, '0')}`,
+            employee_id: item.employee_id,
+            posted_by: resolvedUserId2
+          }));
+        if (payableEntries.length > 0) {
+          await adminClient.from('ledger_entries').insert(payableEntries);
+        }
+      }
+
       sendJson(res, 201, { ok: true, request: data });
       return true;
     }
