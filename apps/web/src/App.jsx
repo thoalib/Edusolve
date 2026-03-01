@@ -19,7 +19,7 @@ import {
   CounselorHeadDashboardPage
 } from './features/dashboards/CounselorDashboards.jsx';
 import { SuperAdminDashboardPage } from './features/dashboards/SuperAdminDashboard.jsx';
-import { FinanceDashboardPage, IncomeManagementPage, ExpenseManagementPage, AccountsPage, PartiesPage, PayrollPage, RequestsVerificationPage, FinanceReportsPage, PaymentVerificationPage } from './features/finance/FinancePages.jsx';
+import { FinanceDashboardPage, IncomeManagementPage, ExpenseManagementPage, AccountsPage, PartiesPage, PayrollRequestsPage, RequestsVerificationPage, FinanceReportsPage, PaymentVerificationPage } from './features/finance/FinancePages.jsx';
 import { UsersPage, SystemSettingsPage } from './features/system/SystemPages.jsx';
 import {
   AcademicCoordinatorDashboardPage,
@@ -220,7 +220,7 @@ export default function App() {
     if (page.path === '/finance/expenses') return <ExpenseManagementPage />;
     if (page.path === '/finance/accounts') return <AccountsPage />;
     if (page.path === '/finance/parties') return <PartiesPage />;
-    if (page.path === '/finance/payroll') return <PayrollPage />;
+    if (page.path === '/finance/payroll') return <PayrollRequestsPage />;
     if (page.path === '/finance/payment-verification') return <PaymentVerificationPage />;
     if (page.path === '/finance/reports') return <FinanceReportsPage />;
 

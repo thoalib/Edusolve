@@ -14,12 +14,12 @@ export const APP_PAGES = [
   { path: '/leads/mine', title: 'Lead Pipeline', group: 'Sales', roles: [ROLES.COUNSELOR], showInNav: true },
   { path: '/leads/details', title: 'Lead Details', group: 'Sales', roles: [ROLES.COUNSELOR, ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: false },
   { path: '/leads/demo-management', title: 'Demo Management', group: 'Sales', roles: [ROLES.COUNSELOR, ROLES.SUPER_ADMIN], showInNav: true },
-  { path: '/team/counselors', title: 'Counselors (Team)', group: 'Sales', roles: [ROLES.COUNSELOR_HEAD], showInNav: true },
-  { path: '/counselors/reports', title: 'Sales Reports', group: 'Sales', roles: [ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
-  { path: '/requests', title: 'Tickets', group: 'Sales', roles: [ROLES.COUNSELOR, ROLES.COUNSELOR_HEAD], showInNav: true },
-  { path: '/leads/payment-requests', title: 'Payment Requests', group: 'Sales', roles: [ROLES.COUNSELOR, ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
-  { path: '/leads/overdue', title: 'Overdue Leads', group: 'Sales', roles: [ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
   { path: '/leads/converted', title: 'Converted Leads', group: 'Sales', roles: [ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
+  { path: '/leads/overdue', title: 'Overdue Leads', group: 'Sales', roles: [ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
+  { path: '/leads/payment-requests', title: 'Payment Requests', group: 'Sales', roles: [ROLES.COUNSELOR, ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
+  { path: '/requests', title: 'Tickets', group: 'Sales', roles: [ROLES.COUNSELOR, ROLES.COUNSELOR_HEAD], showInNav: true },
+  { path: '/counselors/reports', title: 'Sales Reports', group: 'Sales', roles: [ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
+  { path: '/team/counselors', title: 'Counselors (Team)', group: 'Sales', roles: [ROLES.COUNSELOR_HEAD], showInNav: true },
 
   /* ── Academics (Students/Teachers) ── */
   { path: '/students/hub', title: 'Students', group: 'Academics', roles: [ROLES.ACADEMIC_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
@@ -55,7 +55,7 @@ export const APP_PAGES = [
   { path: '/finance/expenses', title: 'Expenses', group: 'Finance', roles: [ROLES.FINANCE, ROLES.SUPER_ADMIN], showInNav: true },
   { path: '/finance/accounts', title: 'Accounts', group: 'Finance', roles: [ROLES.FINANCE, ROLES.SUPER_ADMIN], showInNav: true },
   { path: '/finance/parties', title: 'Parties', group: 'Finance', roles: [ROLES.FINANCE, ROLES.SUPER_ADMIN], showInNav: true },
-  { path: '/finance/payroll', title: 'Payroll', group: 'Finance', roles: [ROLES.FINANCE, ROLES.SUPER_ADMIN], showInNav: true },
+  { path: '/finance/payroll', title: 'Payroll Requests', group: 'Finance', roles: [ROLES.FINANCE, ROLES.SUPER_ADMIN], showInNav: true },
   { path: '/finance/payment-verification', title: 'Payment Verification', group: 'Finance', roles: [ROLES.FINANCE, ROLES.SUPER_ADMIN], showInNav: true },
   { path: '/finance/reports', title: 'Reports', group: 'Finance', roles: [ROLES.FINANCE, ROLES.SUPER_ADMIN], showInNav: true },
 

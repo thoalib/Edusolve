@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { apiFetch } from '../../lib/api.js';
 import { getSession } from '../../lib/auth.js';
 import { AddLeadModal } from './components/AddLeadModal.jsx';
@@ -6,6 +6,7 @@ import { AddLeadModal } from './components/AddLeadModal.jsx';
 import { LeadFilters } from './components/LeadFilters.jsx';
 import { SearchSelect } from '../../components/ui/SearchSelect.jsx';
 import { CreatableSelect } from '../../components/ui/CreatableSelect.jsx';
+import { Pagination } from '../../components/ui/Pagination.jsx';
 
 const CORE_SUBJECTS = [
   'Mathematics', 'Physics', 'Chemistry', 'Biology', 'English',
@@ -103,17 +104,20 @@ function ProgressTracker({ currentStatus }) {
   );
 }
 
-function useLeads(scope) {
+function useLeads(scope, limit = 20) {
   const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  async function refresh() {
+  async function refresh(currentPage = page) {
     setLoading(true);
     setError('');
     try {
-      const data = await apiFetch(`/leads?scope=${scope}`);
+      const data = await apiFetch(`/leads?scope=${scope}&page=${currentPage}&limit=${limit}`);
       setItems(data.items || []);
+      setTotal(data.total || 0);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -121,11 +125,12 @@ function useLeads(scope) {
     }
   }
 
-  useEffect(() => {
-    refresh();
-  }, [scope]);
 
-  return { items, loading, error, refresh };
+  useEffect(() => {
+    refresh(page);
+  }, [scope, page]);
+
+  return { items, total, page, setPage, limit, loading, error, refresh };
 }
 
 function LeadsTable({ items, onSelect, onDelete, showDelete = true, selectedIds = [], onToggleSelect, showContact = false }) {
@@ -220,7 +225,7 @@ function StatusBadge({ status }) {
 export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }) {
   const session = getSession();
   const user = session?.user;
-  const { items, loading, error, refresh } = useLeads('all');
+  const { items, total, page, setPage, limit, loading, error, refresh } = useLeads('all');
   const [selectedIds, setSelectedIds] = useState([]);
   const [counselors, setCounselors] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -393,6 +398,9 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
             </tbody>
           </table>
         </div>
+        {!loading && total > 0 && (
+          <Pagination page={page} limit={limit} total={total} onPageChange={setPage} />
+        )}
       </div>
 
       {selectedIds.length > 0 ? (
@@ -1867,9 +1875,90 @@ export function DemoManagementPage({ leadId, onOpenDetails }) {
   );
 }
 
+/* ═══════ Upload Installment Modal ═══════ */
+function UploadInstallmentModal({ item, onClose, onSuccess }) {
+  const [amount, setAmount] = useState('');
+  const [financeNote, setFinanceNote] = useState('');
+  const [screenshotFile, setScreenshotFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!amount || Number(amount) <= 0) return alert('Enter a valid amount');
+    if (!screenshotFile) return alert('Please upload a screenshot');
+    setSaving(true);
+    try {
+      setUploading(true);
+      const presignData = await apiFetch('/upload/presigned-url', {
+        method: 'POST', body: JSON.stringify({ filename: screenshotFile.name, contentType: screenshotFile.type })
+      });
+      const uploadRes = await fetch(presignData.uploadUrl, {
+        method: 'PUT', headers: { 'Content-Type': screenshotFile.type }, body: screenshotFile
+      });
+      if (!uploadRes.ok) throw new Error('Failed to upload file');
+      setUploading(false);
+      await apiFetch('/finance/installments', {
+        method: 'POST',
+        body: JSON.stringify({
+          reference_type: item._type || 'payment_request',
+          reference_id: item.id,
+          amount: Number(amount),
+          finance_note: financeNote,
+          screenshot_url: presignData.publicUrl
+        })
+      });
+      alert('Installment submitted!');
+      onSuccess();
+    } catch (err) {
+      setUploading(false);
+      alert('Error: ' + err.message);
+    } finally { setSaving(false); }
+  }
+
+  const studentName = item.leads?.student_name || item.students?.student_name || 'Student';
+  const remaining = Number(item.remaining_amount || (Number(item.total_amount || 0) - Number(item.amount || 0)));
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '420px', padding: '24px', borderRadius: '10px', background: 'white' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ margin: 0 }}>Upload Installment</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#6b7280' }}>×</button>
+        </div>
+        <p style={{ fontSize: '13px', color: '#4b5563', marginBottom: '16px', background: '#f9fafb', padding: '10px', borderRadius: '6px' }}>
+          Student: <strong>{studentName}</strong><br />
+          Total: ₹{item.total_amount} &nbsp;|&nbsp; Paid: ₹{item.amount || 0} &nbsp;|&nbsp;
+          <span style={{ color: '#dc2626', fontWeight: 700 }}>Remaining: ₹{remaining}</span>
+        </p>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>Amount (₹) *
+            <input type="number" value={amount} onChange={e => setAmount(e.target.value)} required min="1" max={remaining}
+              style={{ width: '100%', padding: '8px 12px', marginTop: '4px', border: '1px solid #d1d5db', borderRadius: '6px' }} />
+          </label>
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>Payment Screenshot *
+            <input type="file" accept="image/*" onChange={e => setScreenshotFile(e.target.files[0])} required style={{ width: '100%', marginTop: '4px' }} />
+          </label>
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>Note
+            <textarea value={financeNote} onChange={e => setFinanceNote(e.target.value)} rows={2}
+              style={{ width: '100%', padding: '8px 12px', marginTop: '4px', border: '1px solid #d1d5db', borderRadius: '6px', resize: 'vertical' }} />
+          </label>
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+            <button type="button" onClick={onClose} className="secondary">Cancel</button>
+            <button type="submit" className="primary" disabled={saving || uploading}>{saving || uploading ? 'Submitting...' : 'Submit Installment'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 /* ═══════ Payment Requests Page ═══════ */
 export function PaymentRequestsPage({ initialLeadId, onReady }) {
   const [requests, setRequests] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const limit = 20;
+
   const [leads, setLeads] = useState([]);
   const [counselors, setCounselors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1878,6 +1967,12 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
   const [counselorFilter, setCounselorFilter] = useState('all');
   const [showNewModal, setShowNewModal] = useState(false);
   const [role, setRole] = useState('');
+  const [pageView, setPageView] = useState('requests'); // 'requests' | 'pending'
+  const [pendingBalances, setPendingBalances] = useState([]);
+  const [loadingPending, setLoadingPending] = useState(false);
+  const [showInstallmentModal, setShowInstallmentModal] = useState(null);
+  const [myInstallments, setMyInstallments] = useState([]);
+  const [loadingMyInstallments, setLoadingMyInstallments] = useState(false);
 
   useEffect(() => {
     if (initialLeadId && leads.length > 0) {
@@ -1886,7 +1981,7 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
     }
   }, [initialLeadId, leads, onReady]);
 
-  async function loadData() {
+  async function loadData(currentPage = page) {
     setLoading(true);
     try {
       const session = getSession();
@@ -1894,19 +1989,38 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
       setRole(userRole);
 
       const promises = [
-        apiFetch('/leads/payment-requests'),
+        apiFetch(`/leads/payment-requests?page=${currentPage}&limit=${limit}`),
         apiFetch('/leads?scope=my').catch(() => ({ items: [] })),
         apiFetch('/leads/counselors').catch(() => ({ items: [] }))
       ];
       const [prRes, leadsRes, counselorsRes] = await Promise.all(promises);
       setRequests(prRes.items || []);
+      setTotal(prRes.total || 0);
       setLeads((leadsRes.items || []).filter(l => !l.deleted_at));
       setCounselors(counselorsRes?.items || []);
     } catch (e) { alert(e.message); }
     setLoading(false);
   }
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(page); }, [page]);
+
+  const loadPendingBalances = useCallback(async () => {
+    setLoadingPending(true);
+    try {
+      const data = await apiFetch('/finance/pending-balances');
+      setPendingBalances((data.items || []).filter(it => it._type === 'payment_request'));
+    } catch (e) { console.error(e); } finally { setLoadingPending(false); }
+  });
+
+  const loadMyInstallments = useCallback(async () => {
+    setLoadingMyInstallments(true);
+    try {
+      const data = await apiFetch('/finance/my-installments');
+      setMyInstallments((data.items || []).filter(it => it.reference_type === 'payment_request'));
+    } catch (e) { console.error(e); } finally { setLoadingMyInstallments(false); }
+  });
+
+  useEffect(() => { if (pageView === 'pending') { loadPendingBalances(); loadMyInstallments(); } }, [pageView]);
 
   const isCounselorHead = role === 'counselor_head' || role === 'super_admin';
 
@@ -1961,143 +2075,253 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
 
   return (
     <section className="panel">
-      {/* Filters row - single line */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-        <input
-          type="text"
-          placeholder="Search by student, phone, amount…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ width: '220px', flexShrink: 0, padding: '8px 12px', fontSize: '13px', border: '1px solid #d1d5db', borderRadius: '6px' }}
-        />
-        {isCounselorHead && counselors.length > 0 && (
-          <select
-            value={counselorFilter}
-            onChange={e => setCounselorFilter(e.target.value)}
-            style={{ width: '180px', flexShrink: 0, padding: '8px 12px', fontSize: '13px', border: '1px solid #d1d5db', borderRadius: '6px' }}
-          >
-            <option value="all">All Counselors</option>
-            {counselors.map(c => (
-              <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
-            ))}
-          </select>
-        )}
-        {!isCounselorHead && (
-          <button className="primary" style={{ marginLeft: 'auto', fontSize: '13px', flexShrink: 0 }} onClick={() => setShowNewModal(true)}>+ New Request</button>
-        )}
-      </div>
-
-      {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px', marginBottom: '16px' }}>
-        {[
-          { key: 'all', label: 'Total', value: counts.all, color: '#111' },
-          { key: 'pending', label: 'Pending', value: counts.pending, color: '#92400e' },
-          { key: 'verified', label: 'Verified', value: counts.verified, color: '#15803d' },
-          { key: 'rejected', label: 'Rejected', value: counts.rejected, color: '#dc2626' }
-        ].map(s => (
-          <div key={s.key} className="card"
-            onClick={() => setStatusFilter(s.key)}
-            style={{
-              padding: '14px', textAlign: 'center', cursor: 'pointer',
-              border: statusFilter === s.key ? '2px solid #2563eb' : '2px solid transparent',
-              transition: 'border 0.2s'
-            }}>
-            <p style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: s.color }}>{s.value}</p>
-            <p className="text-muted" style={{ margin: '4px 0 0', fontSize: '11px' }}>{s.label}</p>
-          </div>
+      {/* Page-level Tabs */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', borderBottom: '2px solid #e5e7eb', paddingBottom: '0' }}>
+        {[{ key: 'requests', label: 'Payment Requests' }, { key: 'pending', label: 'Pending Payments' }].map(t => (
+          <button key={t.key} type="button" onClick={() => setPageView(t.key)} style={{
+            padding: '8px 18px', fontWeight: 600, fontSize: '14px', cursor: 'pointer',
+            background: 'none', border: 'none',
+            borderBottom: pageView === t.key ? '3px solid #4338ca' : '3px solid transparent',
+            color: pageView === t.key ? '#4338ca' : '#6b7280', marginBottom: '-2px'
+          }}>{t.label}</button>
         ))}
+        {pageView === 'requests' && !isCounselorHead && (
+          <button className="primary" style={{ marginLeft: 'auto', fontSize: '13px' }} onClick={() => setShowNewModal(true)}>+ New Request</button>
+        )}
       </div>
 
-      {/* Table */}
-      <div className="table-wrap">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Student</th>
-              <th>Phone</th>
-              {isCounselorHead && <th>Counselor</th>}
-              <th>Total Amt</th>
-              <th>Hours</th>
-              <th>Paid Amt</th>
-              <th>Screenshot</th>
-              <th>Status</th>
-              <th>Finance Note</th>
-              <th>Submitted</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(r => (
-              <tr key={r.id}>
-                <td style={{ fontWeight: 500 }}>{r.leads?.student_name || '—'}</td>
-                <td>{r.leads?.contact_number || '—'}</td>
-                {isCounselorHead && (
-                  <td style={{ fontSize: '12px', color: '#4338ca' }}>
-                    {counselorMap[r.leads?.counselor_id] || '—'}
-                  </td>
-                )}
-                <td style={{ fontWeight: 600 }}>{r.total_amount ? `₹${Number(r.total_amount).toLocaleString('en-IN')}` : '—'}</td>
-                <td>{r.hours || '—'}</td>
-                <td style={{ fontWeight: 600, color: '#15803d' }}>₹{Number(r.amount).toLocaleString('en-IN')}</td>
-                <td>
-                  {r.screenshot_url ? (
-                    <a href={r.screenshot_url} target="_blank" rel="noopener noreferrer"
-                      style={{ color: '#2563eb', fontSize: '12px' }}>View</a>
-                  ) : '—'}
-                </td>
-                <td>{statusBadge(r.status)}</td>
-                <td style={{ fontSize: '12px', color: '#6b7280', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {r.finance_note || '—'}
-                </td>
-                <td style={{ fontSize: '12px', color: '#6b7280' }}>
-                  {new Date(r.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}
-                </td>
-              </tr>
-            ))}
-            {!filtered.length && (
-              <tr><td colSpan={isCounselorHead ? 10 : 9} style={{ textAlign: 'center', color: '#9ca3af', padding: '40px' }}>
-                No payment requests found.
-              </td></tr>
+      {pageView === 'pending' && (
+        <div>
+          {loadingPending ? <p>Loading...</p> : (
+            <div className="card">
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead><tr>
+                    <th>Student</th>
+                    <th>Phone</th>
+                    <th>Total ₹</th>
+                    <th>Paid ₹</th>
+                    <th>Remaining</th>
+                    <th>Action</th>
+                  </tr></thead>
+                  <tbody>
+                    {pendingBalances.map(item => (
+                      <tr key={item.id}>
+                        <td style={{ fontWeight: 500 }}>{item.leads?.student_name || '—'}</td>
+                        <td>{item.leads?.contact_number || '—'}</td>
+                        <td>₹{Number(item.total_amount).toLocaleString('en-IN')}</td>
+                        <td style={{ color: '#16a34a', fontWeight: 600 }}>₹{Number(item.amount || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ color: '#dc2626', fontWeight: 700 }}>₹{Number(item.remaining_amount).toLocaleString('en-IN')}</td>
+                        <td>
+                          <button className="primary small" onClick={() => setShowInstallmentModal(item)}>Upload Installment</button>
+                        </td>
+                      </tr>
+                    ))}
+                    {!pendingBalances.length && (
+                      <tr><td colSpan="6" style={{ textAlign: 'center', color: '#6b7280', padding: '32px' }}>No pending balances.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {showInstallmentModal && (
+            <UploadInstallmentModal
+              item={showInstallmentModal}
+              onClose={() => setShowInstallmentModal(null)}
+              onSuccess={() => { setShowInstallmentModal(null); loadPendingBalances(); loadMyInstallments(); }}
+            />
+          )}
+
+          {/* Submitted Installments History */}
+          <div className="card" style={{ marginTop: '24px' }}>
+            <h3 style={{ margin: '0 0 14px', fontSize: '16px', fontWeight: 700 }}>My Submitted Installments</h3>
+            {loadingMyInstallments ? <p style={{ color: '#6b7280' }}>Loading...</p> : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead><tr>
+                    <th>Student</th>
+                    <th>Amount</th>
+                    <th>Note</th>
+                    <th>Screenshot</th>
+                    <th>Status</th>
+                    <th>Submitted</th>
+                  </tr></thead>
+                  <tbody>
+                    {myInstallments.map(inst => {
+                      const statusMap = {
+                        pending: { bg: '#fef3c7', color: '#92400e', label: '⏳ Pending Verification' },
+                        verified: { bg: '#dcfce7', color: '#15803d', label: '✅ Verified' },
+                        rejected: { bg: '#fee2e2', color: '#dc2626', label: '❌ Rejected' }
+                      };
+                      const s = statusMap[inst.status] || { bg: '#f3f4f6', color: '#6b7280', label: inst.status };
+                      return (
+                        <tr key={inst.id}>
+                          <td style={{ fontWeight: 500 }}>{inst.student_name}</td>
+                          <td style={{ fontWeight: 700, color: '#15803d' }}>₹{Number(inst.amount).toLocaleString('en-IN')}</td>
+                          <td style={{ fontSize: '12px', color: '#6b7280', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{inst.finance_note || '—'}</td>
+                          <td>{inst.screenshot_url ? <a href={inst.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca', fontSize: '12px' }}>View</a> : '—'}</td>
+                          <td><span style={{ padding: '3px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 600, background: s.bg, color: s.color }}>{s.label}</span></td>
+                          <td style={{ fontSize: '12px', color: '#6b7280' }}>{new Date(inst.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                        </tr>
+                      );
+                    })}
+                    {!myInstallments.length && (
+                      <tr><td colSpan="6" style={{ textAlign: 'center', color: '#9ca3af', padding: '24px' }}>No installments submitted yet.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             )}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </div>
+      )}
 
-      {/* New Request Modal */}
-      {showNewModal && (
-        <NewPaymentRequestModal
-          leads={leads}
-          initialLeadId={initialLeadId}
-          onClose={() => setShowNewModal(false)}
-          onSuccess={() => { setShowNewModal(false); loadData(); }}
-        />
+      {pageView === 'requests' && (
+        <>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+            <input
+              type="text"
+              placeholder="Search by student, phone, amount…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ width: '220px', flexShrink: 0, padding: '8px 12px', fontSize: '13px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+            />
+            {isCounselorHead && counselors.length > 0 && (
+              <select
+                value={counselorFilter}
+                onChange={e => setCounselorFilter(e.target.value)}
+                style={{ width: '180px', flexShrink: 0, padding: '8px 12px', fontSize: '13px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+              >
+                <option value="all">All Counselors</option>
+                {counselors.map(c => (
+                  <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* Stats Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+            {[
+              { key: 'all', label: 'Total', value: counts.all, color: '#111' },
+              { key: 'pending', label: 'Pending', value: counts.pending, color: '#92400e' },
+              { key: 'verified', label: 'Verified', value: counts.verified, color: '#15803d' },
+              { key: 'rejected', label: 'Rejected', value: counts.rejected, color: '#dc2626' }
+            ].map(s => (
+              <div key={s.key} className="card"
+                onClick={() => setStatusFilter(s.key)}
+                style={{
+                  padding: '14px', textAlign: 'center', cursor: 'pointer',
+                  border: statusFilter === s.key ? '2px solid #2563eb' : '2px solid transparent',
+                  transition: 'border 0.2s'
+                }}>
+                <p style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: s.color }}>{s.value}</p>
+                <p className="text-muted" style={{ margin: '4px 0 0', fontSize: '11px' }}>{s.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Table */}
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Phone</th>
+                  {isCounselorHead && <th>Counselor</th>}
+                  <th>Total Amt</th>
+                  <th>Hours</th>
+                  <th>Paid Amt</th>
+                  <th>Screenshot</th>
+                  <th>Status</th>
+                  <th>Finance Note</th>
+                  <th>Submitted</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(r => (
+                  <tr key={r.id}>
+                    <td style={{ fontWeight: 500 }}>{r.leads?.student_name || '—'}</td>
+                    <td>{r.leads?.contact_number || '—'}</td>
+                    {isCounselorHead && (
+                      <td style={{ fontSize: '12px', color: '#4338ca' }}>
+                        {counselorMap[r.leads?.counselor_id] || '—'}
+                      </td>
+                    )}
+                    <td style={{ fontWeight: 600 }}>{r.total_amount ? `₹${Number(r.total_amount).toLocaleString('en-IN')}` : '—'}</td>
+                    <td>{r.hours || '—'}</td>
+                    <td style={{ fontWeight: 600, color: '#15803d' }}>₹{Number(r.amount).toLocaleString('en-IN')}</td>
+                    <td>
+                      {r.screenshot_url ? (
+                        <a href={r.screenshot_url} target="_blank" rel="noopener noreferrer"
+                          style={{ color: '#2563eb', fontSize: '12px' }}>View</a>
+                      ) : '—'}
+                    </td>
+                    <td>{statusBadge(r.status)}</td>
+                    <td style={{ fontSize: '12px', color: '#6b7280', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {r.finance_note || '—'}
+                    </td>
+                    <td style={{ fontSize: '12px', color: '#6b7280' }}>
+                      {new Date(r.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}
+                    </td>
+                  </tr>
+                ))}
+                {!filtered.length && (
+                  <tr><td colSpan={isCounselorHead ? 10 : 9} style={{ textAlign: 'center', color: '#9ca3af', padding: '40px' }}>
+                    No payment requests found.
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {!loading && total > 0 && (
+            <Pagination page={page} limit={limit} total={total} onPageChange={setPage} />
+          )}
+
+          {showNewModal && (
+            <NewPaymentRequestModal
+              leads={leads}
+              initialLeadId={initialLeadId}
+              onClose={() => setShowNewModal(false)}
+              onSuccess={() => { setShowNewModal(false); loadData(); }}
+            />
+          )}
+        </>
       )}
     </section>
   );
 }
 
+
 /* ═══════ Overdue Leads Page (Counselor Head) ═══════ */
 export function OverdueLeadsPage() {
   const [leads, setLeads] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const limit = 20;
   const [counselors, setCounselors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [reassigning, setReassigning] = useState({});
   const [selectedCounselor, setSelectedCounselor] = useState({});
 
-  async function loadData() {
+  async function loadData(currentPage = page) {
     setLoading(true);
     try {
       const [overdueRes, counselorRes] = await Promise.all([
-        apiFetch('/leads/overdue'),
+        apiFetch(`/leads/overdue?page=${currentPage}&limit=${limit}`),
         apiFetch('/leads/counselors').catch(() => ({ items: [] }))
       ]);
       setLeads(overdueRes.items || []);
+      setTotal(overdueRes.total || 0);
       setCounselors(counselorRes.items || []);
     } catch (e) { alert(e.message); }
     setLoading(false);
   }
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(page); }, [page]);
 
   function daysOverdue(assignedAt) {
     if (!assignedAt) return '—';
@@ -2237,6 +2461,9 @@ export function OverdueLeadsPage() {
           </tbody>
         </table>
       </div>
+      {!loading && total > 0 && (
+        <Pagination page={page} limit={limit} total={total} onPageChange={setPage} />
+      )}
     </section>
   );
 }

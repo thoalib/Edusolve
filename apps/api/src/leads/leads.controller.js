@@ -20,12 +20,14 @@ export async function handleLeads(req, res, url) {
   try {
     if (req.method === 'GET' && url.pathname === '/leads') {
       const scope = url.searchParams.get('scope') || 'all';
-      const items = await leadsService.list({ scope, actor });
-      if (items?.error) {
-        sendJson(res, 403, { ok: false, error: items.error });
+      const page = parseInt(url.searchParams.get('page')) || 1;
+      const limit = parseInt(url.searchParams.get('limit')) || 20;
+      const result = await leadsService.list({ scope, actor, page, limit });
+      if (result?.error) {
+        sendJson(res, 403, { ok: false, error: result.error });
         return true;
       }
-      sendJson(res, 200, { ok: true, items });
+      sendJson(res, 200, { ok: true, ...result });
       return true;
     }
 
@@ -93,12 +95,14 @@ export async function handleLeads(req, res, url) {
     }
 
     if (req.method === 'GET' && url.pathname === '/leads/payment-requests') {
-      const result = await leadsService.listPaymentRequests(actor);
+      const page = parseInt(url.searchParams.get('page')) || 1;
+      const limit = parseInt(url.searchParams.get('limit')) || 20;
+      const result = await leadsService.listPaymentRequests(actor, page, limit);
       if (result?.error) {
         sendJson(res, 403, { ok: false, error: result.error });
         return true;
       }
-      sendJson(res, 200, { ok: true, items: result });
+      sendJson(res, 200, { ok: true, ...result });
       return true;
     }
 
@@ -107,8 +111,10 @@ export async function handleLeads(req, res, url) {
         sendJson(res, 403, { ok: false, error: 'only counselor head or super admin can view overdue leads' });
         return true;
       }
-      const items = await leadsService.listOverdueLeads();
-      sendJson(res, 200, { ok: true, items });
+      const page = parseInt(url.searchParams.get('page')) || 1;
+      const limit = parseInt(url.searchParams.get('limit')) || 20;
+      const result = await leadsService.listOverdueLeads(page, limit);
+      sendJson(res, 200, { ok: true, ...result });
       return true;
     }
 

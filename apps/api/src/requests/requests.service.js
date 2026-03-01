@@ -21,12 +21,12 @@ export class RequestsService {
         }
     }
 
-    async list(role, userId) {
+    async list(role, userId, page = 1, limit = 20) {
         if (!this.admin) return { error: 'Admin client not available' };
 
         let query = this.admin
             .from('requests')
-            .select('*')
+            .select('*', { count: 'exact' })
             .order('created_at', { ascending: false });
 
         // Counselors only see their own
@@ -34,11 +34,16 @@ export class RequestsService {
             query = query.eq('counselor_id', userId);
         }
 
-        const { data: requests, error } = await query;
+        if (page && limit) {
+            const from = (page - 1) * limit;
+            query = query.range(from, from + limit - 1);
+        }
+
+        const { data: requests, count, error } = await query;
         if (error) return { error: error.message };
 
         // Manual join to get counselor and lead details
-        if (!requests.length) return [];
+        if (!requests || !requests.length) return { items: [], total: count || 0, page, limit };
 
         const counselorIds = [...new Set(requests.map(r => r.counselor_id).filter(Boolean))];
         const leadIds = [...new Set(requests.map(r => r.lead_id).filter(Boolean))];
@@ -60,11 +65,13 @@ export class RequestsService {
             return acc;
         }, {});
 
-        return requests.map(r => ({
+        const items = requests.map(r => ({
             ...r,
             counselor: userMap[r.counselor_id] || { full_name: 'Unknown', email: '' },
             lead: leadMap[r.lead_id] || null
         }));
+
+        return { items, total: count || 0, page, limit };
     }
 
     async create(userId, payload) {

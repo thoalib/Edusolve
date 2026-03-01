@@ -44,7 +44,16 @@ export async function handleFinance(req, res, url) {
   }
 
   const actor = actorFromHeaders(req);
-  if (!isFinance(actor)) {
+
+  // Routes accessible to counselors and academic coordinators (not finance-only)
+  const isOpenRoute =
+    (req.method === 'GET' && url.pathname === '/finance/pending-balances') ||
+    (req.method === 'GET' && url.pathname === '/finance/my-installments') ||
+    (req.method === 'POST' && url.pathname === '/finance/installments');
+
+  const isCounselorOrAC = ['counselor', 'counselor_head', 'academic_coordinator', 'super_admin'].includes(actor.role);
+
+  if (!isFinance(actor) && !(isOpenRoute && isCounselorOrAC)) {
     sendJson(res, 403, { ok: false, error: 'finance role required' });
     return true;
   }
@@ -79,11 +88,12 @@ export async function handleFinance(req, res, url) {
       const status = url.searchParams.get('status') || 'pending';
       let query = adminClient
         .from('payment_requests')
-        .select('*, leads(*)')
+        .select('*, leads(*), users!payment_requests_requested_by_fkey(full_name)')
         .order('created_at', { ascending: false });
       if (status !== 'all') query = query.eq('status', status);
       const { data, error } = await query;
       if (error) throw new Error(error.message);
+      console.log('DEBUG API PAYMENTS:', JSON.stringify(data?.[0]?.users));
       sendJson(res, 200, { ok: true, items: data || [] });
       return true;
     }
@@ -93,7 +103,7 @@ export async function handleFinance(req, res, url) {
       const status = url.searchParams.get('status') || 'pending_finance';
       let query = adminClient
         .from('student_topups')
-        .select('*, students(student_code,student_name)')
+        .select('*, students(student_code,student_name), users!student_topups_requested_by_fkey(full_name)')
         .order('created_at', { ascending: false });
       if (status !== 'all') query = query.eq('status', status);
       const { data, error } = await query;
@@ -199,6 +209,33 @@ export async function handleFinance(req, res, url) {
         reason: 'payment verified and student created'
       });
 
+      // Insert receivable entry (total owed) and income entry (amount paid)
+      await adminClient.from('ledger_entries').insert([
+        {
+          entry_date: nowIso().slice(0, 10),
+          entry_type: 'receivable',
+          amount: request.total_amount || request.amount || 0,
+          description: `Receivable: Onboarding Fee — ${student.student_name}`,
+          student_id: student.id,
+          posted_by: actor.userId
+        },
+        {
+          entry_date: nowIso().slice(0, 10),
+          entry_type: 'income',
+          amount: request.amount || 0,
+          description: `Payment Received: ${student.student_name} (Onboarding)`,
+          student_id: student.id,
+          account_id: payload.account_id || null,
+          posted_by: actor.userId
+        }
+      ]);
+
+      if (payload.account_id) {
+        adminClient.from('finance_accounts').select('balance').eq('id', payload.account_id).single().then(({ data: acc }) => {
+          if (acc) adminClient.from('finance_accounts').update({ balance: Number(acc.balance) + Number(request.amount), updated_at: nowIso() }).eq('id', payload.account_id);
+        }).catch(() => { });
+      }
+
       sendJson(res, 200, { ok: true, status: 'verified', student });
       return true;
     }
@@ -273,24 +310,57 @@ export async function handleFinance(req, res, url) {
         .eq('id', requestId);
       if (requestUpdateError) throw new Error(requestUpdateError.message);
 
+      // Insert receivable entry (total owed) and income entry (amount paid)
+      await adminClient.from('ledger_entries').insert([
+        {
+          entry_date: nowIso().slice(0, 10),
+          entry_type: 'receivable',
+          amount: request.total_amount || request.amount || 0,
+          description: `Receivable: Top-Up Fee — ${student.student_name}`,
+          student_id: student.id,
+          posted_by: actor.userId
+        },
+        {
+          entry_date: nowIso().slice(0, 10),
+          entry_type: 'income',
+          amount: request.amount || 0,
+          description: `Payment Received: ${student.student_name} (Top-Up)`,
+          student_id: student.id,
+          account_id: payload.account_id || null,
+          posted_by: actor.userId
+        }
+      ]);
+
+      if (payload.account_id) {
+        adminClient.from('finance_accounts').select('balance').eq('id', payload.account_id).single().then(({ data: acc }) => {
+          if (acc) adminClient.from('finance_accounts').update({ balance: Number(acc.balance) + Number(request.amount), updated_at: nowIso() }).eq('id', payload.account_id);
+        }).catch(() => { });
+      }
+
       sendJson(res, 200, { ok: true, status: 'verified' });
       return true;
     }
 
     // ═══════ FINANCE DASHBOARD STATS ═══════
     if (req.method === 'GET' && url.pathname === '/finance/stats') {
-      const [{ data: income }, { data: expenses }, { data: accounts }, { data: payReqs }, { data: topups }] = await Promise.all([
+      const results = await Promise.all([
         adminClient.from('ledger_entries').select('amount').eq('entry_type', 'income'),
         adminClient.from('expenses').select('amount'),
         adminClient.from('finance_accounts').select('balance'),
         adminClient.from('payment_requests').select('status'),
         adminClient.from('student_topups').select('status')
       ]);
-      const totalIncome = (income || []).reduce((s, r) => s + Number(r.amount || 0), 0);
-      const totalExpenses = (expenses || []).reduce((s, r) => s + Number(r.amount || 0), 0);
-      const totalBalance = (accounts || []).reduce((s, r) => s + Number(r.balance || 0), 0);
-      const pendingPayments = (payReqs || []).filter(r => r.status === 'pending').length;
-      const pendingTopups = (topups || []).filter(r => r.status === 'pending_finance').length;
+      const income = results[0]?.data || [];
+      const expenses = results[1]?.data || [];
+      const accounts = results[2]?.data || [];
+      const payReqs = results[3]?.data || [];
+      const topups = results[4]?.data || [];
+
+      const totalIncome = income.reduce((s, r) => s + Number(r.amount || 0), 0);
+      const totalExpenses = expenses.reduce((s, r) => s + Number(r.amount || 0), 0);
+      const totalBalance = accounts.reduce((s, r) => s + Number(r.balance || 0), 0);
+      const pendingPayments = payReqs.filter(r => r.status === 'pending').length;
+      const pendingTopups = topups.filter(r => r.status === 'pending_finance').length;
       sendJson(res, 200, { ok: true, stats: { totalIncome, totalExpenses, totalBalance, pendingPayments, pendingTopups, netProfit: totalIncome - totalExpenses } });
       return true;
     }
@@ -333,6 +403,130 @@ export async function handleFinance(req, res, url) {
       return true;
     }
 
+    // ═══════ LEDGERS (Parties Redesign) ═══════
+    if (req.method === 'GET' && parts.length === 3 && parts[1] === 'ledgers') {
+      const type = parts[2];
+
+      const getLedgerStats = async (idField, table) => {
+        const [peopleRes, ledgersRes, expensesRes] = await Promise.all([
+          adminClient.from(table).select('*').order('created_at', { ascending: false }),
+          adminClient.from('ledger_entries').select(`${idField}, amount, entry_type`),
+          adminClient.from('expenses').select(`${idField}, amount`)
+        ]);
+
+        const incomeTotals = {};
+        const receivableTotals = {};
+        const payableTotals = {};
+        (ledgersRes.data || []).forEach(l => {
+          if (!l[idField]) return;
+          if (l.entry_type === 'receivable') {
+            receivableTotals[l[idField]] = (receivableTotals[l[idField]] || 0) + Number(l.amount || 0);
+          } else if (l.entry_type === 'payable') {
+            payableTotals[l[idField]] = (payableTotals[l[idField]] || 0) + Number(l.amount || 0);
+          } else {
+            incomeTotals[l[idField]] = (incomeTotals[l[idField]] || 0) + Number(l.amount || 0);
+          }
+        });
+
+        const expenseTotals = {};
+        (expensesRes.data || []).forEach(e => {
+          if (e[idField]) expenseTotals[e[idField]] = (expenseTotals[e[idField]] || 0) + Number(e.amount || 0);
+        });
+
+        return (peopleRes.data || []).map(p => {
+          const income = incomeTotals[p.id] || 0;
+          const receivable = receivableTotals[p.id] || 0;
+          const payable = payableTotals[p.id] || 0;
+          const expense = expenseTotals[p.id] || 0;
+          return {
+            ...p,
+            total_income: income,
+            total_receivable: receivable,
+            total_payable: payable,
+            total_expense: expense,
+            balance: income - expense,
+            outstanding: receivable - income,        // for students: still owed to us
+            balance_owed: payable - expense           // for employees/teachers: we still owe them
+          };
+        });
+      };
+
+      if (type === 'students') {
+        const items = await getLedgerStats('student_id', 'students');
+        sendJson(res, 200, { ok: true, items });
+        return true;
+      }
+      if (type === 'employees') {
+        const items = await getLedgerStats('employee_id', 'employees');
+        sendJson(res, 200, { ok: true, items });
+        return true;
+      }
+      if (type === 'teachers') {
+        // Teachers are in users table with role teacher. Quick way is get all users with teacher role.
+        const { data: role } = await adminClient.from('roles').select('id').eq('code', 'teacher').single();
+        let items = [];
+        if (role) {
+          const { data: userRoles } = await adminClient.from('user_roles').select('user_id').eq('role_id', role.id);
+          const teacherIds = (userRoles || []).map(ur => ur.user_id);
+          if (teacherIds.length > 0) {
+            const [usersRes, ledgersRes, expensesRes] = await Promise.all([
+              adminClient.from('users').select('id, full_name, email, phone').in('id', teacherIds),
+              adminClient.from('ledger_entries').select('teacher_id, amount, entry_type').in('teacher_id', teacherIds),
+              adminClient.from('expenses').select('teacher_id, amount').in('teacher_id', teacherIds)
+            ]);
+            const payableTotals2 = {};
+            const expenseFromLedger = {};
+            (ledgersRes.data || []).forEach(l => {
+              if (!l.teacher_id) return;
+              if (l.entry_type === 'payable') {
+                payableTotals2[l.teacher_id] = (payableTotals2[l.teacher_id] || 0) + Number(l.amount || 0);
+              }
+            });
+            const expenseTotals = {};
+            (expensesRes.data || []).forEach(e => {
+              if (e.teacher_id) expenseTotals[e.teacher_id] = (expenseTotals[e.teacher_id] || 0) + Number(e.amount || 0);
+            });
+            items = (usersRes.data || []).map(u => ({
+              ...u,
+              total_payable: payableTotals2[u.id] || 0,
+              total_paid: expenseTotals[u.id] || 0,
+              balance_owed: (payableTotals2[u.id] || 0) - (expenseTotals[u.id] || 0)
+            }));
+          }
+        }
+        sendJson(res, 200, { ok: true, items });
+        return true;
+      }
+      if (type === 'others') {
+        const items = await getLedgerStats('party_id', 'finance_parties');
+        sendJson(res, 200, { ok: true, items });
+        return true;
+      }
+    }
+
+    if (req.method === 'GET' && parts.length === 4 && parts[1] === 'ledgers') {
+      const type = parts[2];
+      const id = parts[3];
+      const idField = type === 'students' ? 'student_id' : type === 'employees' ? 'employee_id' : type === 'teachers' ? 'teacher_id' : 'party_id';
+
+      const [incomeRes, expenseRes] = await Promise.all([
+        adminClient.from('ledger_entries').select('*').eq(idField, id).order('entry_date', { ascending: false }),
+        adminClient.from('expenses').select('*').eq(idField, id).order('expense_date', { ascending: false })
+      ]);
+
+      const history = [
+        ...(incomeRes.data || []).map(i => ({
+          ...i,
+          __type: i.entry_type === 'receivable' ? 'receivable' : 'income',
+          date: i.entry_date
+        })),
+        ...(expenseRes.data || []).map(e => ({ ...e, __type: 'expense', date: e.expense_date }))
+      ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      sendJson(res, 200, { ok: true, history });
+      return true;
+    }
+
     // ═══════ CATEGORIES ═══════
     if (req.method === 'GET' && url.pathname === '/finance/categories') {
       const type = url.searchParams.get('type');
@@ -368,7 +562,7 @@ export async function handleFinance(req, res, url) {
 
     // ═══════ INCOME (Ledger Entries) ═══════
     if (req.method === 'GET' && url.pathname === '/finance/income') {
-      const { data, error } = await adminClient.from('ledger_entries').select('*, finance_accounts(name), finance_parties(name)')
+      const { data, error } = await adminClient.from('ledger_entries').select('*, finance_accounts(name), finance_parties(name), students(student_name), users!teacher_id(full_name), employees(full_name)')
         .eq('entry_type', 'income').order('entry_date', { ascending: false }).limit(200);
       if (error) throw new Error(error.message);
       sendJson(res, 200, { ok: true, items: data || [] });
@@ -380,7 +574,11 @@ export async function handleFinance(req, res, url) {
       const { data, error } = await adminClient.from('ledger_entries').insert({
         entry_date: payload.entry_date || new Date().toISOString().slice(0, 10),
         entry_type: 'income', amount: payload.amount, description: payload.description || null,
-        account_id: payload.account_id || null, party_id: payload.party_id || null,
+        account_id: payload.account_id || null,
+        party_id: payload.party_id || null,
+        student_id: payload.student_id || null,
+        teacher_id: payload.teacher_id || null,
+        employee_id: payload.employee_id || null,
         reference_type: payload.reference_type || null, posted_by: actor.userId
       }).select('*').single();
       if (error) throw new Error(error.message);
@@ -399,7 +597,7 @@ export async function handleFinance(req, res, url) {
 
     // ═══════ EXPENSES ═══════
     if (req.method === 'GET' && url.pathname === '/finance/expenses') {
-      const { data, error } = await adminClient.from('expenses').select('*, finance_accounts(name), finance_parties(name)')
+      const { data, error } = await adminClient.from('expenses').select('*, finance_accounts(name), finance_parties(name), students(student_name), users!teacher_id(full_name), employees(full_name)')
         .order('expense_date', { ascending: false }).limit(200);
       if (error) throw new Error(error.message);
       sendJson(res, 200, { ok: true, items: data || [] });
@@ -411,7 +609,12 @@ export async function handleFinance(req, res, url) {
       const { data, error } = await adminClient.from('expenses').insert({
         expense_date: payload.expense_date || new Date().toISOString().slice(0, 10),
         category: payload.category, amount: payload.amount, description: payload.description || null,
-        account_id: payload.account_id || null, party_id: payload.party_id || null, created_by: actor.userId
+        account_id: payload.account_id || null,
+        party_id: payload.party_id || null,
+        student_id: payload.student_id || null,
+        teacher_id: payload.teacher_id || null,
+        employee_id: payload.employee_id || null,
+        created_by: actor.userId
       }).select('*').single();
       if (error) throw new Error(error.message);
       // Update account balance
@@ -424,84 +627,241 @@ export async function handleFinance(req, res, url) {
       return true;
     }
 
-    // ═══════ PAYROLL ═══════
-    if (req.method === 'GET' && url.pathname === '/finance/payroll') {
-      const { data, error } = await adminClient.from('payroll_monthly_cycles').select('*').order('year', { ascending: false }).order('month', { ascending: false });
+    // ═══════ HR PAYROLL REQUESTS (View and Pay) ═══════
+    if (req.method === 'GET' && url.pathname === '/finance/hr-payment-requests') {
+      const { data, error } = await adminClient
+        .from('hr_payment_requests')
+        .select('*, hr_payroll_cycles(year, month, status, total_amount), users!hr_payment_requests_requested_by_fkey(full_name)')
+        .order('created_at', { ascending: false });
       if (error) throw new Error(error.message);
       sendJson(res, 200, { ok: true, items: data || [] });
       return true;
     }
-    if (req.method === 'POST' && url.pathname === '/finance/payroll') {
-      const payload = await readJson(req);
-      if (!payload.year || !payload.month) { sendJson(res, 400, { ok: false, error: 'year and month required' }); return true; }
-      const startDate = `${payload.year}-${String(payload.month).padStart(2, '0')}-01`;
-      const endDate = new Date(payload.year, payload.month, 0).toISOString().slice(0, 10);
-      const { data, error } = await adminClient.from('payroll_monthly_cycles').insert({
-        year: payload.year, month: payload.month, start_date: startDate, end_date: endDate, status: 'draft'
-      }).select('*').single();
-      if (error) throw new Error(error.message);
-      sendJson(res, 201, { ok: true, cycle: data });
-      return true;
-    }
-    if (req.method === 'GET' && parts.length === 3 && parts[1] === 'payroll' && parts[2] !== 'generate') {
+
+    if (req.method === 'GET' && parts.length === 3 && parts[1] === 'hr-payroll') {
       const cycleId = parts[2];
-      const { data, error } = await adminClient.from('payroll_items').select('*, users(id,full_name,email)')
-        .eq('cycle_id', cycleId).order('amount', { ascending: false });
+      const { data, error } = await adminClient
+        .from('hr_payroll_items')
+        .select('*, employees(id, full_name, designation, department)')
+        .eq('cycle_id', cycleId)
+        .order('net_salary', { ascending: false });
       if (error) throw new Error(error.message);
       sendJson(res, 200, { ok: true, items: data || [] });
       return true;
     }
-    if (req.method === 'POST' && parts.length === 3 && parts[1] === 'payroll' && parts[2] === 'generate') {
+
+    if (req.method === 'POST' && parts.length === 4 && parts[1] === 'hr-payment-requests' && parts[3] === 'pay') {
+      const requestId = parts[2];
       const payload = await readJson(req);
-      if (!payload.cycle_id) { sendJson(res, 400, { ok: false, error: 'cycle_id required' }); return true; }
+      if (!payload.account_id) { sendJson(res, 400, { ok: false, error: 'account_id required' }); return true; }
 
-      const { data: cycle } = await adminClient.from('payroll_monthly_cycles').select('*').eq('id', payload.cycle_id).single();
-      if (!cycle) { sendJson(res, 404, { ok: false, error: 'cycle not found' }); return true; }
+      // Get hr_payment_request
+      const { data: request, error: reqError } = await adminClient.from('hr_payment_requests').select('*').eq('id', requestId).single();
+      if (reqError || !request) { sendJson(res, 404, { ok: false, error: 'request not found' }); return true; }
+      if (request.status === 'paid') { sendJson(res, 400, { ok: false, error: 'already paid' }); return true; }
 
-      // Get all verified sessions in date range
-      const { data: sessions } = await adminClient.from('academic_sessions')
-        .select('teacher_id, duration_hours')
-        .gte('session_date', cycle.start_date).lte('session_date', cycle.end_date);
-
-      // Get teacher profiles for rates
-      const { data: teachers } = await adminClient.from('teacher_profiles').select('user_id, per_hour_rate');
-      const rateMap = {};
-      (teachers || []).forEach(t => { rateMap[t.user_id] = Number(t.per_hour_rate || 0); });
-
-      // Aggregate hours by teacher
-      const hoursMap = {};
-      (sessions || []).forEach(s => {
-        hoursMap[s.teacher_id] = (hoursMap[s.teacher_id] || 0) + Number(s.duration_hours || 0);
-      });
-
-      // Delete existing items for this cycle
-      await adminClient.from('payroll_items').delete().eq('cycle_id', payload.cycle_id);
-
-      // Insert payroll items
-      const items = Object.entries(hoursMap).map(([teacherId, hours]) => ({
-        cycle_id: payload.cycle_id, teacher_id: teacherId,
-        verified_hours: hours, rate_per_hour: rateMap[teacherId] || 0,
-        amount: hours * (rateMap[teacherId] || 0), adjustment_amount: 0
-      }));
-
-      if (items.length > 0) {
-        const { error: insertError } = await adminClient.from('payroll_items').insert(items);
-        if (insertError) throw new Error(insertError.message);
+      // Update account balance
+      const { data: acc } = await adminClient.from('finance_accounts').select('balance').eq('id', payload.account_id).single();
+      if (acc) {
+        await adminClient.from('finance_accounts').update({ balance: Number(acc.balance) - Number(request.total_amount), updated_at: nowIso() }).eq('id', payload.account_id);
       }
 
-      sendJson(res, 200, { ok: true, count: items.length });
+      // Mark HR payment request as paid
+      await adminClient.from('hr_payment_requests').update({ status: 'paid', updated_at: nowIso() }).eq('id', requestId);
+
+      // Mark payroll cycle as paid
+      await adminClient.from('hr_payroll_cycles').update({ status: 'paid', paid_at: nowIso(), updated_at: nowIso() }).eq('id', request.cycle_id);
+
+      // Get payroll items to insert into expenses linking to employees
+      const { data: payrollItems } = await adminClient.from('hr_payroll_items').select('*').eq('cycle_id', request.cycle_id);
+      if (payrollItems && payrollItems.length > 0) {
+        const expenses = payrollItems.map(item => ({
+          expense_date: nowIso().slice(0, 10),
+          category: 'salary',
+          amount: item.net_salary,
+          description: `Payroll for Cycle ${request.cycle_id}`,
+          account_id: payload.account_id,
+          employee_id: item.employee_id,
+          created_by: actor.userId
+        }));
+        await adminClient.from('expenses').insert(expenses);
+      }
+
+      sendJson(res, 200, { ok: true, status: 'paid' });
       return true;
     }
-    if (req.method === 'PATCH' && parts.length === 3 && parts[1] === 'payroll') {
-      const cycleId = parts[2];
+
+
+
+    // ═══════ PENDING INSTALLMENTS ═══════
+    if (req.method === 'GET' && url.pathname === '/finance/pending-balances') {
+      try {
+        const [payRes, topupRes] = await Promise.all([
+          adminClient.from('payment_requests').select('*, leads(student_name, contact_number)').eq('status', 'verified'),
+          adminClient.from('student_topups').select('*, students(student_name, student_code)').eq('status', 'verified')
+        ]);
+
+        const pendingPayments = (payRes.data || []).filter(p => Number(p.total_amount || 0) > Number(p.amount || 0)).map(p => ({
+          ...p,
+          _type: 'payment_request',
+          remaining_amount: Number(p.total_amount || 0) - Number(p.amount || 0)
+        }));
+
+        const pendingTopups = (topupRes.data || []).filter(t => Number(t.total_amount || 0) > Number(t.amount || 0)).map(t => ({
+          ...t,
+          _type: 'student_topup',
+          remaining_amount: Number(t.total_amount || 0) - Number(t.amount || 0)
+        }));
+
+        sendJson(res, 200, { ok: true, items: [...pendingPayments, ...pendingTopups].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) });
+        return true;
+      } catch (err) {
+        throw new Error(err.message);
+      }
+    }
+
+    if (req.method === 'POST' && url.pathname === '/finance/installments') {
       const payload = await readJson(req);
-      const updates = { approved_by: actor.userId };
-      if (payload.status) updates.status = payload.status;
-      if (payload.status === 'approved') updates.approved_at = nowIso();
-      if (payload.status === 'paid') updates.paid_at = nowIso();
-      const { data, error } = await adminClient.from('payroll_monthly_cycles').update(updates).eq('id', cycleId).select('*').single();
+      if (!payload.reference_type || !payload.reference_id || !payload.amount) {
+        sendJson(res, 400, { ok: false, error: 'reference_type, reference_id, and amount required' });
+        return true;
+      }
+
+      const { data, error } = await adminClient.from('installment_payments').insert({
+        reference_type: payload.reference_type,
+        reference_id: payload.reference_id,
+        amount: Number(payload.amount),
+        finance_note: payload.finance_note || null,
+        screenshot_url: payload.screenshot_url || null,
+        status: 'pending',
+        created_by: actor.userId
+      }).select('*').single();
+
       if (error) throw new Error(error.message);
-      sendJson(res, 200, { ok: true, cycle: data });
+      sendJson(res, 201, { ok: true, item: data });
+      return true;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/finance/my-installments') {
+      const { data, error } = await adminClient
+        .from('installment_payments')
+        .select('*')
+        .eq('created_by', actor.userId)
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(error.message);
+
+      // Stitch parent data
+      const items = await Promise.all((data || []).map(async (inst) => {
+        let studentName = '—';
+        if (inst.reference_type === 'payment_request') {
+          const { data: p } = await adminClient.from('payment_requests').select('leads(student_name)').eq('id', inst.reference_id).single();
+          studentName = p?.leads?.student_name || '—';
+        } else if (inst.reference_type === 'student_topup') {
+          const { data: t } = await adminClient.from('student_topups').select('students(student_name)').eq('id', inst.reference_id).single();
+          studentName = t?.students?.student_name || '—';
+        }
+        return { ...inst, student_name: studentName };
+      }));
+
+      sendJson(res, 200, { ok: true, items });
+      return true;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/finance/installments') {
+      const status = url.searchParams.get('status') || 'pending';
+      let query = adminClient
+        .from('installment_payments')
+        .select('*, users!installment_payments_created_by_fkey(full_name)')
+        .order('created_at', { ascending: false });
+
+      if (status !== 'all') query = query.eq('status', status);
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+
+      // Stitch parent data
+      const items = await Promise.all((data || []).map(async (inst) => {
+        let parent = null;
+        if (inst.reference_type === 'payment_request') {
+          const { data: p } = await adminClient.from('payment_requests').select('*, leads(student_name, contact_number)').eq('id', inst.reference_id).single();
+          parent = p;
+        } else if (inst.reference_type === 'student_topup') {
+          const { data: t } = await adminClient.from('student_topups').select('*, students(student_name, student_code)').eq('id', inst.reference_id).single();
+          parent = t;
+        }
+        return { ...inst, parent };
+      }));
+
+      sendJson(res, 200, { ok: true, items });
+      return true;
+    }
+
+    if (req.method === 'POST' && parts.length === 4 && parts[1] === 'installments' && parts[3] === 'verify') {
+      const instId = parts[2];
+      const payload = await readJson(req);
+
+      if (payload.approved === false) {
+        await adminClient.from('installment_payments').update({
+          status: 'rejected', finance_note: payload.finance_note || null, verified_by: actor.userId, verified_at: nowIso(), updated_at: nowIso()
+        }).eq('id', instId);
+        sendJson(res, 200, { ok: true, status: 'rejected' });
+        return true;
+      }
+
+      if (!payload.account_id) {
+        sendJson(res, 400, { ok: false, error: 'account_id required to verify' });
+        return true;
+      }
+
+      const { data: inst, error: instErr } = await adminClient.from('installment_payments').select('*').eq('id', instId).single();
+      if (instErr || !inst) throw new Error(instErr?.message || 'Installment not found');
+      if (inst.status !== 'pending') {
+        sendJson(res, 400, { ok: false, error: 'Installment already processed' });
+        return true;
+      }
+
+      let studentId = null;
+      let studentName = 'Unknown';
+      let table = inst.reference_type === 'payment_request' ? 'payment_requests' : 'student_topups';
+
+      const { data: parent } = await adminClient.from(table).select('*').eq('id', inst.reference_id).single();
+      if (!parent) throw new Error('Parent record not found');
+
+      if (inst.reference_type === 'payment_request') {
+        const { data: lead } = await adminClient.from('leads').select('student_name, joined_student_id').eq('id', parent.lead_id).single();
+        if (lead) { studentId = lead.joined_student_id; studentName = lead.student_name; }
+      } else {
+        studentId = parent.student_id;
+        const { data: st } = await adminClient.from('students').select('student_name').eq('id', studentId).single();
+        if (st) studentName = st.student_name;
+      }
+
+      // Update Parent Paid Amount
+      await adminClient.from(table).update({ amount: Number(parent.amount || 0) + Number(inst.amount) }).eq('id', parent.id);
+
+      // Verify Installment
+      await adminClient.from('installment_payments').update({
+        status: 'verified', account_id: payload.account_id, finance_note: payload.finance_note || null,
+        verified_by: actor.userId, verified_at: nowIso(), updated_at: nowIso()
+      }).eq('id', instId);
+
+      // Add to Ledger
+      await adminClient.from('ledger_entries').insert({
+        entry_date: nowIso().slice(0, 10),
+        entry_type: 'income',
+        amount: inst.amount,
+        description: `Installment Payment: ${studentName}`,
+        student_id: studentId,
+        account_id: payload.account_id,
+        posted_by: actor.userId
+      });
+
+      // Update Bank Balance
+      const { data: acc } = await adminClient.from('finance_accounts').select('balance').eq('id', payload.account_id).single();
+      if (acc) {
+        await adminClient.from('finance_accounts').update({ balance: Number(acc.balance) + Number(inst.amount), updated_at: nowIso() }).eq('id', payload.account_id);
+      }
+
+      sendJson(res, 200, { ok: true, status: 'verified' });
       return true;
     }
 
