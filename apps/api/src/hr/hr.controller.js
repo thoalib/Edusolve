@@ -1,5 +1,6 @@
 import { getSupabaseAdminClient } from '../config/supabase.js';
 import { readJson, sendJson } from '../common/http.js';
+import { calculateAllTeacherSalaries } from './salary.service.js';
 
 const nowIso = () => new Date().toISOString();
 
@@ -210,6 +211,149 @@ export async function handleHR(req, res, url) {
       return true;
     }
 
+    // ═══════ MONTHLY ATTENDANCE REPORT ═══════
+    if (req.method === 'GET' && url.pathname === '/hr/attendance/report') {
+      const year = parseInt(url.searchParams.get('year') || new Date().getFullYear(), 10);
+      const month = parseInt(url.searchParams.get('month') || (new Date().getMonth() + 1), 10);
+      
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const endDate = new Date(year, month, 0).toISOString().slice(0, 10);
+
+      // Get all active employees
+      const { data: employees } = await adminClient
+        .from('employees')
+        .select('id, full_name, designation, department, employee_type')
+        .eq('is_active', true)
+        .order('full_name');
+
+      // Get attendance records for the month
+      const { data: attendance } = await adminClient
+        .from('attendance_records')
+        .select('employee_id, status')
+        .gte('attendance_date', startDate)
+        .lte('attendance_date', endDate);
+
+      // Aggregate attendance per employee
+      const attendanceMap = {};
+      (attendance || []).forEach(a => {
+        if (!attendanceMap[a.employee_id]) {
+          attendanceMap[a.employee_id] = { present: 0, absent: 0, half_day: 0 };
+        }
+        if (a.status !== 'leave') {
+           attendanceMap[a.employee_id][a.status]++;
+        }
+      });
+
+      // Merge
+      const report = (employees || []).map(emp => ({
+        ...emp,
+        report: attendanceMap[emp.id] || { present: 0, absent: 0, half_day: 0 }
+      }));
+
+      sendJson(res, 200, { ok: true, year, month, items: report });
+      return true;
+    }
+
+    // ═══════ TEACHER SALARY REPORT ═══════
+    if (req.method === 'GET' && url.pathname === '/hr/teachers/salary-report') {
+      const year = parseInt(url.searchParams.get('year') || new Date().getFullYear(), 10);
+      const month = parseInt(url.searchParams.get('month') || (new Date().getMonth() + 1), 10);
+
+      const report = await calculateAllTeacherSalaries(month, year);
+      sendJson(res, 200, { ok: true, year, month, items: report });
+      return true;
+    }
+
+    // ═══════ TEACHER SALARY DETAIL (per-session breakdown) ═══════
+    const salaryDetailMatch = url.pathname.match(/^\/hr\/teachers\/([^/]+)\/salary-detail$/);
+    if (req.method === 'GET' && salaryDetailMatch) {
+      const teacherUserId = salaryDetailMatch[1];
+      const year = parseInt(url.searchParams.get('year') || new Date().getFullYear(), 10);
+      const month = parseInt(url.searchParams.get('month') || (new Date().getMonth() + 1), 10);
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const endDate = new Date(year, month, 0).toISOString().slice(0, 10);
+
+      // Fetch teacher profile
+      const { data: teacher, error: tErr } = await adminClient
+        .from('teacher_profiles')
+        .select('*, users!teacher_profiles_user_id_fkey(id, email, full_name)')
+        .eq('user_id', teacherUserId)
+        .maybeSingle();
+      if (tErr) throw new Error(tErr.message);
+      if (!teacher) { sendJson(res, 404, { ok: false, error: 'teacher not found' }); return true; }
+
+      // Fetch approved sessions with student info
+      const { data: verifications, error: vErr } = await adminClient
+        .from('session_verifications')
+        .select('session_id, status, verified_at, academic_sessions!inner(id, teacher_id, duration_hours, session_date, subject, status, students(student_name, class_level, board))')
+        .eq('type', 'approval')
+        .eq('status', 'approved');
+      if (vErr) throw new Error(vErr.message);
+
+      const { getRate, classToLevel, getRateConfig } = await import('./salary.service.js');
+      const config = await getRateConfig();
+
+      const sessions = [];
+      (verifications || []).forEach(sv => {
+        const sess = sv.academic_sessions;
+        if (!sess || sess.teacher_id !== teacherUserId) return;
+        if (sess.session_date < startDate || sess.session_date > endDate) return;
+
+        const level = classToLevel(sess.students?.class_level);
+        const studentBoard = sess.students?.board || '';
+        const rate = getRate(teacher, studentBoard, sess.subject, level, config);
+        const hours = Number(sess.duration_hours || 0);
+
+        sessions.push({
+          session_id: sess.id,
+          session_date: sess.session_date,
+          student_name: sess.students?.student_name || 'Unknown',
+          class_level: sess.students?.class_level || '',
+          board: sess.students?.board || '',
+          salary_level: level,
+          subject: sess.subject || 'Not Set',
+          duration_hours: hours,
+          rate_applied: rate,
+          amount: Math.round(hours * rate * 100) / 100,
+          verification_status: sv.status,
+          verified_at: sv.verified_at
+        });
+      });
+
+      sessions.sort((a, b) => a.session_date.localeCompare(b.session_date));
+
+      sendJson(res, 200, {
+        ok: true,
+        teacher: {
+          id: teacher.id,
+          user_id: teacher.user_id,
+          full_name: teacher.users?.full_name || 'Unknown',
+          teacher_code: teacher.teacher_code,
+          experience_level: teacher.experience_level || 'fresher',
+          custom_rates: teacher.custom_rates || {}
+        },
+        sessions,
+        year, month
+      });
+      return true;
+    }
+
+    // ═══════ UPDATE TEACHER CUSTOM RATES ═══════
+    const customRatesMatch = url.pathname.match(/^\/hr\/teachers\/([^/]+)\/custom-rates$/);
+    if (req.method === 'PUT' && customRatesMatch) {
+      const teacherUserId = customRatesMatch[1];
+      const payload = await readJson(req);
+
+      const { error } = await adminClient
+        .from('teacher_profiles')
+        .update({ custom_rates: payload.custom_rates || {}, updated_at: nowIso() })
+        .eq('user_id', teacherUserId);
+
+      if (error) throw new Error(error.message);
+      sendJson(res, 200, { ok: true });
+      return true;
+    }
+
     // ═══════ SALARY STRUCTURES ═══════
     if (req.method === 'GET' && url.pathname === '/hr/salary-structures') {
       const { data, error } = await adminClient
@@ -251,265 +395,283 @@ export async function handleHR(req, res, url) {
       return true;
     }
 
-    // ═══════ HR PAYROLL ═══════
-    if (req.method === 'GET' && url.pathname === '/hr/payroll') {
+    // ═══════ MASTER SALARY RATE CONFIG ═══════
+    if (req.method === 'GET' && url.pathname === '/hr/salary-rate-config') {
       const { data, error } = await adminClient
-        .from('hr_payroll_cycles')
+        .from('salary_rate_config')
         .select('*')
-        .order('year', { ascending: false })
-        .order('month', { ascending: false });
+        .order('board')
+        .order('subject_key')
+        .order('experience_category')
+        .order('level');
       if (error) throw new Error(error.message);
       sendJson(res, 200, { ok: true, items: data || [] });
       return true;
     }
 
-    if (req.method === 'POST' && url.pathname === '/hr/payroll') {
+    if (req.method === 'PUT' && url.pathname === '/hr/salary-rate-config') {
       const payload = await readJson(req);
-      if (!payload.year || !payload.month) {
-        sendJson(res, 400, { ok: false, error: 'year and month are required' });
+      if (!Array.isArray(payload.items)) {
+        sendJson(res, 400, { ok: false, error: 'items array is required' });
         return true;
       }
-      const startDate = `${payload.year}-${String(payload.month).padStart(2, '0')}-01`;
-      const endDate = new Date(payload.year, payload.month, 0).toISOString().slice(0, 10);
+      
+      // We will clear existing and insert new to easily handle replacements
+      const { error: delErr } = await adminClient.from('salary_rate_config').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      if (delErr) throw new Error(delErr.message);
 
-      // Resolve user for FK
-      let resolvedUserId = null;
-      if (actor.userId && actor.userId !== 'dev-user') {
-        const { data: userRow } = await adminClient.from('users').select('id').eq('id', actor.userId).maybeSingle();
-        if (userRow) resolvedUserId = userRow.id;
-      }
-
-      const { data, error } = await adminClient.from('hr_payroll_cycles').insert({
-        year: payload.year,
-        month: payload.month,
-        start_date: startDate,
-        end_date: endDate,
-        status: 'draft',
-        created_by: resolvedUserId
-      }).select('*').single();
-      if (error) throw new Error(error.message);
-      sendJson(res, 201, { ok: true, cycle: data });
-      return true;
-    }
-
-    // View payroll items for a cycle
-    if (req.method === 'GET' && parts.length === 3 && parts[1] === 'payroll' && parts[2] !== 'generate') {
-      const cycleId = parts[2];
-      const { data, error } = await adminClient
-        .from('hr_payroll_items')
-        .select('*, employees(id, full_name, designation, department)')
-        .eq('cycle_id', cycleId)
-        .order('net_salary', { ascending: false });
-      if (error) throw new Error(error.message);
-      sendJson(res, 200, { ok: true, items: data || [] });
-      return true;
-    }
-
-    // Generate payroll from attendance + salary structures
-    if (req.method === 'POST' && url.pathname === '/hr/payroll/generate') {
-      const payload = await readJson(req);
-      if (!payload.cycle_id) {
-        sendJson(res, 400, { ok: false, error: 'cycle_id is required' });
-        return true;
-      }
-
-      const { data: cycle } = await adminClient
-        .from('hr_payroll_cycles')
-        .select('*')
-        .eq('id', payload.cycle_id)
-        .single();
-      if (!cycle) {
-        sendJson(res, 404, { ok: false, error: 'cycle not found' });
-        return true;
-      }
-
-      // Get all active employees
-      const { data: employees } = await adminClient
-        .from('employees')
-        .select('id')
-        .eq('is_active', true);
-
-      // Get salary structures
-      const { data: salaries } = await adminClient
-        .from('salary_structures')
-        .select('*');
-      const salaryMap = {};
-      (salaries || []).forEach(s => { salaryMap[s.employee_id] = s; });
-
-      // Get attendance records for the cycle period
-      const { data: attendance } = await adminClient
-        .from('attendance_records')
-        .select('employee_id, status')
-        .gte('attendance_date', cycle.start_date)
-        .lte('attendance_date', cycle.end_date);
-
-      // Calculate working days in the month
-      const start = new Date(cycle.start_date);
-      const end = new Date(cycle.end_date);
-      let workingDays = 0;
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const day = d.getDay();
-        if (day !== 0) workingDays++; // Exclude Sundays
-      }
-
-      // Aggregate attendance per employee
-      const attendanceMap = {};
-      (attendance || []).forEach(a => {
-        if (!attendanceMap[a.employee_id]) {
-          attendanceMap[a.employee_id] = { present: 0, absent: 0, half_day: 0, leave: 0 };
-        }
-        attendanceMap[a.employee_id][a.status]++;
-      });
-
-      // Delete existing items for this cycle
-      await adminClient.from('hr_payroll_items').delete().eq('cycle_id', payload.cycle_id);
-
-      // Build payroll items
-      let totalAmount = 0;
-      const items = (employees || []).map(emp => {
-        const sal = salaryMap[emp.id];
-        const att = attendanceMap[emp.id] || { present: 0, absent: 0, half_day: 0, leave: 0 };
-
-        const baseSalary = sal ? Number(sal.base_salary) : 0;
-        const totalAllowances = sal ? Number(sal.hra) + Number(sal.transport_allowance) + Number(sal.other_allowance) : 0;
-        const totalDeductions = sal ? Number(sal.pf_deduction) + Number(sal.tax_deduction) + Number(sal.other_deduction) : 0;
-        const grossSalary = baseSalary + totalAllowances;
-
-        // Pro-rate: effective days = present + half_day*0.5, out of working days
-        const effectiveDays = att.present + (att.half_day * 0.5);
-        const proRatedGross = workingDays > 0 ? (grossSalary * effectiveDays / workingDays) : 0;
-        const netSalary = Math.round((proRatedGross - totalDeductions) * 100) / 100;
-
-        totalAmount += Math.max(netSalary, 0);
-
-        return {
-          cycle_id: payload.cycle_id,
-          employee_id: emp.id,
-          working_days: workingDays,
-          present_days: att.present,
-          half_days: att.half_day,
-          leave_days: att.leave,
-          absent_days: att.absent,
-          base_salary: baseSalary,
-          total_allowances: totalAllowances,
-          total_deductions: totalDeductions,
-          net_salary: Math.max(netSalary, 0),
-          adjustment: 0
-        };
-      });
-
-      if (items.length > 0) {
-        const { error: insertError } = await adminClient.from('hr_payroll_items').insert(items);
-        if (insertError) throw new Error(insertError.message);
-      }
-
-      // Update cycle total
-      await adminClient.from('hr_payroll_cycles').update({
-        total_amount: Math.round(totalAmount * 100) / 100,
+      const itemsToInsert = payload.items.map(item => ({
+        board: item.board,
+        experience_category: item.experience_category,
+        subject_key: item.subject_key,
+        level: item.level,
+        rate: item.rate,
         updated_at: nowIso()
-      }).eq('id', payload.cycle_id);
+      }));
 
-      sendJson(res, 200, { ok: true, count: items.length, totalAmount: Math.round(totalAmount * 100) / 100 });
+      if (itemsToInsert.length > 0) {
+        const { error: insErr } = await adminClient.from('salary_rate_config').insert(itemsToInsert);
+        if (insErr) throw new Error(insErr.message);
+      }
+
+      sendJson(res, 200, { ok: true });
       return true;
     }
 
-    // Update payroll cycle status
-    if (req.method === 'PATCH' && parts.length === 3 && parts[1] === 'payroll') {
-      const cycleId = parts[2];
+    // ═══════ PER-PERSON SALARY SUBMISSION ═══════
+    // -- 1. Teacher Salary Submission --
+    if (req.method === 'POST' && url.pathname === '/hr/payment-requests/teacher') {
       const payload = await readJson(req);
-      const updates = { updated_at: nowIso() };
-      if (payload.status) updates.status = payload.status;
-      if (payload.status === 'submitted') updates.submitted_at = nowIso();
-      if (payload.notes !== undefined) updates.notes = payload.notes;
+      if (!payload.teacherUserId || !payload.year || !payload.month) {
+        sendJson(res, 400, { ok: false, error: 'teacherUserId, year, and month required' });
+        return true;
+      }
+      
+      const { calculateAllTeacherSalaries } = await import('./salary.service.js');
+      const report = await calculateAllTeacherSalaries(payload.month, payload.year);
+      const teacherData = report.find(t => t.user_id === payload.teacherUserId || t.id === payload.teacherUserId);
+      if (!teacherData) { 
+        sendJson(res, 404, { ok: false, error: 'Teacher data not found or no sessions.' }); 
+        return true; 
+      }
 
-      const { data, error } = await adminClient
-        .from('hr_payroll_cycles')
-        .update(updates)
-        .eq('id', cycleId)
-        .select('*')
-        .single();
-      if (error) throw new Error(error.message);
-      sendJson(res, 200, { ok: true, cycle: data });
-      return true;
-    }
-
-    // ═══════ HR PAYMENT REQUESTS ═══════
-    if (req.method === 'GET' && url.pathname === '/hr/payment-requests') {
-      const { data, error } = await adminClient
+      // Check if already submitted
+      const { data: existing } = await adminClient
         .from('hr_payment_requests')
-        .select('*, hr_payroll_cycles(year, month, status, total_amount)')
-        .order('created_at', { ascending: false });
-      if (error) throw new Error(error.message);
-      sendJson(res, 200, { ok: true, items: data || [] });
-      return true;
-    }
+        .select('id')
+        .eq('teacher_id', teacherData.id)
+        .eq('year', payload.year)
+        .eq('month', payload.month)
+        .maybeSingle();
 
-    if (req.method === 'POST' && url.pathname === '/hr/payment-requests') {
-      const payload = await readJson(req);
-      if (!payload.cycle_id) {
-        sendJson(res, 400, { ok: false, error: 'cycle_id is required' });
-        return true;
+      if (existing) { 
+        sendJson(res, 400, { ok: false, error: 'Payment request already exists for this month.' }); 
+        return true; 
       }
 
-      // Get cycle info
-      const { data: cycle } = await adminClient
-        .from('hr_payroll_cycles')
-        .select('*')
-        .eq('id', payload.cycle_id)
-        .single();
-      if (!cycle) {
-        sendJson(res, 404, { ok: false, error: 'payroll cycle not found' });
-        return true;
-      }
+      const totalAmount = teacherData.total_salary;
+      const adjustment = Number(payload.adjustment) || 0;
+      const finalAmount = Math.max(0, totalAmount + adjustment);
 
-      // Mark cycle as submitted
-      await adminClient.from('hr_payroll_cycles').update({
-        status: 'submitted',
-        submitted_at: nowIso(),
-        updated_at: nowIso()
-      }).eq('id', payload.cycle_id);
-
-      // Resolve user for FK
       let resolvedUserId2 = null;
       if (actor.userId && actor.userId !== 'dev-user') {
         const { data: userRow } = await adminClient.from('users').select('id').eq('id', actor.userId).maybeSingle();
         if (userRow) resolvedUserId2 = userRow.id;
       }
 
-      // Create payment request
       const { data, error } = await adminClient.from('hr_payment_requests').insert({
-        cycle_id: payload.cycle_id,
-        total_amount: cycle.total_amount,
+        teacher_id: teacherData.id,
+        target_type: 'teacher',
+        total_amount: finalAmount,
+        year: payload.year,        
+        month: payload.month,        
         status: 'pending',
-        requested_by: resolvedUserId2
+        requested_by: resolvedUserId2,
+        hr_note: payload.hr_note || null,
+        breakdown: {
+          base_calculated: totalAmount,
+          adjustment,
+          details: { 
+            total_hours: teacherData.total_hours, 
+            breakdown_by_subject: teacherData.breakdown_by_subject, 
+            breakdown_by_level: teacherData.breakdown_by_level 
+          }
+        }
       }).select('*').single();
+
       if (error) throw new Error(error.message);
 
-      // Insert per-employee payable ledger entries (what we owe them)
-      const { data: payrollItems } = await adminClient
-        .from('hr_payroll_items')
-        .select('employee_id, net_salary')
-        .eq('cycle_id', payload.cycle_id);
-
-      if (payrollItems && payrollItems.length > 0) {
-        const payableEntries = payrollItems
-          .filter(item => Number(item.net_salary) > 0)
-          .map(item => ({
+      if (finalAmount > 0) {
+        await adminClient.from('ledger_entries').insert([{
             entry_date: new Date().toISOString().slice(0, 10),
             entry_type: 'payable',
-            amount: item.net_salary,
-            description: `Salary Payable — ${cycle.year}/${String(cycle.month).padStart(2, '0')}`,
-            employee_id: item.employee_id,
+            amount: finalAmount,
+            description: `Salary Payable (Teacher) — ${payload.year}/${String(payload.month).padStart(2, '0')}`,
+            teacher_id: teacherData.id,
             posted_by: resolvedUserId2
-          }));
-        if (payableEntries.length > 0) {
-          await adminClient.from('ledger_entries').insert(payableEntries);
-        }
+        }]);
       }
-
       sendJson(res, 201, { ok: true, request: data });
       return true;
     }
+
+    // -- 2. Employee Salary Submission --
+    if (req.method === 'POST' && url.pathname === '/hr/payment-requests/employee') {
+      const payload = await readJson(req);
+      if (!payload.employeeId || !payload.year || !payload.month) {
+        sendJson(res, 400, { ok: false, error: 'employeeId, year, and month required' });
+        return true;
+      }
+
+      const { data: existing } = await adminClient
+        .from('hr_payment_requests')
+        .select('id')
+        .eq('employee_id', payload.employeeId)
+        .eq('year', payload.year)
+        .eq('month', payload.month)
+        .maybeSingle();
+
+      if (existing) { 
+        sendJson(res, 400, { ok: false, error: 'Payment request already exists for this month.' }); 
+        return true; 
+      }
+
+      const startDate = `${payload.year}-${String(payload.month).padStart(2, '0')}-01`;
+      const endDate = new Date(payload.year, payload.month, 0).toISOString().slice(0, 10);
+
+      const [salRes, attRes] = await Promise.all([
+        adminClient.from('salary_structures').select('*').eq('employee_id', payload.employeeId).maybeSingle(),
+        adminClient.from('attendance_records').select('status').eq('employee_id', payload.employeeId).gte('attendance_date', startDate).lte('attendance_date', endDate)
+      ]);      
+
+      const sal = salRes.data;
+      const attList = attRes.data || [];
+
+      let workingDays = 0;
+      for (let d = new Date(startDate); d <= new Date(endDate); d.setDate(d.getDate() + 1)) {
+        if (d.getDay() !== 0) workingDays++;
+      }
+
+      let present = 0, half_day = 0;
+      attList.forEach(a => {
+        if (a.status === 'present') present++;
+        else if (a.status === 'half_day') half_day++;
+      });
+
+      const baseSalary = sal ? Number(sal.base_salary) : 0;
+      const totalAllowances = sal ? Number(sal.hra) + Number(sal.transport_allowance) + Number(sal.other_allowance) : 0;
+      const totalDeductions = sal ? Number(sal.pf_deduction) + Number(sal.tax_deduction) + Number(sal.other_deduction) : 0;
+      const grossSalary = baseSalary + totalAllowances;
+
+      const effectiveDays = present + (half_day * 0.5);
+      const proRatedGross = workingDays > 0 ? (grossSalary * effectiveDays / workingDays) : 0;
+      const calcNet = Math.round((proRatedGross - totalDeductions) * 100) / 100;
+      
+      const adjustment = Number(payload.adjustment) || 0;
+      const finalAmount = Math.max(0, calcNet + adjustment);
+
+      let resolvedUserId2 = null;
+      if (actor.userId && actor.userId !== 'dev-user') {
+        const { data: userRow } = await adminClient.from('users').select('id').eq('id', actor.userId).maybeSingle();
+        if (userRow) resolvedUserId2 = userRow.id;
+      }
+
+      const { data, error } = await adminClient.from('hr_payment_requests').insert({
+        employee_id: payload.employeeId,
+        target_type: 'employee',
+        year: payload.year,
+        month: payload.month,
+        total_amount: finalAmount,
+        status: 'pending',
+        requested_by: resolvedUserId2,
+        hr_note: payload.hr_note || null,
+        breakdown: {
+          base_calculated: calcNet,
+          adjustment,
+          details: { 
+            working_days: workingDays, 
+            present_days: present, 
+            half_days: half_day, 
+            base_salary: baseSalary, 
+            total_allowances: totalAllowances, 
+            total_deductions: totalDeductions 
+          }
+        }
+      }).select('*').single();
+
+      if (error) throw new Error(error.message);
+
+      if (finalAmount > 0) {
+        await adminClient.from('ledger_entries').insert([{
+            entry_date: new Date().toISOString().slice(0, 10),
+            entry_type: 'payable',
+            amount: finalAmount,
+            description: `Salary Payable (Employee) — ${payload.year}/${String(payload.month).padStart(2, '0')}`,
+            employee_id: payload.employeeId,
+            posted_by: resolvedUserId2
+        }]);
+      }
+      sendJson(res, 201, { ok: true, request: data });
+      return true;
+    }
+
+    // -- 3. View Payment Requests --
+    if (req.method === 'GET' && url.pathname === '/hr/payment-requests') {
+      const year = parseInt(url.searchParams.get('year') || new Date().getFullYear(), 10);
+      const month = parseInt(url.searchParams.get('month') || (new Date().getMonth() + 1), 10);
+
+      const { data, error } = await adminClient
+        .from('hr_payment_requests')
+        .select('*, employees(id, full_name), teacher_profiles(id, user_id, users!teacher_profiles_user_id_fkey(full_name))')
+        .eq('year', year)
+        .eq('month', month)
+        .order('created_at', { ascending: false });
+
+      if (error) throw new Error(error.message);
+      sendJson(res, 200, { ok: true, items: data || [] });
+      return true;
+    }
+
+    // -- 4. Update Payment Request (Cancel/Reject/Approve) --
+    const prUpdateMatch = url.pathname.match(/^\/hr\/payment-requests\/([^/]+)$/);
+    if (req.method === 'PATCH' && prUpdateMatch) {
+      const prId = prUpdateMatch[1];
+      const payload = await readJson(req);
+      
+      const updates = { updated_at: nowIso() };
+      if (payload.status) updates.status = payload.status;
+      if (payload.status === 'approved') updates.approved_at = nowIso();
+      if (payload.finance_note !== undefined) updates.finance_note = payload.finance_note;
+
+      const { data, error } = await adminClient
+        .from('hr_payment_requests')
+        .update(updates)
+        .eq('id', prId)
+        .select('*')
+        .single();
+        
+      if (error) throw new Error(error.message);
+
+      // If cancelled/rejected, we should delete the payable ledger entry too
+      if (payload.status === 'rejected' || payload.status === 'cancelled') {
+         // Optionally delete ledger entries if needed to keep financial records clean
+         if (data.employee_id) {
+            await adminClient.from('ledger_entries').delete()
+              .eq('employee_id', data.employee_id)
+              .eq('entry_type', 'payable')
+              .like('description', `%${data.year}/${String(data.month).padStart(2, '0')}%`);
+         } else if (data.teacher_id) {
+            await adminClient.from('ledger_entries').delete()
+              .eq('teacher_id', data.teacher_id)
+              .eq('entry_type', 'payable')
+              .like('description', `%${data.year}/${String(data.month).padStart(2, '0')}%`);
+         }
+      }
+
+      sendJson(res, 200, { ok: true, request: data });
+      return true;
+    }
+
 
     sendJson(res, 404, { ok: false, error: 'route not found' });
     return true;

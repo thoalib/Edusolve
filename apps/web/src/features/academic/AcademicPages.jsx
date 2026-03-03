@@ -939,6 +939,8 @@ function StudentDetailPage({ studentId, onBack }) {
   const [showEdit, setShowEdit] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [editSaving, setEditSaving] = useState(false);
+  const [boardsList, setBoardsList] = useState([]);
+  const [mediumsList, setMediumsList] = useState([]);
 
   const dayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const timeOptions = useMemo(() => {
@@ -972,6 +974,10 @@ function StudentDetailPage({ studentId, onBack }) {
       setTeachers(p.items || []);
       const subjs = await apiFetch('/subjects');
       setSubjectOptions((subjs.subjects || []).map(s => s.name));
+      const bRes = await apiFetch('/boards');
+      setBoardsList(bRes.boards || []);
+      const mRes = await apiFetch('/mediums');
+      setMediumsList(mRes.mediums || []);
     } catch (e) { setError(e.message); }
   }, [studentId]);
   useEffect(() => { load(); }, [load]);
@@ -1010,6 +1016,8 @@ function StudentDetailPage({ studentId, onBack }) {
       alternative_number: student.alternative_number || '',
       parent_phone: student.parent_phone || '',
       class_level: student.class_level || '',
+      board: student.board || '',
+      medium: student.medium || '',
       package_name: student.package_name || '',
       messaging_number: student.messaging_number || 'contact',
       status: student.status || 'active'
@@ -1071,6 +1079,8 @@ function StudentDetailPage({ studentId, onBack }) {
           <div className="detail-grid" style={{ marginTop: 12 }}>
             <div><span className="eyebrow">Code</span><p><strong>{student.student_code || '—'}</strong></p></div>
             <div><span className="eyebrow">Class</span><p>{student.class_level || student.leads?.class_level || '—'}</p></div>
+            <div><span className="eyebrow">Board</span><p>{student.board || '—'}</p></div>
+            <div><span className="eyebrow">Medium</span><p>{student.medium || '—'}</p></div>
             <div><span className="eyebrow">Subjects</span><p>{uniqueSubjects.length ? uniqueSubjects.join(', ') : '—'}</p></div>
             <div><span className="eyebrow">Parent</span><p>{student.parent_name || student.leads?.parent_name || '—'}</p></div>
             <div><span className="eyebrow">Contact No.</span><p>{(student.country_code ? student.country_code + ' ' : '') + (student.contact_number || '—')}</p></div>
@@ -1128,6 +1138,18 @@ function StudentDetailPage({ studentId, onBack }) {
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
                     <label>Class / Level
                       <input value={editForm.class_level} onChange={e => setEditForm({ ...editForm, class_level: e.target.value })} />
+                    </label>
+                    <label>Board
+                      <select value={editForm.board} onChange={e => setEditForm({ ...editForm, board: e.target.value })}>
+                        <option value="">Select Board</option>
+                        {boardsList.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                      </select>
+                    </label>
+                    <label>Medium
+                      <select value={editForm.medium} onChange={e => setEditForm({ ...editForm, medium: e.target.value })}>
+                        <option value="">Select Medium</option>
+                        {mediumsList.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                      </select>
                     </label>
                     <label>Package
                       <input value={editForm.package_name} onChange={e => setEditForm({ ...editForm, package_name: e.target.value })} />

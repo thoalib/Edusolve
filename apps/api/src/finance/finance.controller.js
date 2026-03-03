@@ -631,7 +631,7 @@ export async function handleFinance(req, res, url) {
     if (req.method === 'GET' && url.pathname === '/finance/hr-payment-requests') {
       const { data, error } = await adminClient
         .from('hr_payment_requests')
-        .select('*, hr_payroll_cycles(year, month, status, total_amount), users!hr_payment_requests_requested_by_fkey(full_name)')
+        .select('*, employees(full_name, designation, department), teacher_profiles(users!teacher_profiles_user_id_fkey(full_name))')
         .order('created_at', { ascending: false });
       if (error) throw new Error(error.message);
       sendJson(res, 200, { ok: true, items: data || [] });
@@ -667,25 +667,32 @@ export async function handleFinance(req, res, url) {
       }
 
       // Mark HR payment request as paid
-      await adminClient.from('hr_payment_requests').update({ status: 'paid', updated_at: nowIso() }).eq('id', requestId);
+      await adminClient.from('hr_payment_requests').update({ status: 'paid', finance_note: payload.finance_note || null, updated_at: nowIso() }).eq('id', requestId);
 
-      // Mark payroll cycle as paid
-      await adminClient.from('hr_payroll_cycles').update({ status: 'paid', paid_at: nowIso(), updated_at: nowIso() }).eq('id', request.cycle_id);
+      // Create an expense
+      const expense = {
+        expense_date: nowIso().slice(0, 10),
+        category: 'salary',
+        amount: request.total_amount,
+        description: `Salary Payment — ${request.year}/${String(request.month).padStart(2, '0')}`,
+        account_id: payload.account_id,
+        employee_id: request.target_type === 'employee' ? request.employee_id : null,
+        teacher_id: request.target_type === 'teacher' ? request.teacher_id : null,
+        created_by: actor.userId
+      };
+      await adminClient.from('expenses').insert([expense]);
 
-      // Get payroll items to insert into expenses linking to employees
-      const { data: payrollItems } = await adminClient.from('hr_payroll_items').select('*').eq('cycle_id', request.cycle_id);
-      if (payrollItems && payrollItems.length > 0) {
-        const expenses = payrollItems.map(item => ({
-          expense_date: nowIso().slice(0, 10),
-          category: 'salary',
-          amount: item.net_salary,
-          description: `Payroll for Cycle ${request.cycle_id}`,
-          account_id: payload.account_id,
-          employee_id: item.employee_id,
-          created_by: actor.userId
-        }));
-        await adminClient.from('expenses').insert(expenses);
-      }
+      // Add to Ledger
+      await adminClient.from('ledger_entries').insert([{
+        entry_date: nowIso().slice(0, 10),
+        entry_type: 'expense',
+        amount: request.total_amount,
+        description: `Salary Paid: ${request.year}/${String(request.month).padStart(2, '0')}`,
+        account_id: payload.account_id,
+        employee_id: request.target_type === 'employee' ? request.employee_id : null,
+        teacher_id: request.target_type === 'teacher' ? request.teacher_id : null,
+        posted_by: actor.userId
+      }]);
 
       sendJson(res, 200, { ok: true, status: 'paid' });
       return true;

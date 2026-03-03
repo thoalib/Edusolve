@@ -11,41 +11,51 @@ export function HRDashboardPage() {
         apiFetch('/hr/stats').then(r => setStats(r.stats)).catch(() => { }).finally(() => setLoading(false));
     }, []);
 
-    if (loading) return <p style={{ padding: 24 }}>Loading...</p>;
+    if (loading) return <section className="panel"><p>Loading system overview...</p></section>;
 
     const s = stats || {};
     return (
-        <div style={{ padding: 24 }}>
-            <h2 style={{ marginBottom: 20 }}>HR Dashboard</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-                <DashCard label="Total Employees" value={s.totalEmployees || 0} tone="blue" />
-                <DashCard label="Present Today" value={s.todayPresent || 0} tone="green" />
-                <DashCard label="Absent Today" value={s.todayAbsent || 0} tone="red" />
-                <DashCard label="Half Day" value={s.todayHalfDay || 0} tone="amber" />
-                <DashCard label="On Leave" value={s.todayLeave || 0} tone="purple" />
-                <DashCard label="Attendance Marked" value={s.todayMarked || 0} tone="blue" />
-                <DashCard label="Draft Payrolls" value={s.pendingPayrollCycles || 0} tone="amber" />
-                <DashCard label="Pending Requests" value={s.pendingPaymentRequests || 0} tone="red" />
-            </div>
-        </div>
-    );
-}
+        <section className="panel">
+            <h2 style={{ margin: '0 0 20px', fontSize: '20px', fontWeight: 700 }}>HR Dashboard</h2>
+            <div className="grid-four">
+                <article className="card stat-card">
+                    <p className="eyebrow">Total Employees</p>
+                    <h3>{s.totalEmployees || 0}</h3>
+                </article>
+                <article className="card stat-card success">
+                    <p className="eyebrow">Present Today</p>
+                    <h3>{s.todayPresent || 0}</h3>
+                </article>
+                <article className="card stat-card danger">
+                    <p className="eyebrow">Absent Today</p>
+                    <h3>{s.todayAbsent || 0}</h3>
+                </article>
+                <article className="card stat-card warning">
+                    <p className="eyebrow">Half Day</p>
+                    <h3>{s.todayHalfDay || 0}</h3>
+                </article>
 
-function DashCard({ label, value, tone }) {
-    const colors = { blue: '#3b82f6', green: '#22c55e', red: '#ef4444', amber: '#f59e0b', purple: '#8b5cf6' };
-    return (
-        <div style={{
-            background: '#1e293b', borderRadius: 12, padding: '20px 24px', minWidth: 180,
-            borderLeft: `4px solid ${colors[tone] || '#666'}`
-        }}>
-            <p style={{ fontSize: 13, color: '#94a3b8', marginBottom: 4 }}>{label}</p>
-            <p style={{ fontSize: 28, fontWeight: 700, color: '#f1f5f9' }}>{value}</p>
-        </div>
+                <article className="card stat-card">
+                    <p className="eyebrow">On Leave</p>
+                    <h3>{s.todayLeave || 0}</h3>
+                </article>
+                <article className="card stat-card info">
+                    <p className="eyebrow">Attendance Marked</p>
+                    <h3>{s.todayMarked || 0}</h3>
+                </article>
+
+                <article className="card stat-card danger">
+                    <p className="eyebrow">Pending Requests</p>
+                    <h3>{s.pendingPaymentRequests || 0}</h3>
+                </article>
+            </div>
+        </section>
     );
 }
 
 /* ═══════ ATTENDANCE PAGE ═══════ */
 export function AttendancePage() {
+    const [viewReport, setViewReport] = useState(false);
     const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -62,6 +72,7 @@ export function AttendancePage() {
     }
 
     useEffect(() => { load(); }, [date]);
+
 
     function updateStatus(empId, status) {
         setChanges(prev => ({ ...prev, [empId]: { ...prev[empId], employee_id: empId, status } }));
@@ -94,13 +105,13 @@ export function AttendancePage() {
         }
     }
 
-    const statuses = ['present', 'absent', 'half_day', 'leave'];
-    const statusLabels = { present: 'Present', absent: 'Absent', half_day: 'Half Day', leave: 'Leave' };
-    const statusIcons = { present: '✓', absent: '✗', half_day: '½', leave: '🏖' };
-    const statusColors = { present: '#22c55e', absent: '#ef4444', half_day: '#f59e0b', leave: '#8b5cf6' };
+    const statuses = ['present', 'absent', 'half_day'];
+    const statusLabels = { present: 'Present', absent: 'Absent', half_day: 'Half Day' };
+    const statusIcons = { present: '✓', absent: '✗', half_day: '½' };
+    const statusColors = { present: '#22c55e', absent: '#ef4444', half_day: '#f59e0b' };
 
     const summary = useMemo(() => {
-        const counts = { present: 0, absent: 0, half_day: 0, leave: 0, unmarked: 0 };
+        const counts = { present: 0, absent: 0, half_day: 0, unmarked: 0 };
         items.forEach(emp => {
             const s = changes[emp.id]?.status || emp.attendance?.status;
             if (s && counts[s] !== undefined) counts[s]++;
@@ -122,46 +133,56 @@ export function AttendancePage() {
     const isToday = date === new Date().toISOString().slice(0, 10);
     const dateLabel = isToday ? 'Today' : new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
 
+    if (viewReport) {
+        return <AttendanceReportPage onBack={() => setViewReport(false)} />;
+    }
+
     return (
-        <div style={{ padding: 24, paddingBottom: changesCount > 0 ? 80 : 24 }}>
+        <section className="panel" style={{ paddingBottom: changesCount > 0 ? 80 : 24 }}>
             {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+            <div className="card filters-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
                 <div>
                     <h2 style={{ margin: 0, marginBottom: 4 }}>Attendance</h2>
-                    <p style={{ margin: 0, fontSize: 14, color: '#64748b' }}>{dateLabel} · {items.length} employees</p>
+                    <p style={{ margin: 0, fontSize: 14, color: 'var(--muted)' }}>{dateLabel} · {items.length} employees</p>
                 </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <button onClick={() => setDate(prev => { const d = new Date(prev); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })}
-                        style={{ padding: '6px 12px', borderRadius: 8, background: '#334155', color: '#f1f5f9', border: 'none', cursor: 'pointer', fontSize: 16 }}>←</button>
-                    <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                        style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #334155', background: '#0f172a', color: '#f1f5f9', fontSize: 14 }} />
-                    <button onClick={() => setDate(prev => { const d = new Date(prev); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })}
-                        style={{ padding: '6px 12px', borderRadius: 8, background: '#334155', color: '#f1f5f9', border: 'none', cursor: 'pointer', fontSize: 16 }}>→</button>
-                    {!isToday && (
-                        <button onClick={() => setDate(new Date().toISOString().slice(0, 10))}
-                            style={{ padding: '6px 14px', borderRadius: 8, background: '#1e3a5f', color: '#60a5fa', border: 'none', cursor: 'pointer', fontSize: 13 }}>Today</button>
-                    )}
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <button onClick={() => setDate(prev => { const d = new Date(prev); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })}
+                            className="secondary small">←</button>
+                        <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                            style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--line)', background: '#fff', color: 'var(--text)', fontSize: 14 }} />
+                        <button onClick={() => setDate(prev => { const d = new Date(prev); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })}
+                            className="secondary small">→</button>
+                        {!isToday && (
+                            <button onClick={() => setDate(new Date().toISOString().slice(0, 10))}
+                                className="secondary" style={{ padding: '6px 14px', fontSize: 13 }}>Today</button>
+                        )}
+                    </div>
+                    <button onClick={() => setViewReport(true)}
+                        className="primary">
+                        View Monthly Report
+                    </button>
                 </div>
             </div>
 
             {/* Summary Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 20 }}>
+            <div className="grid-four" style={{ marginBottom: 20 }}>
                 {[
-                    { label: 'Present', count: summary.present, color: '#22c55e', bg: '#064e3b', filterKey: 'present' },
-                    { label: 'Absent', count: summary.absent, color: '#ef4444', bg: '#7f1d1d', filterKey: 'absent' },
-                    { label: 'Half Day', count: summary.half_day, color: '#f59e0b', bg: '#78350f', filterKey: 'half_day' },
-                    { label: 'Leave', count: summary.leave, color: '#8b5cf6', bg: '#4c1d95', filterKey: 'leave' },
-                    { label: 'Unmarked', count: summary.unmarked, color: '#94a3b8', bg: '#1e293b', filterKey: 'unmarked' },
+                    { label: 'Present', count: summary.present, modifier: 'success', filterKey: 'present' },
+                    { label: 'Absent', count: summary.absent, modifier: 'danger', filterKey: 'absent' },
+                    { label: 'Half Day', count: summary.half_day, modifier: 'warning', filterKey: 'half_day' },
+                    { label: 'Unmarked', count: summary.unmarked, modifier: '', filterKey: 'unmarked' },
                 ].map(card => (
-                    <div key={card.label} onClick={() => setFilter(filter === card.filterKey ? 'all' : card.filterKey)}
+                    <article key={card.label} onClick={() => setFilter(filter === card.filterKey ? 'all' : card.filterKey)}
+                        className={`card stat-card ${card.modifier}`}
                         style={{
-                            background: card.bg, borderRadius: 10, padding: '12px 16px', cursor: 'pointer',
-                            border: filter === card.filterKey ? `2px solid ${card.color}` : '2px solid transparent',
-                            transition: 'border 0.15s'
+                            cursor: 'pointer',
+                            outline: filter === card.filterKey ? '2px solid var(--primary)' : 'none',
+                            transition: 'outline 0.15s'
                         }}>
-                        <p style={{ fontSize: 22, fontWeight: 700, color: card.color, margin: 0 }}>{card.count}</p>
-                        <p style={{ fontSize: 12, color: card.color, opacity: 0.8, margin: 0, marginTop: 2 }}>{card.label}</p>
-                    </div>
+                        <p className="eyebrow">{card.label}</p>
+                        <h3>{card.count}</h3>
+                    </article>
                 ))}
             </div>
 
@@ -186,71 +207,72 @@ export function AttendancePage() {
 
             {/* Table */}
             {loading ? <p>Loading...</p> : (
-                <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid #1e293b' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                            <tr style={{ background: '#0f172a' }}>
-                                <th style={{ ...thStyle, width: 40 }}>#</th>
-                                <th style={thStyle}>Employee</th>
-                                <th style={{ ...thStyle, width: 100 }}>Department</th>
-                                <th style={{ ...thStyle, width: 80 }}>Type</th>
-                                <th style={{ ...thStyle, textAlign: 'center' }}>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filteredItems.map((emp, idx) => {
-                                const currentStatus = changes[emp.id]?.status || emp.attendance?.status || null;
-                                return (
-                                    <tr key={emp.id} style={{ borderBottom: '1px solid #1e293b' }}>
-                                        <td style={{ ...tdStyle, color: '#94a3b8' }}>{idx + 1}</td>
-                                        <td style={tdStyle}>
-                                            <div style={{ fontWeight: 500 }}>{emp.full_name}</div>
-                                            {emp.designation && <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 1 }}>{emp.designation}</div>}
-                                        </td>
-                                        <td style={{ ...tdStyle, fontSize: 13, color: '#94a3b8' }}>{emp.department || '—'}</td>
-                                        <td style={tdStyle}>
-                                            <span style={{
-                                                padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 500,
-                                                background: emp.employee_type === 'student' ? '#1e3a5f' : '#1e293b',
-                                                color: emp.employee_type === 'student' ? '#60a5fa' : '#94a3b8'
-                                            }}>
-                                                {emp.employee_type}
-                                            </span>
-                                        </td>
-                                        <td style={{ ...tdStyle, textAlign: 'center' }}>
-                                            <div style={{ display: 'inline-flex', gap: 4, background: '#0f172a', borderRadius: 8, padding: 3 }}>
-                                                {statuses.map(s => {
-                                                    const isActive = currentStatus === s;
-                                                    return (
-                                                        <button key={s} onClick={() => updateStatus(emp.id, s)}
-                                                            title={statusLabels[s]}
-                                                            style={{
-                                                                padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                                                                fontSize: 12, fontWeight: isActive ? 700 : 400,
-                                                                background: isActive ? statusColors[s] : 'transparent',
-                                                                color: isActive ? '#fff' : '#64748b',
-                                                                transition: 'all 0.15s', minWidth: 70
-                                                            }}>
-                                                            <span style={{ marginRight: 4 }}>{statusIcons[s]}</span>
-                                                            {statusLabels[s]}
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                            {filteredItems.length === 0 && (
-                                <tr><td colSpan={5} style={{ ...tdStyle, textAlign: 'center', color: '#64748b', padding: 32 }}>
-                                    {filter !== 'all' ? 'No employees match this filter' : 'No employees found. Add employees first.'}
-                                </td></tr>
-                            )}
-                        </tbody>
-                    </table>
+                <div className="card">
+                    <div className="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style={{ width: 40 }}>#</th>
+                                    <th>Employee</th>
+                                    <th style={{ width: 100 }}>Department</th>
+                                    <th style={{ width: 80 }}>Type</th>
+                                    <th style={{ textAlign: 'center' }}>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredItems.map((emp, idx) => {
+                                    const currentStatus = changes[emp.id]?.status || emp.attendance?.status || null;
+                                    return (
+                                        <tr key={emp.id}>
+                                            <td>{idx + 1}</td>
+                                            <td>
+                                                <div style={{ fontWeight: 500 }}>{emp.full_name}</div>
+                                                {emp.designation && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{emp.designation}</div>}
+                                            </td>
+                                            <td>{emp.department || '—'}</td>
+                                            <td>
+                                                <span style={{
+                                                    padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 500,
+                                                    background: emp.employee_type === 'student' ? '#1e3a5f' : '#1e293b',
+                                                    color: emp.employee_type === 'student' ? '#60a5fa' : '#94a3b8'
+                                                }}>
+                                                    {emp.employee_type}
+                                                </span>
+                                            </td>
+                                            <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                                <div style={{ display: 'inline-flex', gap: 4, background: '#0f172a', borderRadius: 8, padding: 3 }}>
+                                                    {statuses.map(s => {
+                                                        const isActive = currentStatus === s;
+                                                        return (
+                                                            <button key={s} onClick={() => updateStatus(emp.id, s)}
+                                                                title={statusLabels[s]}
+                                                                style={{
+                                                                    padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                                                                    fontSize: 12, fontWeight: isActive ? 700 : 400,
+                                                                    background: isActive ? statusColors[s] : 'transparent',
+                                                                    color: isActive ? '#fff' : '#64748b',
+                                                                    transition: 'all 0.15s', minWidth: 70
+                                                                }}>
+                                                                <span style={{ marginRight: 4 }}>{statusIcons[s]}</span>
+                                                                {statusLabels[s]}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                                {filteredItems.length === 0 && (
+                                    <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>
+                                        {filter !== 'all' ? 'No employees match this filter' : 'No employees found. Add employees first.'}
+                                    </td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             )}
-
             {/* Sticky Save Bar */}
             {changesCount > 0 && (
                 <div style={{
@@ -270,7 +292,99 @@ export function AttendancePage() {
                     </button>
                 </div>
             )}
-        </div>
+        </section>
+    );
+}
+
+/* ═══════ MONTHLY ATTENDANCE REPORT PAGE ═══════ */
+function AttendanceReportPage({ onBack }) {
+    const [year, setYear] = useState(new Date().getFullYear());
+    const [month, setMonth] = useState(new Date().getMonth() + 1);
+    const [items, setItems] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    function load() {
+        setLoading(true);
+        apiFetch(`/hr/attendance/report?year=${year}&month=${month}`)
+            .then(r => setItems(r.items || []))
+            .catch(() => { })
+            .finally(() => setLoading(false));
+    }
+
+    useEffect(() => { load(); }, [year, month]);
+
+    const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+    return (
+        <section className="panel">
+            <div className="card filters-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px' }}>
+                <h2 style={{ margin: 0, fontSize: '18px', color: '#10233f' }}>Monthly Report</h2>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <select value={month} onChange={e => setMonth(parseInt(e.target.value))}
+                        style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #d8e1ef', background: '#fff', color: '#10233f', fontSize: 14 }}>
+                        {monthNames.map((name, i) => i > 0 && <option key={i} value={i}>{name}</option>)}
+                    </select>
+                    <select value={year} onChange={e => setYear(parseInt(e.target.value))}
+                        style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #d8e1ef', background: '#fff', color: '#10233f', fontSize: 14 }}>
+                        {[...Array(5)].map((_, i) => {
+                            const y = new Date().getFullYear() - i;
+                            return <option key={y} value={y}>{y}</option>;
+                        })}
+                    </select>
+                    <button onClick={onBack}
+                        className="primary" style={{ whiteSpace: 'nowrap' }}>
+                        Back to Attendance
+                    </button>
+                </div>
+            </div>
+
+            {loading ? <p>Loading report...</p> : (
+                <div className="card">
+                    <div className="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Employee</th>
+                                    <th>Department</th>
+                                    <th>Type</th>
+                                    <th style={{ textAlign: 'center' }}>Present</th>
+                                    <th style={{ textAlign: 'center' }}>Absent</th>
+                                    <th style={{ textAlign: 'center' }}>Half Day</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {items.map((emp, idx) => (
+                                    <tr key={emp.id}>
+                                        <td>{idx + 1}</td>
+                                        <td>
+                                            <div style={{ fontWeight: 500 }}>{emp.full_name}</div>
+                                            {emp.designation && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{emp.designation}</div>}
+                                        </td>
+                                        <td>{emp.department || '-'}</td>
+                                        <td>{emp.employee_type}</td>
+                                        <td style={{ textAlign: 'center', fontWeight: 600, color: '#22c55e' }}>
+                                            {emp.report.present}
+                                        </td>
+                                        <td style={{ textAlign: 'center', fontWeight: 600, color: '#ef4444' }}>
+                                            {emp.report.absent}
+                                        </td>
+                                        <td style={{ textAlign: 'center', fontWeight: 600, color: '#f59e0b' }}>
+                                            {emp.report.half_day}
+                                        </td>
+                                    </tr>
+                                ))}
+                                {items.length === 0 && (
+                                    <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>
+                                        No records found.
+                                    </td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </section>
     );
 }
 
@@ -290,90 +404,87 @@ export function EmployeesPage() {
     useEffect(() => { load(); }, []);
 
     return (
-        <div style={{ padding: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
-                <h2 style={{ margin: 0 }}>Employees</h2>
-                <button onClick={() => setShowAdd(true)}
-                    style={{ padding: '8px 20px', borderRadius: 8, background: '#3b82f6', color: '#fff', border: 'none', cursor: 'pointer' }}>
-                    + Add Employee
-                </button>
+        <section className="panel">
+            <div className="card filters-bar" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px' }}>
+                <h2 style={{ margin: 0, fontSize: '18px', color: '#10233f' }}>Employees</h2>
+                <div style={{ marginLeft: 'auto' }}>
+                    <button onClick={() => setShowAdd(true)} className="primary">
+                        + Add Employee
+                    </button>
+                </div>
             </div>
 
             {loading ? <p>Loading...</p> : (
-                <div style={{ overflowX: 'auto' }}>
-                    <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                            <tr>
-                                <th style={thStyle}>#</th>
-                                <th style={thStyle}>Name</th>
-                                <th style={thStyle}>Type</th>
-                                <th style={thStyle}>Designation</th>
-                                <th style={thStyle}>Department</th>
-                                <th style={thStyle}>Phone</th>
-                                <th style={thStyle}>Email</th>
-                                <th style={thStyle}>Status</th>
-                                <th style={thStyle}>Salary</th>
-                                <th style={thStyle}>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {employees.map((emp, idx) => {
-                                const sal = emp.salary_structures?.[0] || emp.salary_structures;
-                                const hasSalary = sal && sal.base_salary > 0;
-                                return (
-                                    <tr key={emp.id} style={{ borderBottom: '1px solid #1e293b' }}>
-                                        <td style={tdStyle}>{idx + 1}</td>
-                                        <td style={tdStyle}>{emp.full_name}</td>
-                                        <td style={tdStyle}>
-                                            <span style={{
-                                                padding: '2px 10px', borderRadius: 20, fontSize: 12,
-                                                background: emp.employee_type === 'student' ? '#1e3a5f' : '#1e293b',
-                                                color: emp.employee_type === 'student' ? '#60a5fa' : '#94a3b8'
-                                            }}>
-                                                {emp.employee_type}
-                                            </span>
-                                        </td>
-                                        <td style={tdStyle}>{emp.designation || '—'}</td>
-                                        <td style={tdStyle}>{emp.department || '—'}</td>
-                                        <td style={tdStyle}>{emp.phone || '—'}</td>
-                                        <td style={tdStyle}>{emp.email || '—'}</td>
-                                        <td style={tdStyle}>
-                                            <span style={{
-                                                padding: '2px 10px', borderRadius: 20, fontSize: 12,
-                                                background: emp.is_active ? '#064e3b' : '#7f1d1d',
-                                                color: emp.is_active ? '#34d399' : '#fca5a5'
-                                            }}>
-                                                {emp.is_active ? 'Active' : 'Inactive'}
-                                            </span>
-                                        </td>
-                                        <td style={tdStyle}>{hasSalary ? `₹${Number(sal.base_salary).toLocaleString()}` : '—'}</td>
-                                        <td style={tdStyle}>
-                                            <div style={{ display: 'flex', gap: 6 }}>
-                                                <button onClick={() => setEditEmp(emp)}
-                                                    style={{ padding: '4px 12px', borderRadius: 6, background: '#334155', color: '#f1f5f9', border: 'none', cursor: 'pointer', fontSize: 12 }}>
-                                                    Edit
-                                                </button>
-                                                <button onClick={() => setSalaryEmp(emp)}
-                                                    style={{ padding: '4px 12px', borderRadius: 6, background: hasSalary ? '#1e3a5f' : '#3b82f6', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12 }}>
-                                                    {hasSalary ? 'Edit Salary' : 'Set Salary'}
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                            {employees.length === 0 && (
-                                <tr><td colSpan={10} style={{ ...tdStyle, textAlign: 'center', color: '#64748b' }}>No employees yet</td></tr>
-                            )}
-                        </tbody>
-                    </table>
+                <div className="card">
+                    <div className="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Name</th>
+                                    <th>Type</th>
+                                    <th>Designation</th>
+                                    <th>Department</th>
+                                    <th>Phone</th>
+                                    <th>Email</th>
+                                    <th>Status</th>
+                                    <th>Salary</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {employees.map((emp, idx) => {
+                                    const sal = emp.salary_structures?.[0] || emp.salary_structures;
+                                    const hasSalary = sal && sal.base_salary > 0;
+                                    return (
+                                        <tr key={emp.id}>
+                                            <td>{idx + 1}</td>
+                                            <td>{emp.full_name}</td>
+                                            <td>
+                                                <span style={{
+                                                    padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 500,
+                                                    background: emp.employee_type === 'student' ? '#1e3a5f' : '#f3f4f6',
+                                                    color: emp.employee_type === 'student' ? '#60a5fa' : '#6b7280'
+                                                }}>
+                                                    {emp.employee_type}
+                                                </span>
+                                            </td>
+                                            <td>{emp.designation || '—'}</td>
+                                            <td>{emp.department || '—'}</td>
+                                            <td>{emp.phone || '—'}</td>
+                                            <td>{emp.email || '—'}</td>
+                                            <td>
+                                                <span className={`status-badge ${emp.is_active ? 'success' : 'danger'}`}>
+                                                    {emp.is_active ? 'Active' : 'Inactive'}
+                                                </span>
+                                            </td>
+                                            <td>{hasSalary ? `₹${Number(sal.base_salary).toLocaleString()}` : '—'}</td>
+                                            <td>
+                                                <div style={{ display: 'flex', gap: 6 }}>
+                                                    <button onClick={() => setEditEmp(emp)} className="secondary small">
+                                                        Edit
+                                                    </button>
+                                                    <button onClick={() => setSalaryEmp(emp)} className={hasSalary ? "secondary small" : "primary small"}>
+                                                        {hasSalary ? 'Edit Salary' : 'Set Salary'}
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                                {employees.length === 0 && (
+                                    <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>No employees yet</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             )}
 
             {showAdd && <AddEmployeeModal onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); load(); }} />}
             {editEmp && <EditEmployeeModal employee={editEmp} onClose={() => setEditEmp(null)} onDone={() => { setEditEmp(null); load(); }} />}
             {salaryEmp && <SalaryModal employee={salaryEmp} existing={(salaryEmp.salary_structures?.[0] || salaryEmp.salary_structures)} onClose={() => setSalaryEmp(null)} onDone={() => { setSalaryEmp(null); load(); }} />}
-        </div>
+        </section>
     );
 }
 
@@ -548,28 +659,51 @@ function EditEmployeeModal({ employee, onClose, onDone }) {
 export function SalaryCalculatorPage() {
     const [employees, setEmployees] = useState([]);
     const [salaries, setSalaries] = useState([]);
+    const [teacherReport, setTeacherReport] = useState([]);
+    const [paymentRequests, setPaymentRequests] = useState([]);
+    const [submitting, setSubmitting] = useState(false);
+    const [confirmSubmit, setConfirmSubmit] = useState(null); // { type, data }
     const [loading, setLoading] = useState(true);
     const [editEmp, setEditEmp] = useState(null);
+    const [activeTab, setActiveTab] = useState('employees'); // 'employees' or 'teachers'
+    const [teacherMonthOffset, setTeacherMonthOffset] = useState(0);
+    const [selectedTeacher, setSelectedTeacher] = useState(null); // clicked teacher row
+
+    const getMonthYearString = (offset) => {
+        const d = new Date();
+        d.setMonth(d.getMonth() + offset);
+        return { month: d.getMonth() + 1, year: d.getFullYear(), label: d.toLocaleString('en-US', { month: 'long', year: 'numeric' }) };
+    };
+
+    const currentMY = getMonthYearString(teacherMonthOffset);
 
     useEffect(() => {
-        Promise.all([
-            apiFetch('/hr/employees'),
-            apiFetch('/hr/salary-structures')
-        ]).then(([empRes, salRes]) => {
-            setEmployees(empRes.items || []);
-            setSalaries(salRes.items || []);
-        }).catch(() => { }).finally(() => setLoading(false));
-    }, []);
-
-    function reload() {
         setLoading(true);
         Promise.all([
             apiFetch('/hr/employees'),
-            apiFetch('/hr/salary-structures')
-        ]).then(([empRes, salRes]) => {
+            apiFetch('/hr/salary-structures'),
+            apiFetch(`/hr/teachers/salary-report?month=${currentMY.month}&year=${currentMY.year}`),
+            apiFetch(`/hr/payment-requests?month=${currentMY.month}&year=${currentMY.year}`)
+        ]).then(([empRes, salRes, teachRes, prRes]) => {
             setEmployees(empRes.items || []);
             setSalaries(salRes.items || []);
+            setTeacherReport(teachRes.items || []);
+            setPaymentRequests(prRes.items || []);
         }).catch(() => { }).finally(() => setLoading(false));
+    }, [currentMY.month, currentMY.year]);
+
+    function reload() {
+        Promise.all([
+            apiFetch('/hr/employees'),
+            apiFetch('/hr/salary-structures'),
+            apiFetch(`/hr/teachers/salary-report?month=${currentMY.month}&year=${currentMY.year}`),
+            apiFetch(`/hr/payment-requests?month=${currentMY.month}&year=${currentMY.year}`)
+        ]).then(([empRes, salRes, teachRes, prRes]) => {
+            setEmployees(empRes.items || []);
+            setSalaries(salRes.items || []);
+            setTeacherReport(teachRes.items || []);
+            setPaymentRequests(prRes.items || []);
+        }).catch(() => { });
     }
 
     const salaryMap = useMemo(() => {
@@ -578,61 +712,211 @@ export function SalaryCalculatorPage() {
         return map;
     }, [salaries]);
 
+    const prMap = useMemo(() => {
+        const map = { employee: {}, teacher: {} };
+        (paymentRequests || []).forEach(pr => {
+            if (pr.employee_id) map.employee[pr.employee_id] = pr;
+            if (pr.teacher_id) map.teacher[pr.teacher_id] = pr;
+        });
+        return map;
+    }, [paymentRequests]);
+
+    async function handleSubmitRequest(e) {
+        e.preventDefault();
+        if (!confirmSubmit || submitting) return;
+        setSubmitting(true);
+        try {
+            const endpoint = confirmSubmit.type === 'teacher' ? '/hr/payment-requests/teacher' : '/hr/payment-requests/employee';
+            const payload = {
+                year: currentMY.year,
+                month: currentMY.month,
+                adjustment: confirmSubmit.adjustment || 0,
+                hr_note: confirmSubmit.hr_note || ''
+            };
+
+            if (confirmSubmit.type === 'teacher') {
+                payload.teacherUserId = confirmSubmit.data.user_id; // teacher report item has user_id
+            } else {
+                payload.employeeId = confirmSubmit.data.id;
+            }
+
+            await apiFetch(endpoint, {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            setConfirmSubmit(null);
+            reload();
+        } catch (err) {
+            alert(err.message || 'Failed to submit request');
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
     if (loading) return <p style={{ padding: 24 }}>Loading...</p>;
 
     return (
-        <div style={{ padding: 24 }}>
-            <h2 style={{ marginBottom: 20 }}>Salary Calculator</h2>
-
-            <div style={{ overflowX: 'auto' }}>
-                <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                        <tr>
-                            <th style={thStyle}>#</th>
-                            <th style={thStyle}>Employee</th>
-                            <th style={thStyle}>Base Salary</th>
-                            <th style={thStyle}>HRA</th>
-                            <th style={thStyle}>Allowances</th>
-                            <th style={thStyle}>Deductions</th>
-                            <th style={thStyle}>Gross</th>
-                            <th style={thStyle}>Net</th>
-                            <th style={thStyle}>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {employees.filter(e => e.is_active).map((emp, idx) => {
-                            const sal = salaryMap[emp.id];
-                            const base = sal ? Number(sal.base_salary) : 0;
-                            const hra = sal ? Number(sal.hra) : 0;
-                            const allowances = sal ? Number(sal.transport_allowance) + Number(sal.other_allowance) : 0;
-                            const deductions = sal ? Number(sal.pf_deduction) + Number(sal.tax_deduction) + Number(sal.other_deduction) : 0;
-                            const gross = base + hra + allowances;
-                            const net = gross - deductions;
-                            return (
-                                <tr key={emp.id} style={{ borderBottom: '1px solid #1e293b' }}>
-                                    <td style={tdStyle}>{idx + 1}</td>
-                                    <td style={tdStyle}>
-                                        <div>{emp.full_name}</div>
-                                        <div style={{ fontSize: 12, color: '#64748b' }}>{emp.designation || ''}</div>
-                                    </td>
-                                    <td style={tdStyle}>₹{base.toLocaleString()}</td>
-                                    <td style={tdStyle}>₹{hra.toLocaleString()}</td>
-                                    <td style={tdStyle}>₹{allowances.toLocaleString()}</td>
-                                    <td style={tdStyle}>₹{deductions.toLocaleString()}</td>
-                                    <td style={{ ...tdStyle, color: '#22c55e' }}>₹{gross.toLocaleString()}</td>
-                                    <td style={{ ...tdStyle, fontWeight: 700, color: '#f1f5f9' }}>₹{net.toLocaleString()}</td>
-                                    <td style={tdStyle}>
-                                        <button onClick={() => setEditEmp(emp)}
-                                            style={{ padding: '4px 12px', borderRadius: 6, background: '#334155', color: '#f1f5f9', border: 'none', cursor: 'pointer', fontSize: 12 }}>
-                                            {sal ? 'Edit' : 'Set'}
-                                        </button>
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
+        <section className="panel">
+            <div className="card filters-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px' }}>
+                <h2 style={{ margin: 0, fontSize: '18px', color: '#10233f' }}>Salary Calculator</h2>
+                <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                        onClick={() => setActiveTab('employees')}
+                        className={activeTab === 'employees' ? 'primary' : 'secondary'}
+                        style={activeTab === 'employees' ? {} : { background: 'transparent', border: '1px solid var(--line)' }}
+                    >
+                        Employees
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('teachers')}
+                        className={activeTab === 'teachers' ? 'primary' : 'secondary'}
+                        style={activeTab === 'teachers' ? {} : { background: 'transparent', border: '1px solid var(--line)' }}
+                    >
+                        Teachers
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('master_rates')}
+                        className={activeTab === 'master_rates' ? 'primary' : 'secondary'}
+                        style={activeTab === 'master_rates' ? {} : { background: 'transparent', border: '1px solid var(--line)' }}
+                    >
+                        Master Rates
+                    </button>
+                </div>
             </div>
+
+            {activeTab === 'employees' && (
+                <div className="card" style={{ marginBottom: 24 }}>
+                    <div className="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Employee</th>
+                                    <th>Base Salary</th>
+                                    <th>HRA</th>
+                                    <th>Allowances</th>
+                                    <th>Deductions</th>
+                                    <th>Gross</th>
+                                    <th>Net</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {employees.filter(e => e.is_active).map((emp, idx) => {
+                                    const pr = prMap.employee[emp.id];
+                                    const isSubmitted = !!pr;
+
+                                    const sal = salaryMap[emp.id];
+                                    const base = isSubmitted && pr.breakdown && pr.breakdown.details ? Number(pr.breakdown.details.base_salary || 0) : (sal ? Number(sal.base_salary) : 0);
+                                    const hra = isSubmitted ? 0 : (sal ? Number(sal.hra) : 0);
+                                    const allowances = isSubmitted && pr.breakdown && pr.breakdown.details ? Number(pr.breakdown.details.total_allowances || 0) : (sal ? Number(sal.transport_allowance) + Number(sal.other_allowance) : 0);
+                                    const deductions = isSubmitted && pr.breakdown && pr.breakdown.details ? Number(pr.breakdown.details.total_deductions || 0) : (sal ? Number(sal.pf_deduction) + Number(sal.tax_deduction) + Number(sal.other_deduction) : 0);
+                                    const gross = isSubmitted ? (base + allowances) : (base + hra + allowances);
+                                    const net = isSubmitted ? pr.total_amount : (gross - deductions);
+
+                                    return (
+                                        <tr key={emp.id}>
+                                            <td>{idx + 1}</td>
+                                            <td>
+                                                <div style={{ fontWeight: 500 }}>{emp.full_name}</div>
+                                                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{emp.designation || ''}</div>
+                                            </td>
+                                            <td>₹{base.toLocaleString()}</td>
+                                            <td>{isSubmitted ? '-' : `₹${hra.toLocaleString()}`}</td>
+                                            <td>₹{allowances.toLocaleString()}</td>
+                                            <td>₹{deductions.toLocaleString()}</td>
+                                            <td style={{ fontWeight: 600, color: '#22c55e' }}>₹{isSubmitted && pr.breakdown ? Number(pr.breakdown.base_calculated || gross).toLocaleString() : gross.toLocaleString()}</td>
+                                            <td style={{ fontWeight: 700, color: '#10233f' }}>₹{net.toLocaleString()}</td>
+                                            <td>
+                                                {isSubmitted ? (
+                                                    <span className="badge success" style={{ padding: '4px 8px', fontSize: 11, borderRadius: 12 }}>Submitted ✓</span>
+                                                ) : (
+                                                    <div style={{ display: 'flex', gap: 6 }}>
+                                                        <button onClick={() => setEditEmp(emp)} className="secondary small">{sal ? 'Edit' : 'Set'}</button>
+                                                        <button onClick={() => setConfirmSubmit({ type: 'employee', data: { ...emp, calcNet: net } })} className="primary small">Submit</button>
+                                                    </div>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'master_rates' && <SalaryMasterRatesConfig />}
+
+            {activeTab === 'teachers' && (
+                <>
+                    <div className="card filters-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', marginBottom: '20px' }}>
+                        <h2 style={{ margin: 0, fontSize: '16px', color: '#10233f' }}>Session-wise Salaries</h2>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <button onClick={() => setTeacherMonthOffset(prev => prev - 1)} className="secondary small">←</button>
+                            <span style={{ fontSize: 14, fontWeight: 500 }}>{currentMY.label}</span>
+                            <button onClick={() => setTeacherMonthOffset(prev => prev + 1)} className="secondary small">→</button>
+                            {teacherMonthOffset !== 0 && (
+                                <button onClick={() => setTeacherMonthOffset(0)} className="secondary small" style={{ marginLeft: 8 }}>Current Month</button>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="card">
+                        <div className="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Teacher</th>
+                                        <th>Experience</th>
+                                        <th>Total Hours</th>
+                                        <th>Total Salary</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {teacherReport.map((t, idx) => {
+                                        const pr = prMap.teacher[t.id];
+                                        const isSubmitted = !!pr;
+                                        const displayVal = isSubmitted ? pr.total_amount : (t.total_salary || 0);
+
+                                        return (
+                                            <tr key={t.id} onClick={() => {
+                                                if (pr && (pr.status === 'approved' || pr.status === 'paid')) return;
+                                                setSelectedTeacher(t);
+                                            }} style={{ cursor: pr && (pr.status === 'approved' || pr.status === 'paid') ? 'default' : 'pointer' }}>
+                                                <td>{idx + 1}</td>
+                                                <td>
+                                                    <div style={{ fontWeight: 500 }}>{t.full_name}</div>
+                                                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{t.teacher_code || 'No Code'}</div>
+                                                </td>
+                                                <td style={{ textTransform: 'capitalize' }}>{(t.experience_level || '').replace(/_/g, ' ')}</td>
+                                                <td style={{ fontWeight: 600 }}>{isSubmitted && pr.breakdown && pr.breakdown.details ? (pr.breakdown.details.total_hours || t.total_hours) : t.total_hours} hrs</td>
+                                                <td style={{ fontWeight: 700, color: '#10233f' }}>₹{displayVal.toLocaleString()}</td>
+                                                <td>
+                                                    {isSubmitted ? (
+                                                        <span className="badge success" style={{ padding: '4px 8px', fontSize: 11, borderRadius: 12 }}>Submitted ✓</span>
+                                                    ) : (
+                                                        <button onClick={(e) => { e.stopPropagation(); setConfirmSubmit({ type: 'teacher', data: t }); }} className="primary small">
+                                                            Submit
+                                                        </button>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
+                                    {teacherReport.length === 0 && (
+                                        <tr>
+                                            <td colSpan={5} style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>No teachers found in pool</td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </>
+            )}
 
             {editEmp && (
                 <SalaryModal
@@ -642,6 +926,306 @@ export function SalaryCalculatorPage() {
                     onDone={() => { setEditEmp(null); reload(); }}
                 />
             )}
+
+            {selectedTeacher && (
+                <TeacherSalaryDetail
+                    teacher={selectedTeacher}
+                    month={currentMY.month}
+                    year={currentMY.year}
+                    onClose={() => setSelectedTeacher(null)}
+                    onRatesUpdated={(closeModal = true) => { if (closeModal) setSelectedTeacher(null); reload(); }}
+                />
+            )}
+
+            {/* Confirm Submit Modal */}
+            {confirmSubmit && (
+                <div className="modal-overlay" onClick={() => setConfirmSubmit(null)}>
+                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
+                        <h3 style={{ marginTop: 0 }}>Confirm Payment Submission</h3>
+                        <p style={{ fontSize: 14 }}>
+                            You are submitting a payment request to Finance for <strong>{confirmSubmit.data.full_name}</strong> for {currentMY.label}.
+                        </p>
+                        <div style={{ background: 'var(--bg)', padding: '12px 16px', borderRadius: 8, marginBottom: 16 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                                <span style={{ color: 'var(--muted)', fontSize: 13 }}>Calculated Value:</span>
+                                <strong style={{ color: '#10233f', fontSize: 14 }}>
+                                    ₹{Number(confirmSubmit.type === 'teacher' ? confirmSubmit.data.total_salary : confirmSubmit.data.calcNet).toLocaleString()}
+                                </strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ color: 'var(--muted)', fontSize: 13 }}>Adjustment (₹):</span>
+                                <input
+                                    type="number"
+                                    value={confirmSubmit.adjustment || ''}
+                                    onChange={e => setConfirmSubmit({ ...confirmSubmit, adjustment: Number(e.target.value) })}
+                                    style={{ width: 80, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line)', textAlign: 'right' }}
+                                    placeholder="0"
+                                />
+                            </div>
+                            {confirmSubmit.adjustment ? (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+                                    <span style={{ color: 'var(--muted)', fontSize: 13, fontWeight: 500 }}>Final Amount:</span>
+                                    <strong style={{ color: '#22c55e', fontSize: 15 }}>
+                                        ₹{Math.max(0, Number(confirmSubmit.type === 'teacher' ? confirmSubmit.data.total_salary : confirmSubmit.data.calcNet) + (confirmSubmit.adjustment || 0)).toLocaleString()}
+                                    </strong>
+                                </div>
+                            ) : null}
+                        </div>
+                        <div style={{ marginBottom: 16 }}>
+                            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>HR Note (Optional):</label>
+                            <textarea
+                                value={confirmSubmit.hr_note || ''}
+                                onChange={e => setConfirmSubmit({ ...confirmSubmit, hr_note: e.target.value })}
+                                style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg)', minHeight: 60, fontSize: 14 }}
+                                placeholder="Any specific reason for adjustment or note for finance..."
+                            />
+                        </div>
+                        <p style={{ fontSize: 13, color: 'var(--warning)', margin: '0 0 20px', lineHeight: 1.4 }}>
+                            Warning: This snapshot will be frozen in history. Future rate changes will not alter this month's submitted amount.
+                        </p>
+                        <form onSubmit={handleSubmitRequest} style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                            <button type="button" onClick={() => setConfirmSubmit(null)} className="secondary" style={{ padding: '8px 16px' }}>Cancel</button>
+                            <button type="submit" className="primary" disabled={submitting} style={{ padding: '8px 16px', background: '#22c55e', borderColor: '#22c55e', color: '#fff' }}>
+                                {submitting ? 'Submitting...' : 'Confirm & Submit'}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            )}
+        </section>
+    );
+}
+
+/* ═══════ TEACHER SALARY DETAIL MODAL ═══════ */
+function TeacherSalaryDetail({ teacher, month, year, onClose, onRatesUpdated }) {
+    const [sessions, setSessions] = useState([]);
+    const [teacherInfo, setTeacherInfo] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [customRates, setCustomRates] = useState({});
+    const [saving, setSaving] = useState(false);
+    const [saveSuccess, setSaveSuccess] = useState(false);
+    const [showRateEditor, setShowRateEditor] = useState(false);
+    const [newRate, setNewRate] = useState({ subject: '_any', board: '_any', level: 'lkg_7', rate: '' });
+    const [subjectsList, setSubjectsList] = useState([]);
+    const [boardsList, setBoardsList] = useState([]);
+
+    useEffect(() => {
+        setLoading(true);
+        apiFetch(`/hr/teachers/${teacher.user_id}/salary-detail?month=${month}&year=${year}`)
+            .then(res => {
+                setSessions(res.sessions || []);
+                setTeacherInfo(res.teacher || null);
+                setCustomRates(res.teacher?.custom_rates || {});
+            })
+            .catch(() => { })
+            .finally(() => setLoading(false));
+        apiFetch('/subjects').then(r => setSubjectsList((r.subjects || []).map(s => s.name))).catch(() => { });
+        apiFetch('/boards').then(r => setBoardsList(r.boards || [])).catch(() => { });
+    }, [teacher.user_id, month, year]);
+
+    const totalHours = sessions.reduce((sum, s) => sum + s.duration_hours, 0);
+    const totalAmount = sessions.reduce((sum, s) => sum + s.amount, 0);
+
+    function addCustomRate() {
+        if (!newRate.rate) return;
+        const subValue = newRate.subject ? newRate.subject.trim().toLowerCase() : '_any';
+        const boardValue = newRate.board ? newRate.board.trim().toLowerCase() : '_any';
+        const subKey = `${subValue}__${boardValue}`;
+        const updated = { ...customRates };
+        if (!updated[subKey]) updated[subKey] = {};
+        updated[subKey][newRate.level] = Number(newRate.rate);
+        setCustomRates(updated);
+        setNewRate({ subject: '_any', board: '_any', level: 'lkg_7', rate: '' });
+        setSaveSuccess(false);
+    }
+
+    function removeCustomRate(subKey, level) {
+        const updated = { ...customRates };
+        if (updated[subKey]) {
+            delete updated[subKey][level];
+            if (Object.keys(updated[subKey]).length === 0) delete updated[subKey];
+        }
+        setCustomRates(updated);
+        setSaveSuccess(false);
+    }
+
+    async function saveCustomRates() {
+        setSaving(true);
+        setSaveSuccess(false);
+        try {
+            await apiFetch(`/hr/teachers/${teacher.user_id}/custom-rates`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ custom_rates: customRates })
+            });
+            setSaveSuccess(true);
+            setTimeout(() => setSaveSuccess(false), 3000);
+            onRatesUpdated(false);
+        } catch { }
+        setSaving(false);
+    }
+
+    const levelLabels = { lkg_7: 'LKG–7', class_8_10: '8–10', plus_1_2: '+1 & +2' };
+
+    function parseRateKey(subKey) {
+        const parts = subKey.split('__');
+        return { subject: parts[0], board: parts[1] || '' };
+    }
+
+    return (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: 24 }}>
+            <div style={{ background: '#fff', borderRadius: 12, width: '100%', maxWidth: 1000, maxHeight: '90vh', overflow: 'auto', padding: 24 }}>
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                    <div>
+                        <h2 style={{ margin: 0, fontSize: 20, color: '#10233f' }}>{teacherInfo?.full_name || teacher.full_name}</h2>
+                        <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+                            {teacherInfo?.teacher_code || teacher.teacher_code || 'No Code'} · Experience: <span style={{ textTransform: 'capitalize' }}>{(teacherInfo?.experience_level || '').replace(/_/g, ' ')}</span>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="secondary small">✕ Close</button>
+                </div>
+
+                {loading ? <p style={{ padding: 24, textAlign: 'center' }}>Loading sessions...</p> : (
+                    <>
+                        {/* Summary */}
+                        <div style={{ display: 'flex', gap: 16, marginBottom: 20 }}>
+                            <div style={{ flex: 1, background: '#f0f5ff', borderRadius: 8, padding: '12px 16px' }}>
+                                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Total Sessions</div>
+                                <div style={{ fontSize: 20, fontWeight: 700 }}>{sessions.length}</div>
+                            </div>
+                            <div style={{ flex: 1, background: '#f0f5ff', borderRadius: 8, padding: '12px 16px' }}>
+                                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Total Hours</div>
+                                <div style={{ fontSize: 20, fontWeight: 700 }}>{Math.round(totalHours * 100) / 100} hrs</div>
+                            </div>
+                            <div style={{ flex: 1, background: '#e8f5e9', borderRadius: 8, padding: '12px 16px' }}>
+                                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Total Salary</div>
+                                <div style={{ fontSize: 20, fontWeight: 700, color: '#10233f' }}>₹{Math.round(totalAmount).toLocaleString()}</div>
+                            </div>
+                        </div>
+
+                        {/* Sessions Table */}
+                        <h3 style={{ fontSize: 15, margin: '0 0 12px', color: '#10233f' }}>Session Breakdown</h3>
+                        <div className="table-wrap" style={{ marginBottom: 24 }}>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Date</th>
+                                        <th>Student</th>
+                                        <th>Subject</th>
+                                        <th>Board</th>
+                                        <th>Level</th>
+                                        <th>Hours</th>
+                                        <th>Rate</th>
+                                        <th>Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {sessions.map((s, idx) => (
+                                        <tr key={s.session_id}>
+                                            <td>{idx + 1}</td>
+                                            <td>{s.session_date}</td>
+                                            <td>{s.student_name}</td>
+                                            <td style={{ textTransform: 'capitalize' }}>{s.subject}</td>
+                                            <td>{s.board || '—'}</td>
+                                            <td>{levelLabels[s.salary_level] || s.salary_level}</td>
+                                            <td>{s.duration_hours}</td>
+                                            <td>₹{s.rate_applied}</td>
+                                            <td style={{ fontWeight: 600 }}>₹{s.amount.toLocaleString()}</td>
+                                        </tr>
+                                    ))}
+                                    {sessions.length === 0 && (
+                                        <tr>
+                                            <td colSpan={9} style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>No approved sessions this month</td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Custom Rates Section */}
+                        <div style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                <h3 style={{ fontSize: 15, margin: 0, color: '#10233f' }}>Custom Rate Overrides</h3>
+                                <button onClick={() => setShowRateEditor(!showRateEditor)} className="secondary small">
+                                    {showRateEditor ? 'Hide Editor' : 'Edit Rates'}
+                                </button>
+                            </div>
+
+                            {/* Existing custom rates */}
+                            {Object.keys(customRates).length > 0 && (
+                                <div style={{ marginBottom: 12 }}>
+                                    {Object.entries(customRates).map(([subKey, levels]) => {
+                                        const { subject, board } = parseRateKey(subKey);
+                                        return Object.entries(levels).map(([level, rate]) => (
+                                            <div key={`${subKey}-${level}`} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, padding: '6px 10px', background: '#fff8e1', borderRadius: 6, fontSize: 13 }}>
+                                                <span style={{ fontWeight: 500, textTransform: 'capitalize' }}>{subject === '_any' ? 'All Subjects' : subject}</span>
+                                                <><span style={{ color: 'var(--muted)' }}>·</span><span style={{ textTransform: 'capitalize', color: '#6b7280' }}>{board === '_any' || !board ? 'All Boards' : board}</span></>
+                                                <span style={{ color: 'var(--muted)' }}>→</span>
+                                                <span>{levelLabels[level] || level}</span>
+                                                <span style={{ color: 'var(--muted)' }}>→</span>
+                                                <span style={{ fontWeight: 600 }}>₹{rate}/hr</span>
+                                                {showRateEditor && (
+                                                    <button onClick={() => removeCustomRate(subKey, level)} className="secondary small" style={{ marginLeft: 'auto', color: '#e53935', fontSize: 11, padding: '2px 8px' }}>Remove</button>
+                                                )}
+                                            </div>
+                                        ));
+                                    })}
+                                </div>
+                            )}
+
+                            {Object.keys(customRates).length === 0 && !showRateEditor && (
+                                <p style={{ fontSize: 13, color: 'var(--muted)' }}>No custom overrides set. Using master rates.</p>
+                            )}
+
+                            {/* Add new custom rate */}
+                            {showRateEditor && (
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 8 }}>
+                                    <div>
+                                        <label style={{ fontSize: 12, color: 'var(--muted)' }}>Subject</label>
+                                        <select value={newRate.subject} onChange={e => setNewRate(p => ({ ...p, subject: e.target.value }))} style={{ width: 150, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--line)' }}>
+                                            <option value="_any">All Subjects</option>
+                                            {subjectsList.map(s => <option key={s} value={s}>{s}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: 12, color: 'var(--muted)' }}>Board</label>
+                                        <select value={newRate.board} onChange={e => setNewRate(p => ({ ...p, board: e.target.value }))} style={{ width: 120, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--line)' }}>
+                                            <option value="_any">All Boards</option>
+                                            {boardsList.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: 12, color: 'var(--muted)' }}>Level</label>
+                                        <select value={newRate.level} onChange={e => setNewRate(p => ({ ...p, level: e.target.value }))} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--line)' }}>
+                                            <option value="lkg_7">LKG–7</option>
+                                            <option value="class_8_10">8–10</option>
+                                            <option value="plus_1_2">+1 & +2</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: 12, color: 'var(--muted)' }}>Rate (₹/hr)</label>
+                                        <input type="number" placeholder="0" value={newRate.rate} onChange={e => setNewRate(p => ({ ...p, rate: e.target.value }))} style={{ width: 90, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--line)' }} />
+                                    </div>
+                                    <button onClick={addCustomRate} className="primary small" style={{ padding: '6px 14px' }}>+ Add</button>
+                                </div>
+                            )}
+
+                            {/* Save Button */}
+                            {showRateEditor && (
+                                <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+                                    <button onClick={saveCustomRates} className="primary" disabled={saving}>
+                                        {saving ? 'Saving...' : 'Save Custom Rates'}
+                                    </button>
+                                    {saveSuccess && <span style={{ color: '#22c55e', fontSize: 13, fontWeight: 500 }}>✓ Saved successfully!</span>}
+                                    <span style={{ color: 'var(--muted)', fontSize: 12 }}>Remember to save after adding or removing rates.</span>
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
+            </div>
         </div>
     );
 }
@@ -726,262 +1310,234 @@ function SalaryModal({ employee, existing, onClose, onDone }) {
     );
 }
 
-/* ═══════ HR PAYROLL PAGE ═══════ */
-export function HRPayrollPage() {
-    const [cycles, setCycles] = useState([]);
+/* ═══════ MASTER RATES COMPONENT ═══════ */
+function SalaryMasterRatesConfig() {
+    const [configs, setConfigs] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [showCreate, setShowCreate] = useState(false);
-    const [viewCycleId, setViewCycleId] = useState(null);
-    const [items, setItems] = useState([]);
-    const [itemsLoading, setItemsLoading] = useState(false);
-
-    function loadCycles() {
-        setLoading(true);
-        apiFetch('/hr/payroll').then(r => setCycles(r.items || [])).catch(() => { }).finally(() => setLoading(false));
-    }
-
-    useEffect(() => { loadCycles(); }, []);
-
-    async function viewCycle(cycle) {
-        setViewCycleId(cycle.id);
-        setItemsLoading(true);
-        try {
-            const r = await apiFetch(`/hr/payroll/${cycle.id}`);
-            setItems(r.items || []);
-        } catch { } finally {
-            setItemsLoading(false);
-        }
-    }
-
-    async function generatePayroll(cycleId) {
-        try {
-            const r = await apiFetch('/hr/payroll/generate', { method: 'POST', body: JSON.stringify({ cycle_id: cycleId }) });
-            alert(`Payroll generated for ${r.count} employees. Total: ₹${r.totalAmount?.toLocaleString()}`);
-            viewCycle({ id: cycleId });
-            loadCycles();
-        } catch (err) {
-            alert(err.message);
-        }
-    }
-
-    async function submitToFinance(cycleId) {
-        if (!confirm('Submit this payroll to Finance for payment?')) return;
-        try {
-            await apiFetch('/hr/payment-requests', { method: 'POST', body: JSON.stringify({ cycle_id: cycleId }) });
-            alert('Payment request sent to Finance!');
-            loadCycles();
-        } catch (err) {
-            alert(err.message);
-        }
-    }
-
-    const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const statusColors = { draft: '#f59e0b', submitted: '#3b82f6', approved: '#22c55e', rejected: '#ef4444', paid: '#8b5cf6' };
-
-    return (
-        <div style={{ padding: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
-                <h2 style={{ margin: 0 }}>Payroll</h2>
-                <button onClick={() => setShowCreate(true)}
-                    style={{ padding: '8px 20px', borderRadius: 8, background: '#3b82f6', color: '#fff', border: 'none', cursor: 'pointer' }}>
-                    + New Cycle
-                </button>
-            </div>
-
-            {loading ? <p>Loading...</p> : (
-                <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-                    {/* Cycles List */}
-                    <div style={{ flex: '0 0 340px' }}>
-                        {cycles.map(c => (
-                            <div key={c.id} onClick={() => viewCycle(c)}
-                                style={{
-                                    background: viewCycleId === c.id ? '#1e3a5f' : '#1e293b', borderRadius: 10, padding: 16,
-                                    marginBottom: 8, cursor: 'pointer', border: viewCycleId === c.id ? '1px solid #3b82f6' : '1px solid transparent'
-                                }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <strong style={{ color: '#f1f5f9' }}>{monthNames[c.month]} {c.year}</strong>
-                                    <span style={{
-                                        padding: '2px 10px', borderRadius: 20, fontSize: 12,
-                                        background: statusColors[c.status] + '22', color: statusColors[c.status]
-                                    }}>
-                                        {c.status}
-                                    </span>
-                                </div>
-                                <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>Total: ₹{Number(c.total_amount || 0).toLocaleString()}</p>
-                                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                                    {c.status === 'draft' && (
-                                        <>
-                                            <button onClick={e => { e.stopPropagation(); generatePayroll(c.id); }}
-                                                style={{ ...btnSmall, background: '#334155' }}>Generate</button>
-                                            <button onClick={e => { e.stopPropagation(); submitToFinance(c.id); }}
-                                                style={{ ...btnSmall, background: '#22c55e' }}>Send to Finance</button>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
-                        {cycles.length === 0 && <p style={{ color: '#64748b' }}>No payroll cycles yet</p>}
-                    </div>
-
-                    {/* Payroll Items */}
-                    {viewCycleId && (
-                        <div style={{ flex: 1, minWidth: 400 }}>
-                            <h3 style={{ marginBottom: 12, color: '#f1f5f9' }}>Payroll Items</h3>
-                            {itemsLoading ? <p>Loading...</p> : (
-                                <div style={{ overflowX: 'auto' }}>
-                                    <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                        <thead>
-                                            <tr>
-                                                <th style={thStyle}>#</th>
-                                                <th style={thStyle}>Employee</th>
-                                                <th style={thStyle}>Working</th>
-                                                <th style={thStyle}>Present</th>
-                                                <th style={thStyle}>Absent</th>
-                                                <th style={thStyle}>Base</th>
-                                                <th style={thStyle}>Allowances</th>
-                                                <th style={thStyle}>Deductions</th>
-                                                <th style={thStyle}>Net Salary</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {items.map((item, idx) => (
-                                                <tr key={item.id} style={{ borderBottom: '1px solid #1e293b' }}>
-                                                    <td style={tdStyle}>{idx + 1}</td>
-                                                    <td style={tdStyle}>{item.employees?.full_name || '—'}</td>
-                                                    <td style={tdStyle}>{item.working_days}</td>
-                                                    <td style={{ ...tdStyle, color: '#22c55e' }}>{item.present_days}</td>
-                                                    <td style={{ ...tdStyle, color: '#ef4444' }}>{item.absent_days}</td>
-                                                    <td style={tdStyle}>₹{Number(item.base_salary).toLocaleString()}</td>
-                                                    <td style={tdStyle}>₹{Number(item.total_allowances).toLocaleString()}</td>
-                                                    <td style={tdStyle}>₹{Number(item.total_deductions).toLocaleString()}</td>
-                                                    <td style={{ ...tdStyle, fontWeight: 700, color: '#f1f5f9' }}>₹{Number(item.net_salary).toLocaleString()}</td>
-                                                </tr>
-                                            ))}
-                                            {items.length === 0 && (
-                                                <tr><td colSpan={9} style={{ ...tdStyle, textAlign: 'center', color: '#64748b' }}>No items — click "Generate" to calculate</td></tr>
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {showCreate && <CreatePayrollCycleModal onClose={() => setShowCreate(false)} onDone={() => { setShowCreate(false); loadCycles(); }} />}
-        </div>
-    );
-}
-
-function CreatePayrollCycleModal({ onClose, onDone }) {
-    const now = new Date();
-    const [year, setYear] = useState(now.getFullYear());
-    const [month, setMonth] = useState(now.getMonth() + 1);
     const [saving, setSaving] = useState(false);
 
-    async function submit(e) {
-        e.preventDefault();
-        setSaving(true);
-        try {
-            await apiFetch('/hr/payroll', { method: 'POST', body: JSON.stringify({ year, month }) });
-            onDone();
-        } catch (err) {
-            alert(err.message);
-        } finally {
-            setSaving(false);
-        }
-    }
-
-    return (
-        <div style={overlayStyle}>
-            <div style={modalStyle}>
-                <h3 style={{ marginBottom: 16 }}>Create Payroll Cycle</h3>
-                <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                        <label style={labelStyle}>Year
-                            <input type="number" value={year} onChange={e => setYear(Number(e.target.value))} style={inputStyle} />
-                        </label>
-                        <label style={labelStyle}>Month
-                            <select value={month} onChange={e => setMonth(Number(e.target.value))} style={inputStyle}>
-                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
-                                    <option key={m} value={m}>{['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m]}</option>
-                                ))}
-                            </select>
-                        </label>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
-                        <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
-                        <button type="submit" disabled={saving} style={btnPrimary}>{saving ? 'Creating...' : 'Create Cycle'}</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-}
-
-/* ═══════ HR PAYMENT REQUESTS PAGE ═══════ */
-export function HRPaymentRequestsPage() {
-    const [requests, setRequests] = useState([]);
-    const [loading, setLoading] = useState(true);
-
     useEffect(() => {
-        apiFetch('/hr/payment-requests')
-            .then(r => setRequests(r.items || []))
+        apiFetch('/hr/salary-rate-config')
+            .then(res => setConfigs(res.items || []))
             .catch(() => { })
             .finally(() => setLoading(false));
     }, []);
 
-    const statusColors = { pending: '#f59e0b', approved: '#22c55e', rejected: '#ef4444', paid: '#8b5cf6' };
-    const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    function handleRateChange(idx, newRate) {
+        const updated = [...configs];
+        updated[idx].rate = newRate;
+        setConfigs(updated);
+    }
 
-    if (loading) return <p style={{ padding: 24 }}>Loading...</p>;
+    async function saveConfigs() {
+        setSaving(true);
+        try {
+            await apiFetch('/hr/salary-rate-config', {
+                method: 'PUT',
+                body: JSON.stringify({ items: configs })
+            });
+            alert('Master rates updated successfully! These will apply to all calculations dynamically.');
+        } catch (err) {
+            alert(err.message);
+        }
+        setSaving(false);
+    }
+
+    function addRow() {
+        setConfigs([{
+            board: 'state_cbse',
+            experience_category: 'fresher',
+            subject_key: '_default',
+            level: 'lkg_7',
+            rate: ''
+        }, ...configs]);
+    }
+
+    function deleteRow(idx) {
+        setConfigs(configs.filter((_, i) => i !== idx));
+    }
+
+    if (loading) return <p style={{ padding: 24, textAlign: 'center' }}>Loading master rates...</p>;
+
+    const selectStyle = { padding: '6px 8px', borderRadius: 4, border: '1px solid var(--line)', width: '100%', fontSize: 13 };
+    const textStyle = { padding: '6px 8px', borderRadius: 4, border: '1px solid var(--line)', width: '100%', fontSize: 13 };
 
     return (
-        <div style={{ padding: 24 }}>
-            <h2 style={{ marginBottom: 20 }}>Payment Requests to Finance</h2>
+        <div className="card" style={{ marginBottom: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: 16, borderBottom: '1px solid var(--line)' }}>
+                <div>
+                    <h3 style={{ margin: 0, fontSize: 16, color: '#10233f' }}>Master Salary Rules</h3>
+                    <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>These baseline rates are used if a teacher does not have a custom rate override. <br />The system prioritizes Exact Subject & Board {'>'} Special Subjects {'>'} ICSE/IGCSE {'>'} State/CBSE by Box.</p>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={addRow} className="secondary small">+ Add Rule</button>
+                    <button onClick={saveConfigs} className="primary" disabled={saving}>{saving ? 'Saving...' : 'Save All Changes'}</button>
+                </div>
+            </div>
 
-            <div style={{ overflowX: 'auto' }}>
-                <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <div className="table-wrap">
+                <table>
                     <thead>
                         <tr>
-                            <th style={thStyle}>#</th>
-                            <th style={thStyle}>Payroll Period</th>
-                            <th style={thStyle}>Total Amount</th>
-                            <th style={thStyle}>Status</th>
-                            <th style={thStyle}>Submitted</th>
-                            <th style={thStyle}>Finance Note</th>
+                            <th>Board Category</th>
+                            <th>Experience Level</th>
+                            <th>Subject Key</th>
+                            <th>Class Level</th>
+                            <th>Rate (₹/hr)</th>
+                            <th style={{ width: 40 }}></th>
                         </tr>
                     </thead>
                     <tbody>
-                        {requests.map((req, idx) => {
-                            const cycle = req.hr_payroll_cycles;
-                            return (
-                                <tr key={req.id} style={{ borderBottom: '1px solid #1e293b' }}>
-                                    <td style={tdStyle}>{idx + 1}</td>
-                                    <td style={tdStyle}>{cycle ? `${monthNames[cycle.month]} ${cycle.year}` : '—'}</td>
-                                    <td style={{ ...tdStyle, fontWeight: 700 }}>₹{Number(req.total_amount).toLocaleString()}</td>
-                                    <td style={tdStyle}>
-                                        <span style={{
-                                            padding: '2px 10px', borderRadius: 20, fontSize: 12,
-                                            background: (statusColors[req.status] || '#666') + '22',
-                                            color: statusColors[req.status] || '#94a3b8'
-                                        }}>
-                                            {req.status}
-                                        </span>
-                                    </td>
-                                    <td style={tdStyle}>{new Date(req.created_at).toLocaleDateString('en-IN')}</td>
-                                    <td style={tdStyle}>{req.finance_note || '—'}</td>
-                                </tr>
-                            );
-                        })}
-                        {requests.length === 0 && (
-                            <tr><td colSpan={6} style={{ ...tdStyle, textAlign: 'center', color: '#64748b' }}>No payment requests yet. Generate payroll and submit to Finance.</td></tr>
+                        {configs.map((c, idx) => (
+                            <tr key={idx}>
+                                <td>
+                                    <select value={c.board} onChange={e => { const v = [...configs]; v[idx].board = e.target.value; setConfigs(v); }} style={selectStyle}>
+                                        <option value="state_cbse">State / CBSE</option>
+                                        <option value="icse_igcse">ICSE / IGCSE</option>
+                                        <option value="_any">Any Board</option>
+                                    </select>
+                                </td>
+                                <td>
+                                    <select value={c.experience_category} onChange={e => { const v = [...configs]; v[idx].experience_category = e.target.value; setConfigs(v); }} style={selectStyle}>
+                                        <option value="fresher">Fresher</option>
+                                        <option value="experienced">Experienced</option>
+                                        <option value="experienced_high">Experienced (High)</option>
+                                        <option value="_any">Any Experience</option>
+                                    </select>
+                                </td>
+                                <td>
+                                    <input value={c.subject_key} onChange={e => { const v = [...configs]; v[idx].subject_key = e.target.value; setConfigs(v); }} style={textStyle} placeholder="_default, french, etc." />
+                                </td>
+                                <td>
+                                    <select value={c.level} onChange={e => { const v = [...configs]; v[idx].level = e.target.value; setConfigs(v); }} style={selectStyle}>
+                                        <option value="lkg_7">LKG–7</option>
+                                        <option value="class_8_10">8–10</option>
+                                        <option value="plus_1_2">+1 & +2</option>
+                                    </select>
+                                </td>
+                                <td>
+                                    <input type="number" value={c.rate} onChange={e => handleRateChange(idx, e.target.value)} style={textStyle} placeholder="0" />
+                                </td>
+                                <td>
+                                    <button onClick={() => deleteRow(idx)} className="secondary small" style={{ color: '#ef4444', padding: '4px 8px' }}>✕</button>
+                                </td>
+                            </tr>
+                        ))}
+                        {configs.length === 0 && (
+                            <tr><td colSpan={6} style={{ textAlign: 'center', padding: 32, color: 'var(--muted)' }}>No master rules configured.</td></tr>
                         )}
                     </tbody>
                 </table>
             </div>
         </div>
+    );
+}
+
+
+
+/* ═══════ HR PAYMENT REQUESTS PAGE ═══════ */
+export function HRPaymentRequestsPage() {
+    const [requests, setRequests] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [monthOffset, setMonthOffset] = useState(0);
+
+    const getMonthYearString = (offset) => {
+        const d = new Date();
+        d.setMonth(d.getMonth() + offset);
+        return { month: d.getMonth() + 1, year: d.getFullYear(), label: d.toLocaleString('en-US', { month: 'long', year: 'numeric' }) };
+    };
+
+    const currentMY = getMonthYearString(monthOffset);
+
+    useEffect(() => {
+        setLoading(true);
+        apiFetch(`/hr/payment-requests?month=${currentMY.month}&year=${currentMY.year}`)
+            .then(r => setRequests(r.items || []))
+            .catch(() => { })
+            .finally(() => setLoading(false));
+    }, [currentMY.month, currentMY.year]);
+
+    const statusColors = { pending: '#f59e0b', approved: '#22c55e', rejected: '#ef4444', paid: '#8b5cf6' };
+    const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    return (
+        <section className="panel">
+            <div className="card filters-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', marginBottom: 20 }}>
+                <h2 style={{ margin: 0, fontSize: '18px', color: '#10233f' }}>Payment Requests to Finance</h2>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button onClick={() => setMonthOffset(o => o - 1)} className="secondary" style={{ padding: '4px 12px' }}>&larr; Prev</button>
+                    <span style={{ fontWeight: 600, fontSize: 14 }}>{currentMY.label}</span>
+                    <button onClick={() => setMonthOffset(o => o + 1)} className="secondary" style={{ padding: '4px 12px' }}>Next &rarr;</button>
+                </div>
+            </div>
+
+            <div className="card">
+                {loading ? <div style={{ padding: 24 }}>Loading...</div> : (
+                    <div className="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Staff/Teacher</th>
+                                    <th>Type</th>
+                                    <th>Period</th>
+                                    <th>Calculated Amount</th>
+                                    <th>Adjustment</th>
+                                    <th>Total Payable</th>
+                                    <th>Status</th>
+                                    <th>Submitted At</th>
+                                    <th>HR Note</th>
+                                    <th>Finance Note</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {requests.map((req, idx) => {
+                                    const name = req.target_type === 'teacher' ? (req.teacher_profiles?.users?.full_name || 'Unknown Teacher') : (req.employees?.full_name || 'Unknown Employee');
+                                    const typeLabel = req.target_type === 'teacher' ? 'Teacher' : 'Staff';
+                                    const calcAmount = req.breakdown?.base_calculated || 0;
+                                    const adjustment = req.breakdown?.adjustment || 0;
+
+                                    return (
+                                        <tr key={req.id}>
+                                            <td>{idx + 1}</td>
+                                            <td><div style={{ fontWeight: 500 }}>{name}</div></td>
+                                            <td>
+                                                <span style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: req.target_type === 'teacher' ? 'rgba(139, 92, 246, 0.1)' : 'rgba(59, 130, 246, 0.1)', color: req.target_type === 'teacher' ? '#8b5cf6' : '#3b82f6', fontWeight: 600 }}>
+                                                    {typeLabel}
+                                                </span>
+                                            </td>
+                                            <td>{monthNames[req.month]} {req.year}</td>
+                                            <td style={{ color: '#64748b' }}>₹{Number(calcAmount).toLocaleString()}</td>
+                                            <td style={{ color: adjustment < 0 ? '#ef4444' : (adjustment > 0 ? '#22c55e' : '#94a3b8'), fontWeight: adjustment !== 0 ? 600 : 400 }}>
+                                                {adjustment !== 0 ? (adjustment > 0 ? `+₹${Number(adjustment).toLocaleString()}` : `-₹${Math.abs(Number(adjustment)).toLocaleString()}`) : '—'}
+                                            </td>
+                                            <td style={{ fontWeight: 700, color: '#10233f' }}>₹{Number(req.total_amount).toLocaleString()}</td>
+                                            <td>
+                                                <span style={{
+                                                    padding: '4px 10px', borderRadius: 20, fontSize: 12,
+                                                    background: (statusColors[req.status] || '#666') + '22',
+                                                    color: statusColors[req.status] || '#94a3b8',
+                                                    fontWeight: 600
+                                                }}>
+                                                    {req.status}
+                                                </span>
+                                            </td>
+                                            <td style={{ fontSize: 13, color: '#64748b' }}>{new Date(req.created_at).toLocaleDateString('en-IN')}</td>
+                                            <td style={{ fontSize: 13, maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={req.hr_note}>{req.hr_note || '—'}</td>
+                                            <td style={{ fontSize: 13, maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={req.finance_note}>{req.finance_note || '—'}</td>
+                                        </tr>
+                                    );
+                                })}
+                                {requests.length === 0 && (
+                                    <tr><td colSpan={11} style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>No individual payment requests yet. Submit from the Salary Calculator.</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+        </section>
     );
 }
 

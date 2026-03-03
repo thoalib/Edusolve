@@ -298,6 +298,12 @@ select {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.grid-five {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -580,6 +586,10 @@ button.danger {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .grid-five {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .grid-three {
     grid-template-columns: 1fr;
   }
@@ -595,6 +605,10 @@ button.danger {
 }
 
 @media (max-width: 720px) {
+  .grid-four, .grid-five {
+    grid-template-columns: 1fr;
+  }
+
   .page-content {
     padding: 14px;
   }

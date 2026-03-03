@@ -249,6 +249,28 @@ export async function handleTeachers(req, res, url) {
       return true;
     }
 
+    // ── GET /teachers/my-invoices — view paid HR payment requests as invoices ──
+    if (req.method === 'GET' && url.pathname === '/teachers/my-invoices') {
+      if (actor.role !== 'teacher') return sendJson(res, 403, { ok: false, error: 'teacher role required' });
+
+      // Get teacher profile id
+      const { data: profile } = await adminClient.from('teacher_profiles').select('id').eq('user_id', actor.userId).single();
+      if (!profile) return sendJson(res, 404, { ok: false, error: 'profile not found' });
+
+      // Fetch payment requests for this teacher
+      const { data: invoices, error } = await adminClient
+        .from('hr_payment_requests')
+        .select('*')
+        .eq('teacher_id', profile.id)
+        .eq('status', 'paid')
+        .order('year', { ascending: false })
+        .order('month', { ascending: false });
+
+      if (error) throw new Error(error.message);
+      sendJson(res, 200, { ok: true, invoices: invoices || [] });
+      return true;
+    }
+
     // ── GET /teachers/:id/availability — teacher availability with booked slots ──
     const parts = url.pathname.split('/').filter(Boolean);
 
