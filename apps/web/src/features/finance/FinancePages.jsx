@@ -638,7 +638,6 @@ export function PartiesPage() {
 export function PayrollRequestsPage() {
   const [requests, setRequests] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
-  const [payrollItems, setPayrollItems] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -660,12 +659,8 @@ export function PayrollRequestsPage() {
   }
   useEffect(() => { loadData(); }, []);
 
-  async function viewRequest(req) {
+  function viewRequest(req) {
     setSelectedRequest(req);
-    try {
-      const d = await apiFetch(`/finance/hr-payroll/${req.cycle_id}`);
-      setPayrollItems(d.items || []);
-    } catch (e) { alert(e.message); }
   }
 
   async function payRequest() {
@@ -685,7 +680,7 @@ export function PayrollRequestsPage() {
     setPaying(false);
   }
 
-  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const MONTHS = { 1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun', 7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec' };
   const statusColors = { pending: '#f59e0b', paid: '#10b981' };
 
   return (
@@ -696,33 +691,58 @@ export function PayrollRequestsPage() {
 
       {loading ? <p>Loading...</p> : null}
 
-      <div className="today-leads-grid" style={{ marginBottom: '20px' }}>
-        {requests.map(r => (
-          <div key={r.id} className="card" style={{
-            padding: '16px', cursor: 'pointer', borderLeft: `4px solid ${statusColors[r.status] || '#6b7280'}`,
-            background: selectedRequest?.id === r.id ? '#f0f4ff' : ''
-          }} onClick={() => viewRequest(r)}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '15px' }}>
-                  {r.hr_payroll_cycles ? `${MONTHS[r.hr_payroll_cycles.month - 1]} ${r.hr_payroll_cycles.year}` : 'Unknown Cycle'}
-                </h3>
-                <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#6b7280' }}>Req By: {r.users?.full_name}</p>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <span style={{ padding: '3px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', background: `${statusColors[r.status]}18`, color: statusColors[r.status] }}>{r.status}</span>
-                <p style={{ margin: '4px 0 0', fontWeight: 600, fontSize: '14px', color: '#1d4ed8' }}>₹{Number(r.total_amount).toLocaleString()}</p>
-              </div>
-            </div>
-          </div>
-        ))}
-        {!requests.length && !loading ? <div className="card" style={{ padding: '40px', textAlign: 'center', gridColumn: '1 / -1' }}><p className="text-muted">No payroll requests found.</p></div> : null}
+      <div className="table-wrap mobile-friendly-table" style={{ marginBottom: '20px' }}>
+        <table>
+          <thead>
+            <tr>
+              <th>Staff/Teacher</th>
+              <th>Type</th>
+              <th>Period</th>
+              <th>Calculated Amount</th>
+              <th>Adjustment</th>
+              <th>Total Payable</th>
+              <th>Status</th>
+              <th>HR Note</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {requests.map(req => {
+              const name = req.target_type === 'teacher' ? (req.teacher_profiles?.users?.full_name || 'Unknown Teacher') : (req.employees?.full_name || 'Unknown Employee');
+              const typeLabel = req.target_type === 'teacher' ? 'Teacher' : 'Staff';
+              const calcAmount = req.breakdown?.base_calculated || 0;
+              const adjustment = req.breakdown?.adjustment || 0;
+              return (
+                <tr key={req.id} style={{ background: selectedRequest?.id === req.id ? '#f0f4ff' : '' }}>
+                  <td data-label="Name"><div style={{ fontWeight: 500 }}>{name}</div></td>
+                  <td data-label="Type">
+                    <span style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: req.target_type === 'teacher' ? 'rgba(139, 92, 246, 0.1)' : 'rgba(59, 130, 246, 0.1)', color: req.target_type === 'teacher' ? '#8b5cf6' : '#3b82f6', fontWeight: 600 }}>{typeLabel}</span>
+                  </td>
+                  <td data-label="Period">{MONTHS[req.month]} {req.year}</td>
+                  <td data-label="Calculated" style={{ color: '#64748b' }}>₹{Number(calcAmount).toLocaleString()}</td>
+                  <td data-label="Adjustment" style={{ color: adjustment < 0 ? '#ef4444' : (adjustment > 0 ? '#22c55e' : '#94a3b8'), fontWeight: adjustment !== 0 ? 600 : 400 }}>
+                    {adjustment !== 0 ? (adjustment > 0 ? `+₹${Number(adjustment).toLocaleString()}` : `-₹${Math.abs(Number(adjustment)).toLocaleString()}`) : '—'}
+                  </td>
+                  <td data-label="Payable" style={{ fontWeight: 700, color: '#10233f' }}>₹{Number(req.total_amount).toLocaleString()}</td>
+                  <td data-label="Status">
+                    <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 12, background: (statusColors[req.status] || '#666') + '22', color: statusColors[req.status] || '#94a3b8', fontWeight: 600 }}>{req.status}</span>
+                  </td>
+                  <td data-label="HR Note" style={{ fontSize: 13, maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={req.hr_note}>{req.hr_note || '—'}</td>
+                  <td data-label="Actions" className="actions">
+                    {req.status === 'pending' ? <button className="small primary" onClick={() => viewRequest(req)}>Pay</button> : <button className="small secondary" onClick={() => viewRequest(req)}>View</button>}
+                  </td>
+                </tr>
+              )
+            })}
+            {!requests.length && !loading && <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>No payroll requests found.</td></tr>}
+          </tbody>
+        </table>
       </div>
 
       {selectedRequest ? (
         <article className="card" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-            <h3 style={{ margin: 0, fontSize: '16px' }}>Payroll Items Details</h3>
+            <h3 style={{ margin: 0, fontSize: '16px' }}>Process Payment</h3>
             {selectedRequest.status === 'pending' ? (
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <select className="input" style={{ width: 'auto', padding: '6px 12px', fontSize: '13px' }} value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)}>
@@ -730,32 +750,14 @@ export function PayrollRequestsPage() {
                   {accounts.map(a => <option key={a.id} value={a.id}>{a.name} (₹{Number(a.balance).toLocaleString()})</option>)}
                 </select>
                 <button className="primary" onClick={payRequest} disabled={paying || !selectedAccountId}>
-                  {paying ? 'Processing...' : 'Mark as Paid'}
+                  {paying ? 'Processing...' : `Pay ₹${Number(selectedRequest.total_amount).toLocaleString()}`}
                 </button>
               </div>
             ) : (
               <span style={{ color: '#10b981', fontWeight: 600, fontSize: '14px' }}>Paid on: {new Date(selectedRequest.updated_at).toLocaleDateString()}</span>
             )}
           </div>
-          <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#4b5563' }}>{selectedRequest.notes}</p>
-
-          <div className="table-wrap mobile-friendly-table">
-            <table>
-              <thead><tr><th>Employee</th><th>Designation</th><th>Basic</th><th>Allowances</th><th>Deductions</th><th>Net Salary</th></tr></thead>
-              <tbody>
-                {payrollItems.map(item => (
-                  <tr key={item.id}>
-                    <td data-label="Employee">{item.employees?.full_name || '—'}</td>
-                    <td data-label="Designation">{item.employees?.designation || '—'}</td>
-                    <td data-label="Basic">₹{Number(item.basic_salary).toLocaleString()}</td>
-                    <td data-label="Allowances">₹{Number(item.allowances).toLocaleString()}</td>
-                    <td data-label="Deductions" style={{ color: '#ef4444' }}>₹{Number(item.deductions).toLocaleString()}</td>
-                    <td data-label="Net Salary" style={{ fontWeight: 600, color: '#15803d' }}>₹{Number(item.net_salary).toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#4b5563' }}>Paying {selectedRequest.target_type === 'teacher' ? (selectedRequest.teacher_profiles?.users?.full_name || 'Teacher') : (selectedRequest.employees?.full_name || 'Employee')} for {MONTHS[selectedRequest.month]} {selectedRequest.year}</p>
         </article>
       ) : null}
     </section>

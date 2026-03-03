@@ -285,7 +285,7 @@ export async function handleStudents(req, res, url) {
       const allowedFields = [
         'student_name', 'parent_name', 'contact_number',
         'alternative_number', 'parent_phone', 'messaging_number',
-        'class_level', 'package_name'
+        'class_level', 'package_name', 'board', 'medium'
       ];
       const updateFields = {};
       for (const key of allowedFields) {

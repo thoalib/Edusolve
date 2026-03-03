@@ -1658,60 +1658,46 @@ export function TeacherReportsPage() {
 
 /* ═══════ Teacher Invoices ═══════ */
 export function TeacherInvoicesPage() {
-    const [hours, setHours] = useState({ items: [], total_hours: 0 });
+    const [invoices, setInvoices] = useState([]);
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
+
+    const MONTHS = {
+        1: 'January', 2: 'February', 3: 'March', 4: 'April', 5: 'May', 6: 'June',
+        7: 'July', 8: 'August', 9: 'September', 10: 'October', 11: 'November', 12: 'December'
+    };
 
     useEffect(() => {
         (async () => {
             try {
-                const [h, p] = await Promise.all([
-                    apiFetch('/teachers/my-hours'),
+                const [invRes, p] = await Promise.all([
+                    apiFetch('/teachers/my-invoices'),
                     apiFetch('/teachers/me').catch(() => ({ teacher: null }))
                 ]);
-                setHours(h);
+                setInvoices(invRes.invoices || []);
                 setProfile(p.teacher);
             } catch (e) { }
             setLoading(false);
         })();
     }, []);
 
-    // Group by month for invoice-style display
-    const invoices = useMemo(() => {
-        const map = {};
-        (hours.items || []).forEach(entry => {
-            const d = entry.created_at ? entry.created_at.slice(0, 7) : 'unknown';
-            if (!map[d]) map[d] = { hours: 0, entries: 0 };
-            map[d].hours += Number(entry.hours_delta || 0);
-            map[d].entries++;
-        });
-        const rate = profile?.per_hour_rate || 0;
-        return Object.entries(map)
-            .sort((a, b) => b[0].localeCompare(a[0]))
-            .map(([month, data]) => ({
-                month,
-                hours: data.hours,
-                entries: data.entries,
-                amount: data.hours * rate
-            }));
-    }, [hours.items, profile]);
-
-    const totalEarnings = invoices.reduce((sum, inv) => sum + inv.amount, 0);
+    const totalEarnings = invoices.reduce((sum, inv) => sum + (Number(inv.total_amount) || 0), 0);
+    const totalHours = invoices.reduce((sum, inv) => sum + (Number(inv.breakdown?.hours_calculated) || 0), 0);
 
     if (loading) return <section className="panel"><p>Loading invoices...</p></section>;
 
     return (
         <section className="panel">
-            <h2 style={{ margin: '0 0 16px', fontSize: '20px' }}>Invoices</h2>
+            <h2 style={{ margin: '0 0 16px', fontSize: '20px' }}>Earnings & Invoices</h2>
 
             <div className="grid-three" style={{ marginBottom: '16px' }}>
                 <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
-                    <p style={{ margin: 0, fontSize: '28px', fontWeight: 700, color: '#1d4ed8' }}>{hours.total_hours}h</p>
-                    <p className="text-muted" style={{ margin: '4px 0 0', fontSize: '12px' }}>Total Hours</p>
+                    <p style={{ margin: 0, fontSize: '28px', fontWeight: 700, color: '#1d4ed8' }}>{totalHours}h</p>
+                    <p className="text-muted" style={{ margin: '4px 0 0', fontSize: '12px' }}>Total Hours Paid</p>
                 </div>
                 <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
                     <p style={{ margin: 0, fontSize: '28px', fontWeight: 700 }}>₹{profile?.per_hour_rate || 0}/hr</p>
-                    <p className="text-muted" style={{ margin: '4px 0 0', fontSize: '12px' }}>Hourly Rate</p>
+                    <p className="text-muted" style={{ margin: '4px 0 0', fontSize: '12px' }}>Current Rate</p>
                 </div>
                 <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
                     <p style={{ margin: 0, fontSize: '28px', fontWeight: 700, color: '#15803d' }}>₹{totalEarnings.toLocaleString()}</p>
@@ -1720,29 +1706,35 @@ export function TeacherInvoicesPage() {
             </div>
 
             <article className="card" style={{ padding: '20px' }}>
-                <h3 style={{ margin: '0 0 12px', fontSize: '15px' }}>Monthly Invoices</h3>
+                <h3 style={{ margin: '0 0 12px', fontSize: '15px' }}>Paid Invoices</h3>
                 <div className="table-wrap mobile-friendly-table">
                     <table>
                         <thead>
                             <tr>
-                                <th>Month</th>
-                                <th>Sessions</th>
-                                <th>Hours</th>
-                                <th>Rate</th>
-                                <th>Amount</th>
+                                <th>Period</th>
+                                <th>Generated Date</th>
+                                <th>Hours Paid</th>
+                                <th>Rate Kept</th>
+                                <th>Amount Paid</th>
+                                <th>Status</th>
                             </tr>
                         </thead>
                         <tbody>
                             {invoices.map(inv => (
-                                <tr key={inv.month}>
-                                    <td data-label="Month">{inv.month}</td>
-                                    <td data-label="Sessions">{inv.entries}</td>
-                                    <td data-label="Hours">{inv.hours}h</td>
-                                    <td data-label="Rate">₹{profile?.per_hour_rate || 0}</td>
-                                    <td data-label="Amount" style={{ fontWeight: 600, color: '#15803d' }}>₹{inv.amount.toLocaleString()}</td>
+                                <tr key={inv.id}>
+                                    <td data-label="Period">{MONTHS[inv.month]} {inv.year}</td>
+                                    <td data-label="Generated Date">{new Date(inv.updated_at || inv.created_at).toLocaleDateString()}</td>
+                                    <td data-label="Hours Paid">{inv.breakdown?.hours_calculated || 0}h</td>
+                                    <td data-label="Rate Kept">₹{inv.breakdown?.hourly_rate || 0}/hr</td>
+                                    <td data-label="Amount Paid" style={{ fontWeight: 600, color: '#15803d' }}>₹{(Number(inv.total_amount) || 0).toLocaleString()}</td>
+                                    <td data-label="Status">
+                                        <span style={{ background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase' }}>
+                                            Paid
+                                        </span>
+                                    </td>
                                 </tr>
                             ))}
-                            {!invoices.length ? <tr><td colSpan="5" style={{ textAlign: 'center' }}>No invoices yet</td></tr> : null}
+                            {!invoices.length ? <tr><td colSpan="6" style={{ textAlign: 'center', padding: '30px', color: '#6b7280' }}>No invoice payments generated yet.</td></tr> : null}
                         </tbody>
                     </table>
                 </div>
