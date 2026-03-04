@@ -11,6 +11,7 @@ import { handleTeachers } from './teachers/teachers.controller.js';
 import { handleUpload, generatePresignedUrl } from './common/upload.js';
 import { handleCounselors } from './counselors/counselors.controller.js';
 import { handleRequests } from './requests/requests.controller.js';
+import { handleTickets } from './tickets/tickets.controller.js';
 import { handleTeacherLeads } from './teacher-leads/teacher-leads.controller.js';
 import { handleSubjectsBoards } from './subjects-boards/subjects-boards.controller.js';
 import { handleUsers } from './users/users.controller.js';
@@ -64,6 +65,7 @@ const server = http.createServer(async (req, res) => {
   if (await handleTeachers(req, res, url)) return;
   if (await handleCounselors(req, res, url)) return;
   if (await handleRequests(req, res, url)) return;
+  if (await handleTickets(req, res, url)) return;
   if (await handleSubjectsBoards(req, res, url)) return;
   if (await handleTeacherLeads(req, res, url)) return;
   if (await handleUsers(req, res)) return;

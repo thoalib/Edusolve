@@ -1,0 +1,2 @@
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS current_note TEXT;
+ALTER TABLE teacher_leads ADD COLUMN IF NOT EXISTS current_note TEXT;

@@ -36,10 +36,12 @@ import { TeacherDirectoryPage } from './features/teachers/TeacherDirectoryPage.j
 import { SubjectsBoardsPage } from './features/academic/SubjectsBoardsPage.jsx';
 import { CounselorTeamPage } from './features/counselors/CounselorPages.jsx';
 import { CounselorReportsPage } from './features/counselors/CounselorReportsPage.jsx';
-import { CounselorRequestsPage } from './features/requests/CounselorRequestsPage.jsx';
+import { TicketDashboardPage } from './features/tickets/TicketPages.jsx';
+import { NotificationBell } from './components/NotificationBell.jsx';
 import { VerificationQueuePage, SessionLogsPage } from './features/sessions/SessionPages.jsx';
 import { TeacherProfilePage } from './features/teachers/TeacherPages.jsx';
 import { TCDashboardPage, TeacherLeadsPage, TCAllLeadsPage, TCTeacherPoolPage, TeacherPerformancePage } from './features/teachers/TeacherCoordinatorPages.jsx';
+import { TeacherSalesReportsPage } from './features/teachers/TeacherSalesReportsPage.jsx';
 import { TeacherDashboardPage, TeacherTodaySessionsPage, TeacherTimetablePage, TeacherMyProfilePage, TeacherReportsPage, TeacherInvoicesPage } from './features/teachers/TeacherDashboardPages.jsx';
 import { HRDashboardPage, AttendancePage, EmployeesPage, SalaryCalculatorPage, HRPaymentRequestsPage } from './features/hr/HRPages.jsx';
 import { getSession, logout } from './lib/auth.js';
@@ -183,8 +185,8 @@ export default function App() {
     if (page.path === '/team/counselors') return <CounselorTeamPage />;
     if (page.path === '/counselors/reports') return <CounselorReportsPage />;
 
-    /* Requests */
-    if (page.path === '/requests') return <CounselorRequestsPage role={role} onOpenLeadDetails={openLeadDetails} />;
+    /* Tickets */
+    if (page.path === '/tickets') return <TicketDashboardPage role={role} userId={user?.id} />;
 
     /* Teacher Profile (shared view) */
     if (page.path === '/teachers/profile') return <TeacherProfilePage teacherProfileId={selectedTeacherProfileId} />;
@@ -204,6 +206,7 @@ export default function App() {
 
     if (page.path === '/tc/teacher-pool') return <TeacherPoolPage />;
     if (page.path === '/tc/performance') return <TeacherPerformancePage />;
+    if (page.path === '/tc/sales-report') return <TeacherSalesReportsPage />;
 
     /* Top-Ups */
     if (page.path === '/topups/manage') return <TopUpsPage />;
@@ -255,6 +258,7 @@ export default function App() {
       activePath={page.path}
       onNavigate={onNavigate}
       onLogout={onLogout}
+      onNavigateToTicket={() => onNavigate('/tickets')}
     >
       {renderPage()}
     </AppShell>
