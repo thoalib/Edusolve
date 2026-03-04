@@ -78,6 +78,46 @@ export async function handleTeacherLeads(req, res, url) {
             return true;
         }
 
+        // GET /teacher-leads/coordinator-stats — per-coordinator aggregated stats
+        if (req.method === 'GET' && parts.length === 2 && parts[1] === 'coordinator-stats') {
+            const from = url.searchParams.get('from');
+            const to = url.searchParams.get('to');
+
+            let query = adminClient
+                .from('teacher_leads')
+                .select('coordinator_id, status, created_at');
+            if (from) query = query.gte('created_at', from);
+            if (to) query = query.lte('created_at', to);
+
+            const { data, error } = await query;
+            if (error) throw new Error(error.message);
+
+            // Aggregate per coordinator
+            const stats = {};
+            (data || []).forEach(r => {
+                const cid = r.coordinator_id || 'unassigned';
+                if (!stats[cid]) stats[cid] = { total: 0, active: 0, approved: 0, rejected: 0 };
+                stats[cid].total++;
+                if (r.status === 'approved' || r.status === 'closed') stats[cid].approved++;
+                else if (r.status === 'rejected') stats[cid].rejected++;
+                else stats[cid].active++;
+            });
+
+            // Resolve coordinator names
+            const coordinatorIds = Object.keys(stats).filter(id => id !== 'unassigned');
+            let coordinatorMap = {};
+            if (coordinatorIds.length > 0) {
+                const { data: users } = await adminClient
+                    .from('users')
+                    .select('id, full_name, email')
+                    .in('id', coordinatorIds);
+                (users || []).forEach(u => { coordinatorMap[u.id] = u.full_name || u.email; });
+            }
+
+            sendJson(res, 200, { ok: true, stats, coordinatorMap });
+            return true;
+        }
+
         // GET /teacher-leads/:id — get single
         if (req.method === 'GET' && parts.length === 2) {
             const id = parts[1];
@@ -209,7 +249,13 @@ export async function handleTeacherLeads(req, res, url) {
             if (payload.upi_id !== undefined) updates.upi_id = payload.upi_id;
             if (payload.rejection_reason !== undefined) updates.rejection_reason = payload.rejection_reason;
             if (payload.communication_level !== undefined) updates.communication_level = payload.communication_level;
+            if (payload.current_note !== undefined) updates.current_note = payload.current_note;
             if (payload.status) updates.status = payload.status;
+
+            // Clear current_note if status changes
+            if (payload.status && payload.status !== current.status) {
+                updates.current_note = null;
+            }
 
             // Validate required fields when approving
             if (payload.status === 'approved') {

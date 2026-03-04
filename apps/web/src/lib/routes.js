@@ -8,18 +8,24 @@ export const APP_PAGES = [
   { path: '/dashboard/counselor-head', title: 'Counselor Head Dashboard', group: 'Dashboards', roles: [ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
   { path: '/dashboard/academic-coordinator', title: 'AC Dashboard', group: 'Dashboards', roles: [ROLES.ACADEMIC_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
 
-  /* ── Leads ── */
-  { path: '/leads/today', title: 'Today Leads', group: 'Sales', roles: [ROLES.COUNSELOR_HEAD, ROLES.COUNSELOR, ROLES.SUPER_ADMIN], showInNav: true },
-  { path: '/leads/all', title: 'All Leads', group: 'Sales', roles: [ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN, ROLES.COUNSELOR], showInNav: true },
-  { path: '/leads/mine', title: 'Lead Pipeline', group: 'Sales', roles: [ROLES.COUNSELOR], showInNav: true },
-  { path: '/leads/details', title: 'Lead Details', group: 'Sales', roles: [ROLES.COUNSELOR, ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: false },
-  { path: '/leads/demo-management', title: 'Demo Management', group: 'Sales', roles: [ROLES.COUNSELOR, ROLES.SUPER_ADMIN], showInNav: true },
-  { path: '/leads/converted', title: 'Converted Leads', group: 'Sales', roles: [ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
-  { path: '/leads/overdue', title: 'Overdue Leads', group: 'Sales', roles: [ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
-  { path: '/leads/payment-requests', title: 'Payment Requests', group: 'Sales', roles: [ROLES.COUNSELOR, ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
-  { path: '/requests', title: 'Tickets', group: 'Sales', roles: [ROLES.COUNSELOR, ROLES.COUNSELOR_HEAD], showInNav: true },
-  { path: '/counselors/reports', title: 'Sales Reports', group: 'Sales', roles: [ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
-  { path: '/team/counselors', title: 'Counselors (Team)', group: 'Sales', roles: [ROLES.COUNSELOR_HEAD], showInNav: true },
+  /* ── Student Sales ── */
+  { path: '/leads/today', title: 'Today Leads', group: 'Student Sales', roles: [ROLES.COUNSELOR_HEAD, ROLES.COUNSELOR, ROLES.SUPER_ADMIN], showInNav: true },
+  { path: '/leads/all', title: 'All Leads', group: 'Student Sales', roles: [ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN, ROLES.COUNSELOR], showInNav: true },
+  { path: '/leads/mine', title: 'Lead Pipeline', group: 'Student Sales', roles: [ROLES.COUNSELOR], showInNav: true },
+  { path: '/leads/details', title: 'Lead Details', group: 'Student Sales', roles: [ROLES.COUNSELOR, ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: false },
+  { path: '/leads/demo-management', title: 'Demo Management', group: 'Student Sales', roles: [ROLES.COUNSELOR, ROLES.SUPER_ADMIN], showInNav: true },
+  { path: '/leads/converted', title: 'Converted Leads', group: 'Student Sales', roles: [ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
+  { path: '/leads/overdue', title: 'Overdue Leads', group: 'Student Sales', roles: [ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
+  { path: '/leads/payment-requests', title: 'Payment Requests', group: 'Student Sales', roles: [ROLES.COUNSELOR, ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
+  /* ── Tickets (Support) ── */
+  { path: '/tickets', title: 'Tickets', group: 'Support', roles: [ROLES.COUNSELOR, ROLES.COUNSELOR_HEAD, ROLES.TEACHER, ROLES.TEACHER_COORDINATOR, ROLES.ACADEMIC_COORDINATOR, ROLES.HR, ROLES.FINANCE, ROLES.SUPER_ADMIN], showInNav: true },
+  { path: '/counselors/reports', title: 'Sales Reports', group: 'Student Sales', roles: [ROLES.COUNSELOR_HEAD, ROLES.SUPER_ADMIN], showInNav: true },
+  { path: '/team/counselors', title: 'Counselors (Team)', group: 'Student Sales', roles: [ROLES.COUNSELOR_HEAD], showInNav: true },
+ 
+  /* ── Teacher Sales ── */
+  { path: '/tc/leads', title: 'All Leads', group: 'Teacher Sales', roles: [ROLES.TEACHER_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
+  { path: '/tc/teacher-leads', title: 'Leads Pipeline', group: 'Teacher Sales', roles: [ROLES.TEACHER_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
+  { path: '/tc/sales-report', title: 'Sales Report', group: 'Teacher Sales', roles: [ROLES.TEACHER_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
 
   /* ── Academics (Students/Teachers) ── */
   { path: '/students/hub', title: 'Students', group: 'Academics', roles: [ROLES.ACADEMIC_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
@@ -33,11 +39,6 @@ export const APP_PAGES = [
   { path: '/topups/manage', title: 'Top-Ups', group: 'Academics', roles: [ROLES.ACADEMIC_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
   { path: '/automation/hub', title: 'Automation', group: 'Academics', roles: [ROLES.ACADEMIC_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
   { path: '/manage/subjects', title: 'Subjects & Boards', group: 'Academics', roles: [ROLES.ACADEMIC_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
-
-  /* ── Teacher Coordinator ── */
-  { path: '/tc/leads', title: 'All Leads', group: 'Academics', roles: [ROLES.TEACHER_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
-  { path: '/tc/teacher-leads', title: 'Leads Pipeline', group: 'Academics', roles: [ROLES.TEACHER_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
-
   { path: '/tc/performance', title: 'Teacher Performance', group: 'Academics', roles: [ROLES.TEACHER_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
 
   /* ── Teacher (Individual) ── */

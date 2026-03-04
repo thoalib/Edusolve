@@ -163,6 +163,18 @@ const STATUS_COLORS = {
     closed: '#6b7280'
 };
 
+export const TEACHER_LEAD_NOTES = {
+    new: ["Resume review pending", "Missing info requested", "Evaluating fit"],
+    contacted: ["Called, waiting for reply", "Sent WhatsApp message", "Requested portfolio"],
+    first_interview: ["Candidate requested different time", "Interviewer rescheduled"],
+    first_interview_done: ["Feedback pending from interviewer", "Awaiting task submission"],
+    second_interview: ["Waiting for head approval", "Interview rescheduled"],
+    second_interview_done: ["Awaiting final decision", "References check in progress"],
+    approved: ["Offer letter sent", "Negotiating salary", "Background check pending"],
+    rejected: ["Did not answer technical questions", "Communication skills lacking"],
+    closed: ["Candidate withdrew application", "Position filled"]
+};
+
 function getNextStatus(current) {
     if (current === 'rejected' || current === 'approved' || current === 'closed') return null;
     const idx = STATUS_STEPS.indexOf(current);
@@ -345,6 +357,81 @@ function StatCard({ label, value, tone }) {
 
 
 
+/* ─── Teacher Lead Note Modal ─── */
+function TeacherLeadNoteModal({ lead, onClose, onDone }) {
+    const [note, setNote] = useState('');
+    const [customNote, setCustomNote] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    const predefinedNotes = TEACHER_LEAD_NOTES[lead?.status] || [];
+
+    async function handleSubmit(e) {
+        e.preventDefault();
+        const finalNote = note === 'other' ? customNote : note;
+        if (!finalNote) return alert('Please select or enter a note.');
+
+        setSaving(true);
+        try {
+            await apiFetch(`/teacher-leads/${lead.id}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ current_note: finalNote })
+            });
+            onDone();
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    return (
+        <div className="modal-overlay" onClick={onClose}>
+            <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px', background: 'white', padding: '20px', borderRadius: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h3 style={{ margin: 0 }}>Add Note: {lead.full_name}</h3>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer' }}>×</button>
+                </div>
+
+                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <label>
+                        <span style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500 }}>Select Note</span>
+                        <select
+                            value={note}
+                            onChange={e => setNote(e.target.value)}
+                            style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }}
+                            autoFocus
+                        >
+                            <option value="">-- Select Note --</option>
+                            {predefinedNotes.map(n => (
+                                <option key={n} value={n}>{n}</option>
+                            ))}
+                            <option value="other">Other...</option>
+                        </select>
+                    </label>
+
+                    {note === 'other' && (
+                        <label>
+                            <span style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500 }}>Custom Note</span>
+                            <textarea
+                                value={customNote}
+                                onChange={e => setCustomNote(e.target.value)}
+                                autoFocus
+                                style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', minHeight: '80px' }}
+                                placeholder="Enter custom note..."
+                            />
+                        </label>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+                        <button type="button" onClick={onClose} className="secondary" disabled={saving}>Cancel</button>
+                        <button type="submit" className="primary" disabled={saving}>{saving ? 'Saving...' : 'Save Note'}</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
+
 /* ─── Expandable Lead Card ─── */
 function parseSubjects(s) {
     if (Array.isArray(s)) return s;
@@ -359,7 +446,7 @@ function formatPhone(num) {
     return clean;
 }
 
-function LeadCard({ lead, onStatusChange, onReject, onView, onConvert }) {
+function LeadCard({ lead, onStatusChange, onReject, onView, onConvert, onAddNote }) {
     const [expanded, setExpanded] = useState(false);
     const phone = formatPhone(lead.phone);
     const nextStatus = getNextStatus(lead.status);
@@ -433,6 +520,12 @@ function LeadCard({ lead, onStatusChange, onReject, onView, onConvert }) {
                                 <p style={{ margin: '2px 0 0', fontWeight: 500, wordBreak: 'break-all', fontSize: '12px' }}>{lead.email}</p>
                             </div>
                         ) : null}
+                        {lead.current_note && (
+                            <div style={{ gridColumn: '1 / -1', background: '#fef9c3', borderLeft: '3px solid #eab308', padding: '6px 10px', marginTop: '4px', borderRadius: '4px' }}>
+                                <span className="text-muted" style={{ display: 'block', fontSize: '11px' }}>Current Note</span>
+                                <p style={{ margin: '2px 0 0', fontWeight: 500, color: '#854d0e', fontSize: '12px' }}>{lead.current_note}</p>
+                            </div>
+                        )}
                     </div>
 
                     {/* Notes */}
@@ -467,6 +560,10 @@ function LeadCard({ lead, onStatusChange, onReject, onView, onConvert }) {
                             <button className="small secondary" style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}
                                 onClick={() => onView(lead)}>
                                 <Icon d={ICONS.eye} size={14} /> View
+                            </button>
+                            <button type="button" className="small secondary" style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}
+                                onClick={(e) => { e.stopPropagation(); onAddNote && onAddNote(lead); }}>
+                                📝 Note
                             </button>
                             <button className="small danger" style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}
                                 onClick={() => onReject(lead)}>
@@ -549,7 +646,9 @@ export function TeacherLeadsPage({ onNavigate }) {
     const [showViewModal, setShowViewModal] = useState(null);
     const [showScheduleModal, setShowScheduleModal] = useState(null);
     const [showRejectModal, setShowRejectModal] = useState(null);
+    const [showNoteModal, setShowNoteModal] = useState(null);
     const [rejectionFilter, setRejectionFilter] = useState('all');
+    const [noteFilter, setNoteFilter] = useState('all');
     const [rejectionReasons, setRejectionReasons] = useState([]);
 
     async function loadLeads() {
@@ -566,6 +665,11 @@ export function TeacherLeadsPage({ onNavigate }) {
             if (r.ok) setRejectionReasons(r.items || []);
         });
     }, []);
+
+    // Reset note filter when changing tabs (unless it's 'all' tab)
+    useEffect(() => {
+        setNoteFilter('all');
+    }, [activeTab]);
 
     const TABS = [
         { id: 'new', label: 'New' },
@@ -584,6 +688,9 @@ export function TeacherLeadsPage({ onNavigate }) {
         if (activeTab !== 'all' && l.status !== activeTab) return false;
         if (activeTab === 'rejected' && rejectionFilter !== 'all') {
             return l.rejection_reason === rejectionFilter;
+        }
+        if (noteFilter !== 'all') {
+            return l.current_note === noteFilter;
         }
         return true;
     });
@@ -653,6 +760,32 @@ export function TeacherLeadsPage({ onNavigate }) {
                         </div>
                     </div>
                 ) : null}
+
+                {activeTab !== 'rejected' && activeTab !== 'approved' && activeTab !== 'closed' && activeTab !== 'all' ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '13px', color: '#4b5563', fontWeight: 600 }}>Filter by Note:</span>
+                        <div style={{ minWidth: '220px' }}>
+                            <CustomDropdown
+                                value={noteFilter}
+                                onChange={setNoteFilter}
+                                options={[
+                                    { value: 'all', label: 'All Notes', icon: ICONS.fileText },
+                                    ...(TEACHER_LEAD_NOTES[activeTab] || []).map(note => ({
+                                        value: note,
+                                        label: note,
+                                        icon: ICONS.fileText
+                                    })),
+                                    // Extract any custom notes dynamically
+                                    ...Array.from(new Set(leads.filter(l => l.status === activeTab && l.current_note && !(TEACHER_LEAD_NOTES[activeTab] || []).includes(l.current_note)).map(l => l.current_note))).map(note => ({
+                                        value: note,
+                                        label: note,
+                                        icon: ICONS.edit
+                                    }))
+                                ]}
+                            />
+                        </div>
+                    </div>
+                ) : null}
             </div>
 
             <div className="tabs-row" style={{ marginBottom: '16px', flexWrap: 'wrap', gap: '4px' }}>
@@ -699,6 +832,7 @@ export function TeacherLeadsPage({ onNavigate }) {
                         onReject={handleReject}
                         onView={setShowViewModal}
                         onConvert={setShowConvertModal}
+                        onAddNote={setShowNoteModal}
                     />
                 ))}
             </div>
@@ -720,6 +854,9 @@ export function TeacherLeadsPage({ onNavigate }) {
 
             {/* Reject Lead Modal */}
             {showRejectModal ? <RejectLeadModal lead={showRejectModal} onClose={() => setShowRejectModal(null)} onDone={() => { setShowRejectModal(null); loadLeads(); }} /> : null}
+
+            {/* Note Modal */}
+            {showNoteModal ? <TeacherLeadNoteModal lead={showNoteModal} onClose={() => setShowNoteModal(null)} onDone={() => { setShowNoteModal(null); loadLeads(); }} /> : null}
         </section>
     );
 }

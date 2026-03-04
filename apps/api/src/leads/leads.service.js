@@ -270,6 +270,30 @@ export class LeadsService {
     return (data || []).map(r => r.name);
   }
 
+  async getDropReasons(actor) {
+    const adminClient = getSupabaseAdminClient();
+    if (!isCounselor(actor) && !isCounselorHead(actor) && !isSuperAdmin(actor)) {
+      return { error: 'access is not allowed for this role' };
+    }
+
+    if (!adminClient) {
+      return [];
+    }
+
+    const { data, error } = await adminClient
+      .from('lead_drop_reasons')
+      .select('reason')
+      .order('reason', { ascending: true });
+
+    if (error) {
+      // Return empty array if table doesn't exist yet
+      if (error.code === '42P01') return []; 
+      throw new Error(error.message);
+    }
+
+    return data || [];
+  }
+
   async addType(name, actor) {
     const adminClient = getSupabaseAdminClient();
     if (!name) return { error: 'name is required' };
@@ -359,7 +383,7 @@ export class LeadsService {
       return { error: 'lead update is not allowed for this role' };
     }
 
-    const editable = ['student_name', 'parent_name', 'class_level', 'subject', 'lead_type', 'contact_number', 'email', 'status', 'demo_scheduled_at', 'demo_ends_at', 'demo_teacher_id'];
+    const editable = ['student_name', 'parent_name', 'class_level', 'subject', 'lead_type', 'contact_number', 'email', 'status', 'demo_scheduled_at', 'demo_ends_at', 'demo_teacher_id', 'drop_reason', 'current_note'];
 
     if (!adminClient) {
       const lead = memoryLeads.find((item) => item.id === id && !item.deleted_at);
@@ -389,6 +413,11 @@ export class LeadsService {
       if (payload[key] !== undefined) patch[key] = payload[key];
     }
     patch.updated_at = nowIso();
+
+    // Clear current_note if status changes
+    if (payload.status && payload.status !== current.status) {
+        patch.current_note = null;
+    }
 
     const { data: updated, error: updateError } = await adminClient
       .from('leads')

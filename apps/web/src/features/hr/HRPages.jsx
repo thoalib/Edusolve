@@ -1267,7 +1267,7 @@ function SalaryModal({ employee, existing, onClose, onDone }) {
         <div style={overlayStyle}>
             <div style={{ ...modalStyle, maxWidth: 520 }}>
                 <h3 style={{ marginBottom: 4 }}>Salary Structure</h3>
-                <p style={{ color: '#94a3b8', marginBottom: 16, fontSize: 14 }}>{employee.full_name} — {employee.designation || 'No designation'}</p>
+                <p style={{ color: '#64748b', marginBottom: 16, fontSize: 14 }}>{employee.full_name} — {employee.designation || 'No designation'}</p>
                 <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <label style={labelStyle}>Base Salary (₹)
                         <input type="number" step="0.01" value={form.base_salary} onChange={e => upd('base_salary', e.target.value)} style={inputStyle} />
@@ -1283,7 +1283,7 @@ function SalaryModal({ employee, existing, onClose, onDone }) {
                     <label style={labelStyle}>Other Allowance (₹)
                         <input type="number" step="0.01" value={form.other_allowance} onChange={e => upd('other_allowance', e.target.value)} style={inputStyle} />
                     </label>
-                    <hr style={{ border: 'none', borderTop: '1px solid #334155', margin: '4px 0' }} />
+                    <hr style={{ border: 'none', borderTop: '1px solid #e2e8f0', margin: '4px 0' }} />
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                         <label style={labelStyle}>PF (₹)
                             <input type="number" step="0.01" value={form.pf_deduction} onChange={e => upd('pf_deduction', e.target.value)} style={inputStyle} />
@@ -1295,10 +1295,10 @@ function SalaryModal({ employee, existing, onClose, onDone }) {
                             <input type="number" step="0.01" value={form.other_deduction} onChange={e => upd('other_deduction', e.target.value)} style={inputStyle} />
                         </label>
                     </div>
-                    <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: '#94a3b8' }}>Gross: <strong style={{ color: '#22c55e' }}>₹{gross.toLocaleString()}</strong></span>
-                        <span style={{ color: '#94a3b8' }}>Deductions: <strong style={{ color: '#ef4444' }}>₹{deductions.toLocaleString()}</strong></span>
-                        <span style={{ color: '#94a3b8' }}>Net: <strong style={{ color: '#f1f5f9' }}>₹{net.toLocaleString()}</strong></span>
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#475569' }}>Gross: <strong style={{ color: '#16a34a' }}>₹{gross.toLocaleString()}</strong></span>
+                        <span style={{ color: '#475569' }}>Deductions: <strong style={{ color: '#dc2626' }}>₹{deductions.toLocaleString()}</strong></span>
+                        <span style={{ color: '#475569' }}>Net: <strong style={{ color: '#0f172a' }}>₹{net.toLocaleString()}</strong></span>
                     </div>
                     <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
                         <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
@@ -1545,18 +1545,18 @@ export function HRPaymentRequestsPage() {
 const thStyle = { textAlign: 'left', padding: '10px 12px', color: '#94a3b8', fontSize: 13, fontWeight: 600, background: '#0f172a', whiteSpace: 'nowrap' };
 const tdStyle = { padding: '10px 12px', color: '#1e293b', fontSize: 14 };
 const overlayStyle = {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex',
-    alignItems: 'center', justifyContent: 'center', zIndex: 1000
+    position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.4)', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 24
 };
 const modalStyle = {
-    background: '#1e293b', borderRadius: 14, padding: 28, width: '100%', maxWidth: 480,
-    maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
+    background: '#ffffff', borderRadius: 12, padding: 24, width: '100%', maxWidth: 480,
+    maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', border: '1px solid #e2e8f0'
 };
 const inputStyle = {
-    width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #334155',
-    background: '#0f172a', color: '#f1f5f9', fontSize: 14, marginTop: 4
+    width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0',
+    background: '#ffffff', color: '#1e293b', fontSize: 14, marginTop: 4, transition: 'border-color 0.15s'
 };
-const labelStyle = { display: 'flex', flexDirection: 'column', fontSize: 13, color: '#94a3b8' };
+const labelStyle = { display: 'flex', flexDirection: 'column', fontSize: 13, color: '#475569', fontWeight: 500 };
 const btnPrimary = { padding: '8px 20px', borderRadius: 8, background: '#3b82f6', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600 };
 const btnSecondary = { padding: '8px 20px', borderRadius: 8, background: '#334155', color: '#e2e8f0', border: 'none', cursor: 'pointer' };
 const btnSmall = { padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, color: '#f1f5f9' };

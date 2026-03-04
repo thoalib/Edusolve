@@ -41,6 +41,16 @@ export async function handleLeads(req, res, url) {
       return true;
     }
 
+    if (req.method === 'GET' && url.pathname === '/leads/drop-reasons') {
+      const reasons = await leadsService.getDropReasons(actor);
+      if (reasons?.error) {
+        sendJson(res, 403, { ok: false, error: reasons.error });
+        return true;
+      }
+      sendJson(res, 200, { ok: true, reasons });
+      return true;
+    }
+
     if (req.method === 'POST' && url.pathname === '/leads/types') {
       const payload = await readJson(req);
       const result = await leadsService.addType(payload.name, actor);
