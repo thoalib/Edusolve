@@ -169,6 +169,12 @@ export function TodayLeadsPage({ onOpenDetails, onViewInPipeline, role }) {
                                         <p style={{ margin: '2px 0 0', fontWeight: 500, wordBreak: 'break-all', fontSize: '12px' }}>{lead.email}</p>
                                     </div>
                                 ) : null}
+                                {lead.status === 'dropped' && lead.drop_reason && (
+                                    <div>
+                                        <span className="text-muted">Drop Reason</span>
+                                        <p style={{ margin: '2px 0 0', fontWeight: 600, color: '#dc2626' }}>{lead.drop_reason}</p>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Counselor actions: Call + WhatsApp */}

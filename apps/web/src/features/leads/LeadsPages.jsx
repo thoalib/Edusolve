@@ -56,6 +56,17 @@ const STATUS_LABELS = {
   dropped: 'Dropped'
 };
 
+export const STUDENT_LEAD_NOTES = {
+  new: ["Ringing, not picked up", "Switched off", "Call back later", "Busy", "Not reachable"],
+  contacted: ["Asked to send details on WhatsApp", "Not interested right now", "Needs discussion with parents", "Wrong number"],
+  demo_scheduled: ["Student requested reschedule", "Teacher unavailable", "Reminded about demo"],
+  demo_done: ["Waiting for feedback", "Not completely satisfied", "Reviewing with parents"],
+  payment_pending: ["Requested more time", "Payment link sent again", "Waiting for salary"],
+  payment_verification: ["Document sent to finance", "Checking transaction ID"],
+  joined: ["Onboarding complete"],
+  dropped: ["Invalid number"]
+};
+
 /* ─── Progress Tracker ─── */
 function ProgressTracker({ currentStatus }) {
   const isDropped = currentStatus === 'dropped';
@@ -232,7 +243,10 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
   const [filters, setFilters] = useState({ search: '', status: '', counselorId: '' });
   const [assignCounselorId, setAssignCounselorId] = useState('');
   const [assigning, setAssigning] = useState(false);
-  const [leadTab, setLeadTab] = useState('all'); // 'all', 'unassigned', 'assigned'
+  const [leadTab, setLeadTab] = useState(user?.role === 'counselor' ? 'all' : 'new'); // 'new', 'assigned', 'all'
+  const [showDropModal, setShowDropModal] = useState(null);
+  const [showNoteModal, setShowNoteModal] = useState(null);
+  const [noteFilter, setNoteFilter] = useState('all');
 
   useEffect(() => {
     apiFetch('/counselors').then(data => setCounselors(data.items || [])).catch(() => { });
@@ -260,14 +274,26 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
   // Client-side filtering
   const filteredItems = useMemo(() => {
     return tabbedItems.filter(item => {
+      const searchLower = filters.search.toLowerCase();
+      // Only exact matches for ID when searching, otherwise partial matches on names/phones work
       const matchSearch = !filters.search ||
-        item.student_name.toLowerCase().includes(filters.search.toLowerCase()) ||
-        item.contact_number?.includes(filters.search);
+        item.student_name.toLowerCase().includes(searchLower) ||
+        (item.parent_name || '').toLowerCase().includes(searchLower) ||
+        (item.contact_number || '').includes(filters.search) ||
+        (item.id === filters.search.trim());
       const matchStatus = !filters.status || item.status === filters.status;
       const matchCounselor = !filters.counselorId || item.counselor_id === filters.counselorId;
-      return matchSearch && matchStatus && matchCounselor;
+
+      let matchNote = true;
+      if (noteFilter !== 'all') {
+        if (noteFilter === 'none') matchNote = !item.current_note;
+        else if (noteFilter === 'other') matchNote = item.current_note && !(STUDENT_LEAD_NOTES[item.status] || []).includes(item.current_note);
+        else matchNote = item.current_note === noteFilter;
+      }
+
+      return matchSearch && matchStatus && matchCounselor && matchNote;
     });
-  }, [tabbedItems, filters]);
+  }, [tabbedItems, filters, noteFilter]);
 
   async function onDelete(id) {
     if (!confirm('Are you sure you want to delete this lead?')) return;
@@ -328,6 +354,22 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
       ) : null}
 
       <LeadFilters onFilterChange={setFilters} counselors={counselors}>
+        {filters.status && filters.status !== 'dropped' && filters.status !== 'joined' && (
+          <div style={{ minWidth: '200px' }}>
+            <select
+              value={noteFilter}
+              onChange={e => setNoteFilter(e.target.value)}
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }}
+            >
+              <option value="all">All Notes</option>
+              <option value="none">No Note</option>
+              {(STUDENT_LEAD_NOTES[filters.status] || []).map(n => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+              <option value="other">Other / Custom</option>
+            </select>
+          </div>
+        )}
         <button onClick={() => setShowAddModal(true)} className="primary" style={{ whiteSpace: 'nowrap' }}>+ Add Lead</button>
       </LeadFilters>
 
@@ -404,6 +446,9 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
                       </button>
                     )}
                     <button type="button" className="secondary small" onClick={() => onOpenDetails(lead.id)}>View</button>
+                    {lead.status !== 'dropped' && lead.status !== 'joined' && (
+                      <button type="button" className="danger small" onClick={() => setShowDropModal(lead)}>Drop</button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -451,7 +496,177 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
         <AddLeadModal onClose={() => setShowAddModal(false)} onSuccess={() => { setShowAddModal(false); refresh(); }} />
       ) : null}
 
+      {showDropModal && (
+        <DropLeadModal
+          lead={showDropModal}
+          onClose={() => setShowDropModal(null)}
+          onDone={() => { setShowDropModal(null); refresh(); }}
+        />
+      )}
+
+      {showNoteModal && (
+        <StudentLeadNoteModal
+          lead={showNoteModal}
+          onClose={() => setShowNoteModal(null)}
+          onDone={() => { setShowNoteModal(null); refresh(); }}
+        />
+      )}
+
     </section>
+  );
+}
+
+/* ─── Student Lead Note Modal ─── */
+function StudentLeadNoteModal({ lead, onClose, onDone }) {
+  const [note, setNote] = useState('');
+  const [customNote, setCustomNote] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const predefinedNotes = STUDENT_LEAD_NOTES[lead?.status] || [];
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const finalNote = note === 'other' ? customNote : note;
+    if (!finalNote) return alert('Please select or enter a note.');
+
+    setSaving(true);
+    try {
+      await apiFetch(`/leads/${lead.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ current_note: finalNote })
+      });
+      onDone();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px', background: 'white', padding: '20px', borderRadius: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ margin: 0 }}>Add Note: {lead.student_name}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer' }}>×</button>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <label>
+            <span style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500 }}>Select Note</span>
+            <select
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }}
+              autoFocus
+            >
+              <option value="">-- Select Note --</option>
+              {predefinedNotes.map(n => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+              <option value="other">Other...</option>
+            </select>
+          </label>
+
+          {note === 'other' && (
+            <label>
+              <span style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500 }}>Custom Note</span>
+              <textarea
+                value={customNote}
+                onChange={e => setCustomNote(e.target.value)}
+                autoFocus
+                style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', minHeight: '80px' }}
+                placeholder="Enter custom note..."
+              />
+            </label>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+            <button type="button" onClick={onClose} className="secondary" disabled={saving}>Cancel</button>
+            <button type="submit" className="primary" disabled={saving}>{saving ? 'Saving...' : 'Save Note'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Drop Lead Modal ─── */
+function DropLeadModal({ lead, onClose, onDone }) {
+  const [reason, setReason] = useState('');
+  const [customReason, setCustomReason] = useState('');
+  const [reasonsList, setReasonsList] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiFetch('/leads/drop-reasons').then(r => {
+      if (r.ok) setReasonsList(r.reasons || []);
+    }).catch(e => console.error(e));
+  }, []);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const finalReason = reason === 'other' ? customReason : reason;
+    if (!finalReason) return alert('Please select or enter a reason for dropping the lead.');
+
+    setSaving(true);
+    try {
+      await apiFetch(`/leads/${lead.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'dropped', drop_reason: finalReason })
+      });
+      onDone();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px', background: 'white', padding: '20px', borderRadius: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ margin: 0 }}>Drop Lead: {lead.student_name}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer' }}>×</button>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <label>
+            Reason for dropping:
+            <select
+              value={reason}
+              onChange={e => { setReason(e.target.value); setCustomReason(''); }}
+              style={{ width: '100%', padding: '8px', marginTop: '4px' }}
+              required
+            >
+              <option value="">Select a reason</option>
+              {reasonsList.map(r => (
+                <option key={r.reason} value={r.reason}>{r.reason}</option>
+              ))}
+              <option value="other">Other (please specify)</option>
+            </select>
+          </label>
+
+          {reason === 'other' && (
+            <label>
+              Custom Reason:
+              <textarea
+                value={customReason}
+                onChange={e => setCustomReason(e.target.value)}
+                style={{ width: '100%', padding: '8px', marginTop: '4px', minHeight: '80px' }}
+                placeholder="Enter custom reason"
+                required
+              />
+            </label>
+          )}
+
+          <button type="submit" className="danger" disabled={saving} style={{ marginTop: '8px' }}>
+            {saving ? 'Dropping...' : 'Confirm Drop'}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -687,9 +902,9 @@ function ScheduleDemoModal({ lead, onClose, onSuccess }) {
 
 /* ─── Helper Functions ─── */
 function getNextStatus(current) {
+  if (current === 'dropped' || current === 'joined') return null;
   const idx = STATUS_STEPS.indexOf(current);
   if (idx === -1 || idx >= STATUS_STEPS.length - 1) return null;
-  if (current === 'dropped') return null;
   return STATUS_STEPS[idx + 1];
 }
 
@@ -715,7 +930,7 @@ function formatPhone(num) {
 }
 
 /* ─── Student Lead Card ─── */
-function StudentLeadCard({ lead, onStatusChange, onDrop, onView, onVerifyPayment }) {
+function StudentLeadCard({ lead, onStatusChange, onDrop, onView, onVerifyPayment, onAddNote }) {
   const [expanded, setExpanded] = useState(false);
   const phone = formatPhone(lead.contact_number);
   const nextStatus = getNextStatus(lead.status);
@@ -800,6 +1015,18 @@ function StudentLeadCard({ lead, onStatusChange, onDrop, onView, onVerifyPayment
                 <p style={{ margin: '2px 0 0', fontWeight: 500, wordBreak: 'break-all', fontSize: '12px' }}>{lead.email}</p>
               </div>
             ) : null}
+            {lead.current_note && (
+              <div style={{ gridColumn: '1 / -1', background: '#fef9c3', borderLeft: '3px solid #eab308', padding: '6px 10px', marginTop: '4px', borderRadius: '4px' }}>
+                <span className="text-muted" style={{ display: 'block', fontSize: '11px' }}>Current Note</span>
+                <p style={{ margin: '2px 0 0', fontWeight: 500, color: '#854d0e', fontSize: '12px' }}>{lead.current_note}</p>
+              </div>
+            )}
+            {lead.status === 'dropped' && lead.drop_reason ? (
+              <div>
+                <span className="text-muted">Drop Reason</span>
+                <p style={{ margin: '2px 0 0', fontWeight: 600, color: '#dc2626' }}>{lead.drop_reason}</p>
+              </div>
+            ) : null}
           </div>
 
           {/* Contact */}
@@ -843,8 +1070,12 @@ function StudentLeadCard({ lead, onStatusChange, onDrop, onView, onVerifyPayment
                 onClick={() => onView(lead.id)}>
                 <Icon d={ICONS.eye} size={14} /> View
               </button>
+              <button type="button" className="small secondary" style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}
+                onClick={(e) => { e.stopPropagation(); onAddNote && onAddNote(lead); }}>
+                📝 Note
+              </button>
               <button className="small danger" style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}
-                onClick={() => onDrop(lead.id)}>
+                onClick={() => onDrop(lead)}>
                 <Icon d={ICONS.x} size={12} /> Drop
               </button>
             </div>
@@ -854,6 +1085,12 @@ function StudentLeadCard({ lead, onStatusChange, onDrop, onView, onVerifyPayment
                 onClick={() => onView(lead.id)}>
                 <Icon d={ICONS.eye} size={14} /> View Details
               </button>
+              {lead.status === 'dropped' && (
+                <button className="small primary" style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center', flex: 1 }}
+                  onClick={() => onStatusChange(lead.id, 'new')}>
+                  Restore to New
+                </button>
+              )}
             </div>
           )}
 
@@ -873,12 +1110,33 @@ export function MyLeadsPage({ onOpenDetails, initialLeadId = '', onPipelineReady
   const { items, loading, error, refresh } = useLeads('mine');
   const [activeTab, setActiveTab] = useState('new');
   const [highlightedLeadId, setHighlightedLeadId] = useState('');
+  const [showDropModal, setShowDropModal] = useState(null);
+  const [showNoteModal, setShowNoteModal] = useState(null);
+  const [rejectionReasons, setRejectionReasons] = useState([]);
+  const [rejectionFilter, setRejectionFilter] = useState('all');
+  const [noteFilter, setNoteFilter] = useState('all');
+
+  useEffect(() => {
+    apiFetch('/leads/drop-reasons').then(r => {
+      if (r.ok) setRejectionReasons(r.reasons || []);
+    }).catch(e => console.error(e));
+  }, []);
+
+  // Reset note filter when changing tabs
+  useEffect(() => {
+    setNoteFilter('all');
+  }, [activeTab]);
 
   const STATUS_STEPS = ['new', 'contacted', 'demo_scheduled', 'demo_done', 'payment_pending', 'payment_verification', 'joined'];
 
   /* Helper functions removed as they are now top-level */
 
   async function handleStatusChange(leadId, newStatus) {
+    if (newStatus === 'dropped') {
+      const lead = items.find(l => l.id === leadId);
+      if (lead) setShowDropModal(lead);
+      return;
+    }
     try {
       await apiFetch(`/leads/${leadId}`, {
         method: 'PATCH',
@@ -890,17 +1148,8 @@ export function MyLeadsPage({ onOpenDetails, initialLeadId = '', onPipelineReady
     }
   }
 
-  async function handleDrop(leadId) {
-    if (!confirm('Are you sure you want to mark this lead as dropped?')) return;
-    try {
-      await apiFetch(`/leads/${leadId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: 'dropped', reason: 'Dropped by counselor' })
-      });
-      refresh();
-    } catch (err) {
-      alert(err.message);
-    }
+  function handleDrop(lead) {
+    setShowDropModal(lead);
   }
 
   const TABS = [
@@ -915,7 +1164,18 @@ export function MyLeadsPage({ onOpenDetails, initialLeadId = '', onPipelineReady
   ];
 
 
-  const filteredItems = items.filter(i => activeTab === 'all' || i.status === activeTab);
+  const filteredItems = items.filter(l => {
+    if (activeTab !== 'all' && l.status !== activeTab) return false;
+    if (activeTab === 'dropped' && rejectionFilter !== 'all') {
+      return l.drop_reason === rejectionFilter;
+    }
+    if (activeTab !== 'dropped' && activeTab !== 'all' && activeTab !== 'joined' && noteFilter !== 'all') {
+      if (noteFilter === 'none') return !l.current_note;
+      if (noteFilter === 'other') return l.current_note && !(STUDENT_LEAD_NOTES[activeTab] || []).includes(l.current_note);
+      return l.current_note === noteFilter;
+    }
+    return true;
+  });
 
   /* statusColors map removed - use global STATUS_COLORS */
 
@@ -957,6 +1217,58 @@ export function MyLeadsPage({ onOpenDetails, initialLeadId = '', onPipelineReady
           onSuccess={() => { refresh(); /* Keep modal open for step 2 comes from internal state of modal, but we need to ensure background refresh */ }}
         />
       )}
+      {showNoteModal && (
+        <StudentLeadNoteModal
+          lead={showNoteModal}
+          onClose={() => setShowNoteModal(null)}
+          onDone={() => { setShowNoteModal(null); refresh(); }}
+        />
+      )}
+      {showDropModal && (
+        <DropLeadModal
+          lead={showDropModal}
+          onClose={() => setShowDropModal(null)}
+          onDone={() => { setShowDropModal(null); refresh(); }}
+        />
+      )}
+
+      {activeTab === 'dropped' ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: '16px', gap: '10px' }}>
+          <span style={{ fontSize: '13px', color: '#4b5563', fontWeight: 600 }}>Filter by Reason:</span>
+          <div style={{ minWidth: '240px' }}>
+            <select
+              value={rejectionFilter}
+              onChange={e => setRejectionFilter(e.target.value)}
+              style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', width: '100%', outline: 'none' }}
+            >
+              <option value="all">All Drop Reasons</option>
+              {rejectionReasons.map(r => (
+                <option key={r.reason} value={r.reason}>{r.reason}</option>
+              ))}
+              <option value="other">Other / Custom</option>
+            </select>
+          </div>
+        </div>
+      ) : activeTab !== 'all' && activeTab !== 'joined' ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: '16px', gap: '10px' }}>
+          <span style={{ fontSize: '13px', color: '#4b5563', fontWeight: 600 }}>Filter by Note:</span>
+          <div style={{ minWidth: '240px' }}>
+            <select
+              value={noteFilter}
+              onChange={e => setNoteFilter(e.target.value)}
+              style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', width: '100%', outline: 'none' }}
+            >
+              <option value="all">All Notes</option>
+              <option value="none">No Note</option>
+              {(STUDENT_LEAD_NOTES[activeTab] || []).map(n => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+              <option value="other">Other / Custom</option>
+            </select>
+          </div>
+        </div>
+      ) : null}
+
       <div className="tabs-row" style={{ marginTop: 0, marginBottom: '16px', flexWrap: 'wrap' }}>
         {TABS.map(tab => (
           <button
@@ -998,6 +1310,7 @@ export function MyLeadsPage({ onOpenDetails, initialLeadId = '', onPipelineReady
               onDrop={handleDrop}
               onView={onOpenDetails}
               onVerifyPayment={onVerifyPayment}
+              onAddNote={(lead) => setShowNoteModal(lead)}
             />
           </div>
         ))}
@@ -1018,6 +1331,7 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
   const [paymentMessage, setPaymentMessage] = useState('');
   const [form, setForm] = useState({ student_name: '', class_level: '', subject: '', lead_type: '', status: 'new' });
   const [leadTypes, setLeadTypes] = useState([]);
+  const [showNoteModal, setShowNoteModal] = useState(null);
 
   async function handleAddType(name) {
     const res = await apiFetch('/leads/types', {
@@ -1135,9 +1449,13 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
     if (!leadId) return;
 
     // Restricted statuses that cannot be manually set from this general UI
-    const restricted = ['demo_scheduled', 'payment_verification', 'joined'];
+    const restricted = ['demo_scheduled', 'payment_verification', 'joined', 'dropped'];
     if (restricted.includes(newStatus)) {
-      return alert(`Cannot manually change status to ${newStatus.replace('_', ' ')} from here.`);
+      if (newStatus === 'dropped') {
+        // Wait, handle custom dropped logic if we were using it here. For now, block it if it isn't via the modal.
+      } else {
+        return alert(`Cannot manually change status to ${newStatus.replace('_', ' ')} from here.`);
+      }
     }
 
     try {
@@ -1215,7 +1533,11 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
                   if (restricted.includes(step) && step !== 'dropped') return;
                   if (lead?.status === 'payment_verification' || lead?.status === 'joined' || lead?.status === 'dropped') return;
 
-                  if (step === 'dropped' && !window.confirm('Are you sure you want to mark this lead as dropped?')) return;
+                  if (step === 'dropped') {
+                    // Cannot easily open modal from here cleanly without refactoring lead details. 
+                    // Better to just alert to use the list view.
+                    return alert('Please drop the lead from the My Leads pipeline view to provide a reason.');
+                  }
 
                   updateStatus(step);
                 }}
@@ -1270,6 +1592,12 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
                   <label>Current Status</label>
                   <p><StatusBadge status={lead.status} /></p>
                 </div>
+                {lead.current_note && (
+                  <div style={{ gridColumn: '1 / -1', background: '#fef9c3', borderLeft: '3px solid #eab308', padding: '10px 14px', borderRadius: '4px' }}>
+                    <label style={{ fontSize: '11px', color: '#854d0e', marginBottom: '4px' }}>Current Note</label>
+                    <p style={{ margin: 0, fontWeight: 500, color: '#a16207', fontSize: '13px' }}>{lead.current_note}</p>
+                  </div>
+                )}
                 <div>
                   <label>Contact</label>
                   <p>{lead.contact_number || '-'}</p>
@@ -1278,6 +1606,12 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
                   <label>Email</label>
                   <p>{lead.email || '-'}</p>
                 </div>
+                {lead.status === 'dropped' && (
+                  <div>
+                    <label>Drop Reason</label>
+                    <p style={{ color: '#dc2626', fontWeight: 600 }}>{lead.drop_reason || '-'}</p>
+                  </div>
+                )}
                 <div>
                   <label>Class</label>
                   <p>{lead.class_level || '-'}</p>
@@ -1430,6 +1764,14 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
           </div>
         </article>
       ) : null}
+
+      {showNoteModal && (
+        <StudentLeadNoteModal
+          lead={showNoteModal}
+          onClose={() => setShowNoteModal(null)}
+          onDone={() => { setShowNoteModal(null); window.location.reload(); /* Dirty reload for detail view simplicity */ }}
+        />
+      )}
     </section>
   );
 }

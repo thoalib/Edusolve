@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { NotificationBell } from './NotificationBell.jsx';
 
 function nowInKolkata() {
   return new Intl.DateTimeFormat('en-IN', {
@@ -8,7 +9,7 @@ function nowInKolkata() {
   }).format(new Date());
 }
 
-export default function AppShell({ roleLabel, role, pages, activePath, onNavigate, onLogout, children }) {
+export default function AppShell({ roleLabel, role, pages, activePath, onNavigate, onLogout, onNavigateToTicket, children }) {
   const navPages = useMemo(() => pages.filter((page) => page.showInNav !== false), [pages]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -69,6 +70,7 @@ export default function AppShell({ roleLabel, role, pages, activePath, onNavigat
             >
               Menu
             </button>
+            <NotificationBell onNavigateToTicket={(ticketId) => onNavigateToTicket && onNavigateToTicket(ticketId)} />
             <span className="timestamp">IST: {nowInKolkata()}</span>
             <button type="button" className="secondary" onClick={onLogout}>Logout</button>
           </div>
