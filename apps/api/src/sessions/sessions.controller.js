@@ -102,6 +102,33 @@ export async function handleSessions(req, res, url) {
       return true;
     }
 
+    // ── Verification Logs (all verifications — audit log) ──
+    if (req.method === 'GET' && url.pathname === '/sessions/verification-logs') {
+      if (!canViewSessionPages(actor)) {
+        sendJson(res, 403, { ok: false, error: 'Not allowed' });
+        return true;
+      }
+
+      let query = adminClient
+        .from('session_verifications')
+        .select('*, academic_sessions:session_id(id, session_date, started_at, subject, student_id, students(student_code, student_name, academic_coordinator_id), users!academic_sessions_teacher_id_fkey(full_name))')
+        .order('created_at', { ascending: false })
+        .limit(300);
+
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+
+      let items = data || [];
+
+      // Coordinator: only show their students
+      if (isAC(actor)) {
+        items = items.filter(v => v.academic_sessions?.students?.academic_coordinator_id === actor.userId);
+      }
+
+      sendJson(res, 200, { ok: true, items });
+      return true;
+    }
+
     if (req.method === 'GET' && url.pathname === '/sessions/logs') {
       if (!canViewSessionPages(actor)) {
         sendJson(res, 403, { ok: false, error: 'session log access is not allowed for this role' });

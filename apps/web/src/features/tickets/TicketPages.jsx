@@ -64,6 +64,53 @@ function timeAgo(dateStr) {
     return `${Math.floor(diff / 86400)}d ago`;
 }
 
+function MobileTicketCard({ ticket, onClick }) {
+    return (
+        <div
+            className="card ticket-mobile-card"
+            onClick={onClick}
+            style={{ padding: '16px', position: 'relative', marginBottom: '12px', cursor: 'pointer' }}
+        >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ flex: 1, paddingRight: 8 }}>
+                    <h4 style={{ margin: '0 0 4px', fontSize: '15px', fontWeight: 600 }}>{ticket.title || '—'}</h4>
+                    <div style={{ margin: 0, fontSize: '13px', color: '#6b7280' }}>
+                        <span style={{ color: '#4f46e5', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            Target: {roleName(ticket.target_role)}
+                        </span>
+                    </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {ticket.message_count > 0 && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#64748b', fontSize: '12px', fontWeight: 500, background: '#f1f5f9', padding: '2px 8px', borderRadius: '12px' }}>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                                </svg>
+                                {ticket.message_count}
+                            </div>
+                        )}
+                        {priorityBadge(ticket.priority)}
+                    </div>
+                </div>
+            </div>
+
+            <div style={{ marginTop: '12px', display: 'flex', gap: '16px', fontSize: '13px', flexWrap: 'wrap' }}>
+                <div><span style={{ color: '#888' }}>Status:</span> <div>{statusBadge(ticket.status)}</div></div>
+                <div><span style={{ color: '#888' }}>Created By:</span> <div style={{ fontWeight: 500 }}>{ticket.creator?.full_name || 'Unknown'}</div></div>
+                <div><span style={{ color: '#888' }}>Date:</span> <div>{timeAgo(ticket.created_at)}</div></div>
+            </div>
+
+            <div style={{ marginTop: '12px', color: '#475569', fontSize: '13px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontWeight: 500 }}>View Ticket</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+            </div>
+        </div>
+    );
+}
+
 /* ════════════════════════════════════════════════════════════
    TICKET DASHBOARD PAGE
    ════════════════════════════════════════════════════════════ */
@@ -194,8 +241,8 @@ export function TicketDashboardPage({ role, userId, onNavigateToDetail }) {
             {/* Error */}
             {error && <p className="error">{error}</p>}
 
-            {/* Tickets Table */}
-            <div className="card">
+            {/* Tickets Table (Desktop) */}
+            <article className="card desktop-only">
                 <div className="table-wrap mobile-friendly-table">
                     <table>
                         <thead>
@@ -262,6 +309,25 @@ export function TicketDashboardPage({ role, userId, onNavigateToDetail }) {
                         <span style={{ color: '#888', fontSize: 13, lineHeight: '32px' }}>
                             Page {page} of {Math.ceil(total / limit)}
                         </span>
+                        <button disabled={page >= Math.ceil(total / limit)} onClick={() => setPage(p => p + 1)} className="small secondary">Next →</button>
+                    </div>
+                )}
+            </article>
+
+            {/* Tickets Mobile view */}
+            <div className="mobile-only ticket-mobile-list">
+                {loading && <p style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading tickets...</p>}
+                {!loading && items.map(t => (
+                    <MobileTicketCard
+                        key={t.id}
+                        ticket={t}
+                        onClick={() => openTicket(t.id)}
+                    />
+                ))}
+                {!loading && !items.length && <p style={{ textAlign: 'center', padding: 24, color: '#888' }}>No tickets found.</p>}
+                {total > limit && (
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: 8, padding: 12 }}>
+                        <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="small secondary">← Prev</button>
                         <button disabled={page >= Math.ceil(total / limit)} onClick={() => setPage(p => p + 1)} className="small secondary">Next →</button>
                     </div>
                 )}

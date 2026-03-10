@@ -1,5 +1,37 @@
 import { useEffect, useMemo, useState, useCallback, useRef, Fragment } from 'react';
 import { apiFetch } from '../../lib/api.js';
+
+function ExpandableMobileCard({ title, subtitle, topRight, mainStats, expandedContent, actions, borderColor }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="card" style={{ padding: '16px', position: 'relative', borderLeft: borderColor ? `4px solid ${borderColor}` : undefined, width: '100%' }}>
+      <div onClick={() => setExpanded(!expanded)} style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: expanded ? '12px' : '0' }}>
+        <div>
+          <h4 style={{ margin: '0 0 4px', fontSize: '15px', fontWeight: 600 }}>{title || '—'}</h4>
+          <p style={{ margin: 0, fontSize: '13px', color: '#6b7280' }}>{subtitle}</p>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+          {topRight}
+          <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '24px', height: '24px', borderRadius: '50%', background: '#f3f4f6', color: '#6b7280', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </span>
+        </div>
+      </div>
+      {!expanded && mainStats && <div onClick={() => setExpanded(true)} style={{ marginTop: '12px', display: 'flex', gap: '16px', fontSize: '13px', cursor: 'pointer' }}>{mainStats}</div>}
+      {expanded && <div style={{ marginTop: '12px', animation: 'fadeIn 0.2s ease-in' }}>{expandedContent}{actions && <div style={{ marginTop: '16px' }}>{actions}</div>}</div>}
+    </div>
+  );
+}
+
+// Map helper function to return proper colors
+const getStatusColor = (status) => {
+  switch (status) {
+    case 'active': return '#22c55e'; // green
+    case 'pending': return '#f97316'; // orange
+    case 'inactive': return '#ef4444'; // red
+    default: return '#6b7280'; // gray
+  }
+};
 import { SearchSelect } from '../../components/ui/SearchSelect.jsx';
 import { Pagination } from '../../components/ui/Pagination.jsx';
 
@@ -689,7 +721,7 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
                   const endObj = new Date(fEnd + 'T00:00:00Z');
                   const daysDiff = Math.floor((endObj - startObj) / (1000 * 60 * 60 * 24));
                   if (daysDiff >= 6) return true; // all days exist in a >= 7 day span
-                  
+
                   // Check if this day of week falls between start Date and end Date
                   for (let tempD = new Date(startObj); tempD <= endObj; tempD.setDate(tempD.getDate() + 1)) {
                     if (DAY_MAP[tempD.getUTCDay()] === d) return true;
@@ -1004,6 +1036,7 @@ function StudentDetailPage({ studentId, onBack }) {
   const [editSaving, setEditSaving] = useState(false);
   const [boardsList, setBoardsList] = useState([]);
   const [mediumsList, setMediumsList] = useState([]);
+  const [logPage, setLogPage] = useState(1);
 
   const dayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const timeOptions = useMemo(() => {
@@ -2125,6 +2158,7 @@ export function SessionsManagePage() {
   const [fTeacher, setFTeacher] = useState('');
   const [fStudent, setFStudent] = useState('');
   const [fStatus, setFStatus] = useState('');
+  const [fOverdue, setFOverdue] = useState(false);
   const [page, setPage] = useState(1);
 
   // Reschedule Modal
@@ -2361,9 +2395,10 @@ export function SessionsManagePage() {
       if (fTeacher && s.teacher_id !== fTeacher) return false;
       if (fStudent && s.student_id !== fStudent) return false;
       if (fStatus && s.status !== fStatus) return false;
+      if (fOverdue && !isSessionOverdue(s)) return false;
       return true;
     });
-  }, [allSessions, fTeacher, fStudent, fStatus]);
+  }, [allSessions, fTeacher, fStudent, fStatus, fOverdue]);
 
   return (
     <section className="panel">
@@ -2397,6 +2432,21 @@ export function SessionsManagePage() {
             { value: 'completed', label: 'Taken / Completed' },
             { value: 'pending', label: 'Pending Verification' }
           ]} placeholder="All Status" />
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+            <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: 4 }}>Overdue</label>
+            <button
+              type="button"
+              onClick={() => setFOverdue(v => !v)}
+              style={{
+                padding: '8px 14px', border: '1px solid', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600, transition: 'all 0.15s',
+                background: fOverdue ? '#fee2e2' : '#fff',
+                borderColor: fOverdue ? '#fca5a5' : '#d1d5db',
+                color: fOverdue ? '#dc2626' : '#6b7280'
+              }}
+            >
+              {fOverdue ? '⚠️ Overdue Only' : '⚠️ Show Overdue'}
+            </button>
+          </div>
         </div>
 
         <div className="table-wrap mobile-friendly-table" style={{ marginTop: '16px' }}>
@@ -2763,6 +2813,9 @@ function RescheduleTable({ items, fTeacher, fStudent, onVerify }) {
 export function VerificationsPage() {
   const [approvalItems, setApprovalItems] = useState([]);
   const [rescheduleItems, setRescheduleItems] = useState([]);
+  const [logItems, setLogItems] = useState([]);
+  const [logFilterType, setLogFilterType] = useState('all'); // 'all' | 'approval' | 'reschedule'
+  const [logFilterStatus, setLogFilterStatus] = useState('all'); // 'all' | 'approved' | 'rejected' | 'pending'
   const [activeTab, setActiveTab] = useState('approvals');
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
@@ -2772,12 +2825,14 @@ export function VerificationsPage() {
   const loadAll = useCallback(async () => {
     setError('');
     try {
-      const [approvals, reschedules] = await Promise.all([
+      const [approvals, reschedules, logs] = await Promise.all([
         apiFetch('/sessions/verification-queue'),
-        apiFetch('/sessions/reschedule-queue')
+        apiFetch('/sessions/reschedule-queue'),
+        apiFetch('/sessions/verification-logs')
       ]);
       setApprovalItems(approvals.items || []);
       setRescheduleItems(reschedules.items || []);
+      setLogItems(logs.items || []);
     } catch (err) {
       setError(err.message);
     }
@@ -2831,7 +2886,8 @@ export function VerificationsPage() {
 
   const tabs = [
     { key: 'approvals', label: `Session Approvals (${approvalItems.length})` },
-    { key: 'reschedules', label: `Reschedule Requests (${rescheduleItems.length})` }
+    { key: 'reschedules', label: `Reschedule Requests (${rescheduleItems.length})` },
+    { key: 'logs', label: `📋 Verification Logs (${logItems.length})` }
   ];
 
   return (
@@ -2858,11 +2914,94 @@ export function VerificationsPage() {
         <div className="filter-bar">
           <SearchSelect label="Teacher" value={fTeacher} onChange={setFTeacher} options={teacherOpts} placeholder="All Teachers" />
           <SearchSelect label="Student" value={fStudent} onChange={setFStudent} options={studentOpts} placeholder="All Students" />
+          {activeTab === 'logs' && (
+            <>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151' }}>Type</label>
+                <select value={logFilterType} onChange={e => setLogFilterType(e.target.value)}
+                  style={{ display: 'block', width: '100%', padding: '8px 10px', marginTop: 4, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}>
+                  <option value="all">All Types</option>
+                  <option value="approval">Session Approval</option>
+                  <option value="reschedule">Reschedule</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151' }}>Status</label>
+                <select value={logFilterStatus} onChange={e => setLogFilterStatus(e.target.value)}
+                  style={{ display: 'block', width: '100%', padding: '8px 10px', marginTop: 4, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}>
+                  <option value="all">All Statuses</option>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+            </>
+          )}
         </div>
         {activeTab === 'approvals' ? (
           <ApprovalTable items={approvalItems} fTeacher={fTeacher} fStudent={fStudent} onVerify={verify} />
-        ) : (
+        ) : activeTab === 'reschedules' ? (
           <RescheduleTable items={rescheduleItems} fTeacher={fTeacher} fStudent={fStudent} onVerify={verify} />
+        ) : (
+          /* ── Verification Logs Tab ── */
+          <div>
+
+            <div className="table-wrap mobile-friendly-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Student</th>
+                    <th>Teacher</th>
+                    <th>Subject</th>
+                    <th>Session Date</th>
+                    <th>Received At</th>
+                    <th>Actioned At</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {logItems
+                    .filter(v => logFilterType === 'all' || v.type === logFilterType)
+                    .filter(v => logFilterStatus === 'all' || v.status === logFilterStatus)
+                    .map(v => {
+                      const sess = v.academic_sessions || {};
+                      const typeLabel = v.type === 'approval' ? '✅ Approval' : '🔄 Reschedule';
+                      const statusColor = v.status === 'approved' ? '#15803d' : v.status === 'rejected' ? '#dc2626' : '#92400e';
+                      const statusBg = v.status === 'approved' ? '#dcfce7' : v.status === 'rejected' ? '#fee2e2' : '#fef9c3';
+                      return (
+                        <tr key={v.id}>
+                          <td data-label="Type">
+                            <span style={{ fontSize: 12, fontWeight: 600 }}>{typeLabel}</span>
+                          </td>
+                          <td data-label="Student">{sess.students?.student_name || '—'}</td>
+                          <td data-label="Teacher">{sess.users?.full_name || '—'}</td>
+                          <td data-label="Subject">{sess.subject || '—'}</td>
+                          <td data-label="Session Date" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                            {sess.session_date ? new Date(sess.session_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                          </td>
+                          <td data-label="Received At" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                            {v.created_at ? new Date(v.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                          </td>
+                          <td data-label="Actioned At" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                            {v.verified_at ? new Date(v.verified_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : <span style={{ color: '#9ca3af' }}>Pending</span>}
+                          </td>
+                          <td data-label="Status">
+                            <span style={{ background: statusBg, color: statusColor, padding: '2px 8px', borderRadius: 10, fontSize: 12, fontWeight: 600 }}>
+                              {v.status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  }
+                  {logItems.filter(v => logFilterType === 'all' || v.type === logFilterType).filter(v => logFilterStatus === 'all' || v.status === logFilterStatus).length === 0 && (
+                    <tr><td colSpan="8" style={{ textAlign: 'center', padding: 28, color: '#6b7280' }}>No verification logs found.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
       </article>
     </section>
@@ -3166,10 +3305,11 @@ export function TeacherPoolPage() {
   const [selectedMapDay, setSelectedMapDay] = useState(new Date().getDay()); // Default to today
   const [viewTeacher, setViewTeacher] = useState(null);
   const [showSlotsFor, setShowSlotsFor] = useState(null);
+  const [fSearch, setFSearch] = useState('');
   const [page, setPage] = useState(1);
 
   // Reset page when filters or view changes
-  useEffect(() => { setPage(1); }, [fExp, fLang, fSubj, fSyllabus, fStartTime, fEndTime, view]);
+  useEffect(() => { setPage(1); }, [fSearch, fExp, fLang, fSubj, fSyllabus, fStartTime, fEndTime, view]);
 
   const [weekOffsetMap, setWeekOffsetMap] = useState(0);
   const [weekStartMap, setWeekStartMap] = useState('');
@@ -3220,6 +3360,13 @@ export function TeacherPoolPage() {
 
   const filtered = useMemo(() => {
     let items = teachers;
+    if (fSearch) {
+      const qs = fSearch.toLowerCase();
+      items = items.filter(t => (
+        (t.users?.full_name || '').toLowerCase().includes(qs) ||
+        (t.teacher_code || '').toLowerCase().includes(qs)
+      ));
+    }
     if (fExp) items = items.filter(t => t.experience_level === fExp);
     if (fLang) items = items.filter(t => (t.languages || []).includes(fLang));
     if (fSubj) items = items.filter(t => (t.subjects_taught || []).includes(fSubj));
@@ -3248,9 +3395,9 @@ export function TeacherPoolPage() {
       });
     }
     return items;
-  }, [teachers, fExp, fLang, fSubj, fSyllabus, fStartTime, fEndTime]);
+  }, [teachers, fSearch, fExp, fLang, fSubj, fSyllabus, fStartTime, fEndTime]);
 
-  function clearFilters() { setFExp(''); setFLang(''); setFSubj(''); setFSyllabus(''); setFStartTime(''); setFEndTime(''); }
+  function clearFilters() { setFSearch(''); setFExp(''); setFLang(''); setFSubj(''); setFSyllabus(''); setFStartTime(''); setFEndTime(''); }
 
   const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const mapDateLabels = useMemo(() => {
@@ -3296,6 +3443,13 @@ export function TeacherPoolPage() {
     <section className="panel">
       {error ? <p className="error">{error}</p> : null}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <input
+          type="text"
+          placeholder="Search by name or code..."
+          value={fSearch}
+          onChange={(e) => setFSearch(e.target.value)}
+          style={{ padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', minWidth: '200px', flex: '1 1 auto' }}
+        />
         <div className="filter-toggle-wrap">
           <button type="button" className={`filter-toggle-btn ${filtersOpen ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setFiltersOpen(!filtersOpen); }}>
             🔍 Filters {activeFilterCount ? <span className="filter-badge">{activeFilterCount}</span> : null}
@@ -3312,58 +3466,131 @@ export function TeacherPoolPage() {
             {activeFilterCount ? <button type="button" className="secondary small" onClick={clearFilters} style={{ marginTop: 12 }}>Clear All</button> : null}
           </div> : null}
         </div>
-        <span className="muted" style={{ fontSize: 13 }}>{filtered.length} of {teachers.length} teachers</span>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+        <div style={{ marginRight: 'auto', display: 'flex', gap: 4 }}>
           <button type="button" className={view === 'table' ? 'tab-btn active' : 'tab-btn'} onClick={() => setView('table')}>Table</button>
           <button type="button" className={view === 'map' ? 'tab-btn active' : 'tab-btn'} onClick={() => setView('map')}>Map</button>
         </div>
+        <span className="muted" style={{ fontSize: 13, marginLeft: 'auto' }}>{filtered.length} of {teachers.length} teachers</span>
       </div>
 
-      {view === 'table' ? <article className="card"><div className="table-wrap mobile-friendly-table"><table><thead><tr><th>Code</th><th>Name</th><th>Exp</th><th>Rate</th><th>Subjects</th><th>Languages</th><th>Syllabus</th><th>Pref. Time</th></tr></thead><tbody>{filtered.slice((page - 1) * 10, page * 10).map(t => <tr key={t.id}><td data-label="Code">{t.teacher_code}</td><td data-label="Name">{t.users?.full_name || '—'}</td><td data-label="Exp">{t.experience_level || '—'}</td><td data-label="Rate">{t.per_hour_rate ? `₹${t.per_hour_rate}` : '—'}</td><td data-label="Subjects">{(t.subjects_taught || []).join(', ') || '—'}</td><td data-label="Languages">{(t.languages || []).join(', ') || '—'}</td><td data-label="Syllabus">{(t.syllabus || []).join(', ') || '—'}</td><td data-label="Pref. Time">
-        <div style={{ position: 'relative', display: 'inline-block' }}>
-          <button
-            type="button"
-            className="secondary small"
-            style={{ padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
-            onClick={(e) => { e.stopPropagation(); setShowSlotsFor(showSlotsFor === t.id ? null : t.id); }}
-            title="View Availability"
-          >
-            <ClockIcon />
-          </button>
-          {showSlotsFor === t.id && (
-            <div style={{
-              position: 'absolute', top: '100%', right: '0', zIndex: 50,
-              background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px',
-              padding: '12px', minWidth: '220px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
-              textAlign: 'left'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
-                <strong style={{ fontSize: '12px', color: '#374151' }}>Preferred Slots</strong>
-                <button type="button" onClick={() => setShowSlotsFor(null)} style={{ border: 'none', background: 'transparent', fontSize: '16px', cursor: 'pointer', lineHeight: 1 }}>&times;</button>
-              </div>
-              {(t.teacher_availability && t.teacher_availability.length > 0) ? (
-                <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-                  {t.teacher_availability.map((s, idx) => (
-                    <div key={idx} style={{ fontSize: '11px', marginBottom: '4px', paddingBottom: '4px', borderBottom: '1px solid #f3f4f6' }}>
-                      <span style={{ fontWeight: 600, color: '#4b5563', display: 'block' }}>{s.day_of_week}</span>
-                      <span style={{ color: '#6b7280' }}>
-                        {formatTime12(s.start_time)} - {formatTime12(s.end_time)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p style={{ fontSize: '11px', color: '#9ca3af', margin: 0 }}>No slots added.</p>
+      {view === 'table' ? (
+        <>
+          <article className="card desktop-only"><div className="table-wrap mobile-friendly-table"><table><thead><tr><th>Code</th><th>Name</th><th>Exp</th><th>Subjects</th><th>Languages</th><th>Syllabus</th><th>Pref. Time</th></tr></thead><tbody>{filtered.slice((page - 1) * 10, page * 10).map(t => <tr key={t.id}><td data-label="Code">{t.teacher_code}</td><td data-label="Name">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {t.users?.full_name || '—'}
+              {t.phone && (
+                <a href={`https://wa.me/${t.phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" title="WhatsApp Message">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="#25D366" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.888-.788-1.489-1.761-1.663-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.575-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c0-5.445 4.433-9.879 9.885-9.879 2.64 0 5.122 1.029 6.988 2.895a9.82 9.82 0 012.893 6.983c-.002 5.446-4.437 9.88-9.883 9.88zm8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                  </svg>
+                </a>
               )}
             </div>
-          )}
-        </div>
-      </td></tr>)}{!filtered.length ? <tr><td colSpan="8">No teachers match filters.</td></tr> : null}</tbody></table></div>
-        {filtered.length > 10 && <Pagination page={page} limit={10} total={filtered.length} onPageChange={setPage} />}
-      </article> : null}
+          </td><td data-label="Exp">{t.experience_level || '—'}</td><td data-label="Subjects">{(t.subjects_taught || []).join(', ') || '—'}</td><td data-label="Languages">{(t.languages || []).join(', ') || '—'}</td><td data-label="Syllabus">{(t.syllabus || []).join(', ') || '—'}</td><td data-label="Pref. Time">
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <button
+                  type="button"
+                  className="secondary small"
+                  style={{ padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  onClick={(e) => { e.stopPropagation(); setShowSlotsFor(showSlotsFor === t.id ? null : t.id); }}
+                  title="View Availability"
+                >
+                  <ClockIcon />
+                </button>
+                {showSlotsFor === t.id && (
+                  <div style={{
+                    position: 'absolute', top: '100%', right: '0', zIndex: 50,
+                    background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px',
+                    padding: '12px', minWidth: '220px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                    textAlign: 'left'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
+                      <strong style={{ fontSize: '12px', color: '#374151' }}>Preferred Slots</strong>
+                      <button type="button" onClick={() => setShowSlotsFor(null)} style={{ border: 'none', background: 'transparent', fontSize: '16px', cursor: 'pointer', lineHeight: 1 }}>&times;</button>
+                    </div>
+                    {(t.teacher_availability && t.teacher_availability.length > 0) ? (
+                      <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                        {t.teacher_availability.map((s, idx) => (
+                          <div key={idx} style={{ fontSize: '11px', marginBottom: '4px', paddingBottom: '4px', borderBottom: '1px solid #f3f4f6' }}>
+                            <span style={{ fontWeight: 600, color: '#4b5563', display: 'block' }}>{s.day_of_week}</span>
+                            <span style={{ color: '#6b7280' }}>
+                              {formatTime12(s.start_time)} - {formatTime12(s.end_time)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: '11px', color: '#9ca3af', margin: 0 }}>No slots added.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </td></tr>)}{!filtered.length ? <tr><td colSpan="8">No teachers match filters.</td></tr> : null}</tbody></table></div>
+            {filtered.length > 10 && <Pagination page={page} limit={10} total={filtered.length} onPageChange={setPage} />}
+          </article>
 
-      {view === 'map' ? <article className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 12 }}>
+          <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {filtered.slice((page - 1) * 10, page * 10).map(t => (
+              <ExpandableMobileCard
+                key={t.id}
+                title={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {t.users?.full_name || 'Unknown Teacher'}
+                    {t.phone && (
+                      <a href={`https://wa.me/${t.phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" title="WhatsApp Message" onClick={(e) => e.stopPropagation()}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="#25D366" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.888-.788-1.489-1.761-1.663-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.575-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c0-5.445 4.433-9.879 9.885-9.879 2.64 0 5.122 1.029 6.988 2.895a9.82 9.82 0 012.893 6.983c-.002 5.446-4.437 9.88-9.883 9.88zm8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                        </svg>
+                      </a>
+                    )}
+                  </div>
+                }
+                subtitle={t.teacher_code}
+                topRight={<span style={{ fontWeight: 600, fontSize: '13px', background: '#f3f4f6', padding: '2px 8px', borderRadius: '12px' }}>{t.experience_level || 'N/A'}</span>}
+                mainStats={
+                  <div style={{ display: 'flex', gap: '16px' }}>
+                    <div style={{ color: '#4f46e5', fontWeight: 600 }}>{t.teacher_availability?.length || 0} Slots</div>
+                  </div>
+                }
+                expandedContent={
+                  <div style={{ display: 'grid', gap: '8px', fontSize: '13px' }}>
+                    <div><span className="text-muted">Subjects:</span> {(t.subjects_taught || []).join(', ') || '—'}</div>
+                    <div><span className="text-muted">Languages:</span> {(t.languages || []).join(', ') || '—'}</div>
+                    <div><span className="text-muted">Syllabus:</span> {(t.syllabus || []).join(', ') || '—'}</div>
+                  </div>
+                }
+                actions={
+                  <div style={{ display: 'flex', gap: '8px', background: '#f9fafb', padding: '12px', borderRadius: '8px' }}>
+                    <div style={{ width: '100%' }}>
+                      <strong style={{ fontSize: '12px', marginBottom: '6px', display: 'block', color: '#4b5563' }}>Availability</strong>
+                      {(t.teacher_availability && t.teacher_availability.length > 0) ? (
+                        <div style={{ display: 'grid', gap: '4px' }}>
+                          {t.teacher_availability.slice(0, 3).map((s, idx) => (
+                            <div key={idx} style={{ fontSize: '11px', display: 'flex', justifyContent: 'space-between' }}>
+                              <span>{s.day_of_week}</span>
+                              <span style={{ color: '#6b7280' }}>
+                                {formatTime12(s.start_time)} - {formatTime12(s.end_time)}
+                              </span>
+                            </div>
+                          ))}
+                          {t.teacher_availability.length > 3 && <div style={{ fontSize: '11px', color: '#6b7280', textAlign: 'center', marginTop: '4px' }}>+{t.teacher_availability.length - 3} more</div>}
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: '11px', color: '#9ca3af' }}>No slots</span>
+                      )}
+                    </div>
+                  </div>
+                }
+              />
+            ))}
+            {!filtered.length && <div className="card" style={{ padding: '20px', textAlign: 'center', color: '#6b7280' }}>No teachers match filters.</div>}
+            {filtered.length > 10 && <Pagination page={page} limit={10} total={filtered.length} onPageChange={setPage} />}
+          </div>
+        </>
+      ) : null}
+
+      {view === 'map' ? <article className="card mobile-map-card" style={{ padding: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 12, paddingLeft: '12px', paddingRight: '12px' }}>
           <div>
             <p className="muted" style={{ margin: '0 0 8px 0', fontSize: 13 }}>Availability for <strong>{mapDateLabels[selectedMapDay]}</strong> (Green = Available, Orange = Demo, Red = Scheduled)</p>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -3376,8 +3603,8 @@ export function TeacherPoolPage() {
             {mapDateLabels.map((lbl, i) => <button key={lbl} type="button" className={`day-tab-btn ${selectedMapDay === i ? 'active' : ''}`} onClick={() => setSelectedMapDay(i)}>{lbl}</button>)}
           </div>
         </div>
-        <div style={{ overflowX: 'hidden', width: '100%' }}>
-          <table className="avail-map-table" style={{ tableLayout: 'fixed', width: '100%' }}>
+        <div className="table-wrap" style={{ overflowX: 'auto', width: '100%' }}>
+          <table className="avail-map-table" style={{ tableLayout: 'fixed', minWidth: '800px', width: '100%' }}>
             <thead>
               <tr>
                 <th style={{ width: '150px', position: 'sticky', left: 0, zIndex: 10, background: 'white' }}>Teacher</th>

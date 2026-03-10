@@ -233,6 +233,80 @@ function StatusBadge({ status }) {
   return <span className={`status-badge ${colors[status] || 'neutral'}`}>{status?.replace('_', ' ') || 'unknown'}</span>;
 }
 
+function MobileLeadCard({ lead, counselorMap, onOpenDetails, onViewInPipeline, onDrop, isCounselor, isSelected, onToggleSelect }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div
+      className="card list-mobile-card"
+      style={{ padding: '16px', position: 'relative', marginBottom: '0', border: (!isCounselor && isSelected) ? '2px solid #3b82f6' : '1px solid #e5e7eb', background: lead.counselor_id ? '#fff' : '#fffbeb' }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, paddingRight: 8, display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+          {!isCounselor && (
+            <div style={{ marginTop: '2px' }} onClick={e => e.stopPropagation()}>
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => onToggleSelect(lead.id)}
+                style={{ width: '16px', height: '16px' }}
+              />
+            </div>
+          )}
+          <div onClick={() => setExpanded(!expanded)} style={{ cursor: 'pointer', flex: 1 }}>
+            <h4 style={{ margin: '0 0 4px', fontSize: '15px', fontWeight: 600, color: '#2563eb' }}>
+              {lead.student_name}
+            </h4>
+            <div style={{ margin: 0, fontSize: '13px', color: '#6b7280' }}>
+              {lead.contact_number || '-'}
+            </div>
+          </div>
+        </div>
+        <div
+          style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', cursor: 'pointer' }}
+          onClick={() => setExpanded(!expanded)}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <StatusBadge status={lead.status} />
+            <span style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: '24px', height: '24px', borderRadius: '50%', background: '#f3f4f6', color: '#6b7280',
+              transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s'
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </div>
+          <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 500, paddingRight: '32px' }}>{lead.class_level || '-'}</span>
+        </div>
+      </div>
+
+      {expanded && (
+        <div style={{ marginTop: '12px', animation: 'fadeIn 0.2s ease-in' }}>
+          <div style={{ display: 'flex', gap: '16px', fontSize: '13px', flexWrap: 'wrap', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
+            <div><span style={{ color: '#888' }}>Type:</span> <div style={{ fontWeight: 500 }}>{lead.lead_type || '-'}</div></div>
+            {!isCounselor && (
+              <div><span style={{ color: '#888' }}>Assigned:</span> <div style={{ fontWeight: 500 }}>{counselorMap[lead.counselor_id] || <span className="text-dim">Unassigned</span>}</div></div>
+            )}
+          </div>
+
+          <div style={{ marginTop: '16px', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            {isCounselor && onViewInPipeline && (
+              <button type="button" className="secondary small" onClick={() => onViewInPipeline(lead.id, lead.status)} style={{ padding: '4px 8px' }}>
+                📋 Pipeline
+              </button>
+            )}
+            <button type="button" className="primary small" onClick={() => onOpenDetails(lead.id)}>View Form</button>
+            {lead.status !== 'dropped' && lead.status !== 'joined' && (
+              <button type="button" className="danger small" onClick={() => onDrop(lead)}>Drop</button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }) {
   const session = getSession();
   const user = session?.user;
@@ -353,44 +427,52 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
         </div>
       ) : null}
 
-      <LeadFilters onFilterChange={setFilters} counselors={counselors}>
+      <LeadFilters
+        onFilterChange={setFilters}
+        counselors={counselors}
+        userRole={user?.role}
+        actionButton={<button onClick={() => setShowAddModal(true)} className="primary" style={{ whiteSpace: 'nowrap' }}>+ Add Lead</button>}
+      >
         {filters.status && filters.status !== 'dropped' && filters.status !== 'joined' && (
-          <div style={{ minWidth: '200px' }}>
+          <div style={{ position: 'relative', display: 'inline-block' }}>
             <select
               value={noteFilter}
               onChange={e => setNoteFilter(e.target.value)}
-              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }}
+              className="filter-toggle-btn"
+              style={{ paddingRight: '28px', appearance: 'none', outline: 'none', background: 'white' }}
             >
-              <option value="all">All Notes</option>
-              <option value="none">No Note</option>
+              <option value="all">Note: All</option>
+              <option value="none">Note: None</option>
               {(STUDENT_LEAD_NOTES[filters.status] || []).map(n => (
                 <option key={n} value={n}>{n}</option>
               ))}
-              <option value="other">Other / Custom</option>
+              <option value="other">Note: Other</option>
             </select>
+            <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', fontSize: '10px', color: 'var(--primary)' }}>▼</span>
           </div>
         )}
-        <button onClick={() => setShowAddModal(true)} className="primary" style={{ whiteSpace: 'nowrap' }}>+ Add Lead</button>
       </LeadFilters>
 
       {loading ? <p>Loading leads...</p> : null}
       {error ? <p className="error">{error}</p> : null}
 
-      <div className="card">
+      <article className="card desktop-only">
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th style={{ width: '40px' }}>
-                  <input
-                    type="checkbox"
-                    checked={filteredItems.length > 0 && selectedIds.length === filteredItems.length}
-                    onChange={(e) => {
-                      if (e.target.checked) setSelectedIds(filteredItems.map(i => i.id));
-                      else setSelectedIds([]);
-                    }}
-                  />
-                </th>
+                {user?.role !== 'counselor' && (
+                  <th style={{ width: '40px' }}>
+                    <input
+                      type="checkbox"
+                      checked={filteredItems.length > 0 && selectedIds.length === filteredItems.length}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedIds(filteredItems.map(i => i.id));
+                        else setSelectedIds([]);
+                      }}
+                    />
+                  </th>
+                )}
                 <th>Name</th>
                 <th>Phone</th>
                 <th>Class</th>
@@ -405,19 +487,21 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
             <tbody>
               {filteredItems.map((lead) => (
                 <tr key={lead.id}
-                  className={selectedIds.includes(lead.id) ? 'selected-row' : ''}
+                  className={selectedIds.includes(lead.id) && user?.role !== 'counselor' ? 'selected-row' : ''}
                   style={leadTab === 'all' && (!lead.counselor_id || !counselorMap[lead.counselor_id]) ? { background: '#fffbeb' } : undefined}
                 >
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.includes(lead.id)}
-                      onChange={() => {
-                        if (selectedIds.includes(lead.id)) setSelectedIds(selectedIds.filter(id => id !== lead.id));
-                        else setSelectedIds([...selectedIds, lead.id]);
-                      }}
-                    />
-                  </td>
+                  {user?.role !== 'counselor' && (
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(lead.id)}
+                        onChange={() => {
+                          if (selectedIds.includes(lead.id)) setSelectedIds(selectedIds.filter(id => id !== lead.id));
+                          else setSelectedIds([...selectedIds, lead.id]);
+                        }}
+                      />
+                    </td>
+                  )}
                   <td>
                     <div
                       style={{ fontWeight: 500, cursor: 'pointer', color: '#2563eb' }}
@@ -458,6 +542,48 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
             </tbody>
           </table>
         </div>
+        {!loading && total > 0 && (
+          <Pagination page={page} limit={limit} total={total} onPageChange={setPage} />
+        )}
+      </article>
+
+      <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+        {/* Mobile Select All */}
+        {user?.role !== 'counselor' && filteredItems.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 4px', marginBottom: '4px' }}>
+            <input
+              type="checkbox"
+              checked={selectedIds.length === filteredItems.length}
+              onChange={(e) => {
+                if (e.target.checked) setSelectedIds(filteredItems.map(i => i.id));
+                else setSelectedIds([]);
+              }}
+              style={{ width: '16px', height: '16px' }}
+              id="mobile-select-all"
+            />
+            <label htmlFor="mobile-select-all" style={{ fontSize: '13px', color: '#4b5563', fontWeight: 500 }}>Select All ({filteredItems.length})</label>
+          </div>
+        )}
+
+        {filteredItems.map(lead => (
+          <MobileLeadCard
+            key={lead.id}
+            lead={lead}
+            counselorMap={counselorMap}
+            onOpenDetails={onOpenDetails}
+            onViewInPipeline={onViewInPipeline}
+            onDrop={(lead) => setShowDropModal(lead)}
+            isCounselor={user?.role === 'counselor'}
+            isSelected={selectedIds.includes(lead.id)}
+            onToggleSelect={(id) => {
+              if (selectedIds.includes(id)) setSelectedIds(selectedIds.filter(sid => sid !== id));
+              else setSelectedIds([...selectedIds, id]);
+            }}
+          />
+        ))}
+        {!filteredItems.length && !loading && (
+          <div style={{ textAlign: 'center', padding: '24px', color: '#9ca3af' }}>No matching leads found.</div>
+        )}
         {!loading && total > 0 && (
           <Pagination page={page} limit={limit} total={total} onPageChange={setPage} />
         )}
@@ -1257,6 +1383,9 @@ export function MyLeadsPage({ onOpenDetails, initialLeadId = '', onPipelineReady
       const lead = items.find(i => i.id === leadId);
       setLeadForDemo(lead);
     } else {
+      if (newStatus === 'demo_done') {
+        if (!window.confirm("Are you sure you want to mark this demo as done?")) return;
+      }
       await handleStatusChange(leadId, newStatus);
     }
   };
@@ -1286,52 +1415,92 @@ export function MyLeadsPage({ onOpenDetails, initialLeadId = '', onPipelineReady
       )}
 
       {activeTab === 'dropped' ? (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: '16px', gap: '10px' }}>
-          <span style={{ fontSize: '13px', color: '#4b5563', fontWeight: 600 }}>Filter by Reason:</span>
-          <div style={{ minWidth: '240px' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+          <div style={{ position: 'relative', display: 'inline-block' }}>
             <select
               value={rejectionFilter}
               onChange={e => setRejectionFilter(e.target.value)}
-              style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', width: '100%', outline: 'none' }}
+              className="filter-toggle-btn"
+              style={{ paddingRight: '28px', appearance: 'none', outline: 'none', background: 'white' }}
             >
-              <option value="all">All Drop Reasons</option>
+              <option value="all">Drop Reason: All</option>
               {rejectionReasons.map(r => (
                 <option key={r.reason} value={r.reason}>{r.reason}</option>
               ))}
-              <option value="other">Other / Custom</option>
+              <option value="other">Drop Reason: Other</option>
             </select>
+            <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', fontSize: '10px', color: 'var(--primary)' }}>▼</span>
           </div>
         </div>
       ) : activeTab !== 'all' && activeTab !== 'joined' ? (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: '16px', gap: '10px' }}>
-          <span style={{ fontSize: '13px', color: '#4b5563', fontWeight: 600 }}>Filter by Note:</span>
-          <div style={{ minWidth: '240px' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+          <div style={{ position: 'relative', display: 'inline-block' }}>
             <select
               value={noteFilter}
               onChange={e => setNoteFilter(e.target.value)}
-              style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', width: '100%', outline: 'none' }}
+              className="filter-toggle-btn"
+              style={{ paddingRight: '28px', appearance: 'none', outline: 'none', background: 'white' }}
             >
-              <option value="all">All Notes</option>
-              <option value="none">No Note</option>
+              <option value="all">Note: All</option>
+              <option value="none">Note: None</option>
               {(STUDENT_LEAD_NOTES[activeTab] || []).map(n => (
                 <option key={n} value={n}>{n}</option>
               ))}
-              <option value="other">Other / Custom</option>
+              <option value="other">Note: Other</option>
             </select>
+            <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', fontSize: '10px', color: 'var(--primary)' }}>▼</span>
           </div>
         </div>
       ) : null}
 
-      <div className="tabs-row" style={{ marginTop: 0, marginBottom: '16px', flexWrap: 'wrap' }}>
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label} ({items.filter(i => tab.id === 'all' || i.status === tab.id).length})
-          </button>
-        ))}
+      <div className="tabs-row" style={{ marginTop: 0, marginBottom: '16px', flexWrap: 'wrap', borderBottom: '1px solid #e5e7eb', gap: '16px' }}>
+        {TABS.map(tab => {
+          const count = items.filter(i => tab.id === 'all' || i.status === tab.id).length;
+          const statusColors = {
+            all: '#6b7280',
+            new: '#6366f1',
+            contacted: '#8b5cf6',
+            demo_scheduled: '#f59e0b',
+            demo_done: '#8b5cf6',
+            payment_pending: '#ec4899',
+            payment_verification: '#06b6d4',
+            joined: '#10b981',
+            dropped: '#ef4444'
+          };
+          const color = statusColors[tab.id] || '#6b7280';
+          const isActive = activeTab === tab.id;
+
+          let shortLabel = tab.label;
+          if (tab.id === 'payment_pending') shortLabel = 'Pay Pending';
+          if (tab.id === 'payment_verification') shortLabel = 'Pay Verif';
+          if (tab.id === 'demo_scheduled') shortLabel = 'Demo Sched';
+
+          return (
+            <button
+              key={tab.id}
+              className={`text-tab-btn ${isActive ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+              style={{ paddingBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}
+            >
+              <span>
+                <span className="hide-mobile">{tab.label}</span>
+                <span className="show-mobile-inline">{shortLabel}</span>
+              </span>
+              <span style={{
+                background: isActive ? color : `${color}20`,
+                color: isActive ? '#fff' : color,
+                padding: '2px 8px',
+                borderRadius: '12px',
+                fontSize: '11px',
+                fontWeight: 600,
+                minWidth: '24px',
+                textAlign: 'center'
+              }}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {loading ? <p>Loading my leads...</p> : null}
@@ -2210,6 +2379,7 @@ export function DemoManagementPage({ leadId, onOpenDetails }) {
   }
 
   async function handleMarkDone(id) {
+    if (!window.confirm("Are you sure you want to mark this demo as done?")) return;
     try {
       await apiFetch(`/leads/${id}`, {
         method: 'PATCH',
@@ -2262,77 +2432,137 @@ export function DemoManagementPage({ leadId, onOpenDetails }) {
       {error ? <p className="error">{error}</p> : null}
       {msg ? <p style={{ color: '#10b981', marginBottom: '12px' }}>{msg}</p> : null}
 
-      <div className="card" style={{ padding: 0 }}>
-        <div className="table-wrap mobile-friendly-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Demo Date</th>
-                <th>Student</th>
-                <th>Subject</th>
-                <th>Teacher</th>
-                <th>Status</th>
-                <th style={{ textAlign: 'center' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {demoLeads.map(lead => {
-                const isScheduled = lead.status === 'demo_scheduled';
-                return (
-                  <tr key={lead.id}>
-                    <td data-label="Demo Date">
-                      <span style={{ fontWeight: 500 }}>
-                        {lead.demo_scheduled_at ? new Date(lead.demo_scheduled_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }).replace(/ AM| PM/g, m => m.toLowerCase()) : '—'}
-                      </span>
-                    </td>
-                    <td data-label="Student">
-                      {lead.student_name}
-                      <div className="text-muted" style={{ fontSize: '12px', marginTop: '4px' }}>{lead.contact_number}</div>
-                    </td>
-                    <td data-label="Subject">{lead.subject || '—'}</td>
-                    <td data-label="Teacher">
-                      {(() => {
-                        const matched = teachers.find(t => t.user_id === lead.demo_teacher_id || t.id === lead.demo_teacher_id);
-                        const name = matched?.users?.full_name || lead.teacher_profiles?.users?.full_name;
-                        if (name) return name;
-                        if (lead.demo_teacher_id) return `ID: ${lead.demo_teacher_id.slice(0, 8)}`;
-                        return <span className="text-muted">Not Assigned</span>;
-                      })()}
-                    </td>
-                    <td data-label="Status">
-                      <span style={{
-                        padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 600,
-                        background: isScheduled ? '#f59e0b18' : '#3b82f618',
-                        color: isScheduled ? '#f59e0b' : '#3b82f6',
-                        textTransform: 'capitalize', whiteSpace: 'nowrap'
-                      }}>
-                        {isScheduled ? 'Scheduled' : 'Demo Done'}
-                      </span>
-                    </td>
-                    <td data-label="Actions" style={{ textAlign: 'center' }}>
-                      {isScheduled ? (
-                        <button className="small primary" style={{ fontSize: '11px', padding: '4px 10px' }}
-                          onClick={() => handleMarkDone(lead.id)}>
-                          ✅ Mark Done
-                        </button>
-                      ) : (
-                        <span className="text-muted" style={{ fontSize: '12px' }}>—</span>
-                      )}
+      <div className="card" style={{ padding: activeTab === 'demo_scheduled' ? 0 : '16px', background: activeTab === 'demo_scheduled' ? '#fff' : 'transparent', border: activeTab === 'demo_scheduled' ? undefined : 'none', boxShadow: activeTab === 'demo_scheduled' ? undefined : 'none' }}>
+        {activeTab === 'demo_scheduled' ? (
+          <div className="table-wrap mobile-friendly-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Demo Date</th>
+                  <th>Student</th>
+                  <th>Subject</th>
+                  <th>Teacher</th>
+                  <th>Status</th>
+                  <th style={{ textAlign: 'center' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {demoLeads.map(lead => {
+                  const isScheduled = lead.status === 'demo_scheduled';
+                  return (
+                    <tr key={lead.id}>
+                      <td data-label="Demo Date">
+                        <span style={{ fontWeight: 500 }}>
+                          {lead.demo_scheduled_at ? new Date(lead.demo_scheduled_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }).replace(/ AM| PM/g, m => m.toLowerCase()) : '—'}
+                        </span>
+                      </td>
+                      <td data-label="Student">
+                        {lead.student_name}
+                        <div className="text-muted" style={{ fontSize: '12px', marginTop: '4px' }}>{lead.contact_number}</div>
+                      </td>
+                      <td data-label="Subject">{lead.subject || '—'}</td>
+                      <td data-label="Teacher">
+                        {(() => {
+                          const matched = teachers.find(t => t.user_id === lead.demo_teacher_id || t.id === lead.demo_teacher_id);
+                          const name = matched?.users?.full_name || lead.teacher_profiles?.users?.full_name;
+                          if (name) return name;
+                          if (lead.demo_teacher_id) return `ID: ${lead.demo_teacher_id.slice(0, 8)}`;
+                          return <span className="text-muted">Not Assigned</span>;
+                        })()}
+                      </td>
+                      <td data-label="Status">
+                        <span style={{
+                          padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 600,
+                          background: isScheduled ? '#f59e0b18' : '#3b82f618',
+                          color: isScheduled ? '#f59e0b' : '#3b82f6',
+                          textTransform: 'capitalize', whiteSpace: 'nowrap'
+                        }}>
+                          {isScheduled ? 'Scheduled' : 'Demo Done'}
+                        </span>
+                      </td>
+                      <td data-label="Actions" style={{ textAlign: 'center' }}>
+                        {isScheduled ? (
+                          <button className="small primary" style={{ fontSize: '11px', padding: '4px 10px' }}
+                            onClick={() => handleMarkDone(lead.id)}>
+                            ✅ Mark Done
+                          </button>
+                        ) : (
+                          <span className="text-muted" style={{ fontSize: '12px' }}>—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!loading && demoLeads.length === 0 && (
+                  <tr>
+                    <td colSpan={6} style={{ textAlign: 'center', color: '#9ca3af', padding: '40px' }}>
+                      <p style={{ fontSize: '28px', margin: '0 0 8px' }}>📅</p>
+                      <p style={{ fontWeight: 500, margin: 0 }}>No demos in this category.</p>
                     </td>
                   </tr>
-                );
-              })}
-              {!loading && demoLeads.length === 0 && (
-                <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', color: '#9ca3af', padding: '40px' }}>
-                    <p style={{ fontSize: '28px', margin: '0 0 8px' }}>📅</p>
-                    <p style={{ fontWeight: 500, margin: 0 }}>No demos in this category.</p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="demo-history-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {demoLeads.map(lead => {
+              const teacherMatched = teachers.find(t => t.user_id === lead.demo_teacher_id || t.id === lead.demo_teacher_id);
+              const teacherName = teacherMatched?.users?.full_name || lead.teacher_profiles?.users?.full_name || (lead.demo_teacher_id ? `ID: ${lead.demo_teacher_id.slice(0, 8)}` : 'Not Assigned');
+
+              return (
+                <ExpandableMobileCard
+                  key={lead.id}
+                  title={lead.student_name}
+                  subtitle={lead.contact_number}
+                  borderColor="#3b82f6"
+                  topRight={
+                    <span style={{
+                      padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 600,
+                      background: '#3b82f618', color: '#3b82f6', textTransform: 'capitalize', whiteSpace: 'nowrap'
+                    }}>
+                      Demo Done
+                    </span>
+                  }
+                  mainStats={
+                    <>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span className="text-muted" style={{ fontSize: '11px' }}>Demo Date</span>
+                        <span style={{ fontWeight: 500 }}>
+                          {lead.demo_scheduled_at ? new Date(lead.demo_scheduled_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span className="text-muted" style={{ fontSize: '11px' }}>Subject</span>
+                        <span style={{ fontWeight: 500 }}>{lead.subject || '—'}</span>
+                      </div>
+                    </>
+                  }
+                  expandedContent={
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f3f4f6', paddingBottom: '8px' }}>
+                        <span className="text-muted">Teacher</span>
+                        <span style={{ fontWeight: 500 }}>{teacherName}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span className="text-muted">Exact Time</span>
+                        <span style={{ fontWeight: 500 }}>
+                          {lead.demo_scheduled_at ? new Date(lead.demo_scheduled_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true }).replace(/ AM| PM/g, m => m.toLowerCase()) : '—'}
+                        </span>
+                      </div>
+                    </div>
+                  }
+                />
+              );
+            })}
+            {!loading && demoLeads.length === 0 && (
+              <div style={{ textAlign: 'center', color: '#9ca3af', padding: '40px', background: '#fff', borderRadius: '12px' }}>
+                <p style={{ fontSize: '28px', margin: '0 0 8px' }}>📜</p>
+                <p style={{ fontWeight: 500, margin: 0 }}>No demo history found.</p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Pagination component */}
@@ -2465,6 +2695,49 @@ function UploadInstallmentModal({ item, onClose, onSuccess }) {
 }
 
 /* ═══════ Payment Requests Page ═══════ */
+
+function ExpandableMobileCard({ title, subtitle, topRight, mainStats, expandedContent, actions }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="card" style={{ padding: '16px', position: 'relative' }}>
+      <div
+        onClick={() => setExpanded(!expanded)}
+        style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: expanded ? '12px' : '0' }}
+      >
+        <div>
+          <h4 style={{ margin: '0 0 4px', fontSize: '15px' }}>{title || '—'}</h4>
+          <p style={{ margin: 0, fontSize: '13px', color: '#6b7280' }}>📞 {subtitle || '—'}</p>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+          {topRight}
+          <span style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: '24px', height: '24px', borderRadius: '50%', background: '#f3f4f6', color: '#6b7280',
+            transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s'
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </span>
+        </div>
+      </div>
+
+      {!expanded && mainStats && (
+        <div onClick={() => setExpanded(true)} style={{ marginTop: '12px', display: 'flex', gap: '16px', fontSize: '13px', cursor: 'pointer' }}>
+          {mainStats}
+        </div>
+      )}
+
+      {expanded && (
+        <div style={{ marginTop: '12px', animation: 'fadeIn 0.2s ease-in' }}>
+          {expandedContent}
+          {actions && <div style={{ marginTop: '16px' }}>{actions}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function PaymentRequestsPage({ initialLeadId, onReady }) {
   const [requests, setRequests] = useState([]);
   const [total, setTotal] = useState(0);
@@ -2587,55 +2860,80 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
 
   return (
     <section className="panel">
-      {/* Page-level Tabs */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', borderBottom: '2px solid #e5e7eb', paddingBottom: '0' }}>
+      <div className="tabs-row" style={{ marginBottom: '8px', flexWrap: 'nowrap', overflowX: 'auto', paddingBottom: '4px' }}>
         {[{ key: 'requests', label: 'Payment Requests' }, { key: 'pending', label: 'Pending Payments' }].map(t => (
-          <button key={t.key} type="button" onClick={() => setPageView(t.key)} style={{
-            padding: '8px 18px', fontWeight: 600, fontSize: '14px', cursor: 'pointer',
-            background: 'none', border: 'none',
-            borderBottom: pageView === t.key ? '3px solid #4338ca' : '3px solid transparent',
-            color: pageView === t.key ? '#4338ca' : '#6b7280', marginBottom: '-2px'
-          }}>{t.label}</button>
+          <button key={t.key} type="button" className={`tab-btn ${pageView === t.key ? 'active' : ''}`} onClick={() => setPageView(t.key)} style={{ whiteSpace: 'nowrap' }}>
+            {t.label}
+          </button>
         ))}
-        {pageView === 'requests' && !isCounselorHead && (
-          <button className="primary" style={{ marginLeft: 'auto', fontSize: '13px' }} onClick={() => setShowNewModal(true)}>+ New Request</button>
-        )}
       </div>
 
       {pageView === 'pending' && (
         <div>
           {loadingPending ? <p>Loading...</p> : (
-            <div className="card">
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead><tr>
-                    <th>Student</th>
-                    <th>Phone</th>
-                    <th>Total ₹</th>
-                    <th>Paid ₹</th>
-                    <th>Remaining</th>
-                    <th>Action</th>
-                  </tr></thead>
-                  <tbody>
-                    {pendingBalances.map(item => (
-                      <tr key={item.id}>
-                        <td style={{ fontWeight: 500 }}>{item.leads?.student_name || '—'}</td>
-                        <td>{item.leads?.contact_number || '—'}</td>
-                        <td>₹{Number(item.total_amount).toLocaleString('en-IN')}</td>
-                        <td style={{ color: '#16a34a', fontWeight: 600 }}>₹{Number(item.amount || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ color: '#dc2626', fontWeight: 700 }}>₹{Number(item.remaining_amount).toLocaleString('en-IN')}</td>
-                        <td>
-                          <button className="primary small" onClick={() => setShowInstallmentModal(item)}>Upload Installment</button>
-                        </td>
-                      </tr>
-                    ))}
-                    {!pendingBalances.length && (
-                      <tr><td colSpan="6" style={{ textAlign: 'center', color: '#6b7280', padding: '32px' }}>No pending balances.</td></tr>
-                    )}
-                  </tbody>
-                </table>
+            <>
+              <div className="card desktop-only">
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <thead><tr>
+                      <th>Student</th>
+                      <th>Phone</th>
+                      <th>Total ₹</th>
+                      <th>Paid ₹</th>
+                      <th>Remaining</th>
+                      <th>Action</th>
+                    </tr></thead>
+                    <tbody>
+                      {pendingBalances.map(item => (
+                        <tr key={item.id}>
+                          <td style={{ fontWeight: 500 }}>{item.leads?.student_name || '—'}</td>
+                          <td>{item.leads?.contact_number || '—'}</td>
+                          <td>₹{Number(item.total_amount).toLocaleString('en-IN')}</td>
+                          <td style={{ color: '#16a34a', fontWeight: 600 }}>₹{Number(item.amount || 0).toLocaleString('en-IN')}</td>
+                          <td style={{ color: '#dc2626', fontWeight: 700 }}>₹{Number(item.remaining_amount).toLocaleString('en-IN')}</td>
+                          <td>
+                            <button className="primary small" onClick={() => setShowInstallmentModal(item)}>Upload Installment</button>
+                          </td>
+                        </tr>
+                      ))}
+                      {!pendingBalances.length && (
+                        <tr><td colSpan="6" style={{ textAlign: 'center', color: '#6b7280', padding: '32px' }}>No pending balances.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+
+              {/* Mobile Cards for Pending Balances */}
+              <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {pendingBalances.map(item => (
+                  <ExpandableMobileCard
+                    key={item.id}
+                    title={item.leads?.student_name}
+                    subtitle={item.leads?.contact_number}
+                    mainStats={
+                      <>
+                        <div><span className="text-muted" style={{ fontSize: '11px' }}>Paid</span><br /><strong style={{ color: '#16a34a' }}>₹{Number(item.amount || 0).toLocaleString('en-IN')}</strong></div>
+                        <div><span className="text-muted" style={{ fontSize: '11px' }}>Remaining</span><br /><strong style={{ color: '#dc2626' }}>₹{Number(item.remaining_amount).toLocaleString('en-IN')}</strong></div>
+                      </>
+                    }
+                    expandedContent={
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '13px', background: '#f9fafb', padding: '12px', borderRadius: '8px' }}>
+                        <div><span className="text-muted" style={{ fontSize: '11px' }}>Total</span><br /><strong style={{ fontSize: '14px' }}>₹{Number(item.total_amount).toLocaleString('en-IN')}</strong></div>
+                        <div><span className="text-muted" style={{ fontSize: '11px' }}>Paid</span><br /><strong style={{ color: '#16a34a', fontSize: '14px' }}>₹{Number(item.amount || 0).toLocaleString('en-IN')}</strong></div>
+                        <div style={{ gridColumn: '1 / -1' }}><span className="text-muted" style={{ fontSize: '11px' }}>Remaining</span><br /><strong style={{ color: '#dc2626', fontSize: '14px' }}>₹{Number(item.remaining_amount).toLocaleString('en-IN')}</strong></div>
+                      </div>
+                    }
+                    actions={
+                      <button className="primary" style={{ width: '100%', justifyContent: 'center' }} onClick={(e) => { e.stopPropagation(); setShowInstallmentModal(item); }}>Upload Installment</button>
+                    }
+                  />
+                ))}
+                {!pendingBalances.length && (
+                  <p style={{ textAlign: 'center', color: '#6b7280', padding: '20px' }}>No pending balances.</p>
+                )}
+              </div>
+            </>
           )}
           {showInstallmentModal && (
             <UploadInstallmentModal
@@ -2649,41 +2947,77 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
           <div className="card" style={{ marginTop: '24px' }}>
             <h3 style={{ margin: '0 0 14px', fontSize: '16px', fontWeight: 700 }}>My Submitted Installments</h3>
             {loadingMyInstallments ? <p style={{ color: '#6b7280' }}>Loading...</p> : (
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead><tr>
-                    <th>Student</th>
-                    <th>Amount</th>
-                    <th>Note</th>
-                    <th>Screenshot</th>
-                    <th>Status</th>
-                    <th>Submitted</th>
-                  </tr></thead>
-                  <tbody>
-                    {myInstallments.map(inst => {
-                      const statusMap = {
-                        pending: { bg: '#fef3c7', color: '#92400e', label: '⏳ Pending Verification' },
-                        verified: { bg: '#dcfce7', color: '#15803d', label: '✅ Verified' },
-                        rejected: { bg: '#fee2e2', color: '#dc2626', label: '❌ Rejected' }
-                      };
-                      const s = statusMap[inst.status] || { bg: '#f3f4f6', color: '#6b7280', label: inst.status };
-                      return (
-                        <tr key={inst.id}>
-                          <td style={{ fontWeight: 500 }}>{inst.student_name}</td>
-                          <td style={{ fontWeight: 700, color: '#15803d' }}>₹{Number(inst.amount).toLocaleString('en-IN')}</td>
-                          <td style={{ fontSize: '12px', color: '#6b7280', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{inst.finance_note || '—'}</td>
-                          <td>{inst.screenshot_url ? <a href={inst.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca', fontSize: '12px' }}>View</a> : '—'}</td>
-                          <td><span style={{ padding: '3px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 600, background: s.bg, color: s.color }}>{s.label}</span></td>
-                          <td style={{ fontSize: '12px', color: '#6b7280' }}>{new Date(inst.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                        </tr>
-                      );
-                    })}
-                    {!myInstallments.length && (
-                      <tr><td colSpan="6" style={{ textAlign: 'center', color: '#9ca3af', padding: '24px' }}>No installments submitted yet.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <>
+                <div className="table-wrap desktop-only">
+                  <table className="data-table">
+                    <thead><tr>
+                      <th>Student</th>
+                      <th>Amount</th>
+                      <th>Note</th>
+                      <th>Screenshot</th>
+                      <th>Status</th>
+                      <th>Submitted</th>
+                    </tr></thead>
+                    <tbody>
+                      {myInstallments.map(inst => {
+                        const statusMap = {
+                          pending: { bg: '#fef3c7', color: '#92400e', label: '⏳ Pending Verification' },
+                          verified: { bg: '#dcfce7', color: '#15803d', label: '✅ Verified' },
+                          rejected: { bg: '#fee2e2', color: '#dc2626', label: '❌ Rejected' }
+                        };
+                        const s = statusMap[inst.status] || { bg: '#f3f4f6', color: '#6b7280', label: inst.status };
+                        return (
+                          <tr key={inst.id}>
+                            <td style={{ fontWeight: 500 }}>{inst.student_name}</td>
+                            <td style={{ fontWeight: 700, color: '#15803d' }}>₹{Number(inst.amount).toLocaleString('en-IN')}</td>
+                            <td style={{ fontSize: '12px', color: '#6b7280', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{inst.finance_note || '—'}</td>
+                            <td>{inst.screenshot_url ? <a href={inst.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca', fontSize: '12px' }}>View</a> : '—'}</td>
+                            <td><span style={{ padding: '3px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 600, background: s.bg, color: s.color }}>{s.label}</span></td>
+                            <td style={{ fontSize: '12px', color: '#6b7280' }}>{new Date(inst.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                          </tr>
+                        );
+                      })}
+                      {!myInstallments.length && (
+                        <tr><td colSpan="6" style={{ textAlign: 'center', color: '#9ca3af', padding: '24px' }}>No installments submitted yet.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Cards for My Installments */}
+                <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {myInstallments.map(inst => {
+                    const statusMap = {
+                      pending: { bg: '#fef3c7', color: '#92400e', label: '⏳ Pending' },
+                      verified: { bg: '#dcfce7', color: '#15803d', label: '✅ Verified' },
+                      rejected: { bg: '#fee2e2', color: '#dc2626', label: '❌ Rejected' }
+                    };
+                    const s = statusMap[inst.status] || { bg: '#fef3c7', color: '#92400e', label: inst.status };
+                    return (
+                      <ExpandableMobileCard
+                        key={inst.id}
+                        title={inst.student_name}
+                        subtitle={new Date(inst.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        topRight={<span style={{ padding: '3px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 600, background: s.bg, color: s.color }}>{s.label}</span>}
+                        mainStats={
+                          <div><span className="text-muted" style={{ fontSize: '11px' }}>Amount</span><br /><strong style={{ color: '#15803d', fontSize: '14px' }}>₹{Number(inst.amount).toLocaleString('en-IN')}</strong></div>
+                        }
+                        expandedContent={
+                          <>
+                            {inst.finance_note && <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#6b7280', padding: '8px', background: '#f9fafb', borderRadius: '6px' }}>{inst.finance_note}</p>}
+                            {inst.screenshot_url && (
+                              <a href={inst.screenshot_url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '13px', color: '#4f46e5', fontWeight: 600 }}>🖼️ View Receipt</a>
+                            )}
+                          </>
+                        }
+                      />
+                    );
+                  })}
+                  {!myInstallments.length && (
+                    <p style={{ textAlign: 'center', color: '#9ca3af', padding: '20px' }}>No installments submitted yet.</p>
+                  )}
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -2691,31 +3025,37 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
 
       {pageView === 'requests' && (
         <>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-            <input
-              type="text"
-              placeholder="Search by student, phone, amount…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              style={{ width: '220px', flexShrink: 0, padding: '8px 12px', fontSize: '13px', border: '1px solid #d1d5db', borderRadius: '6px' }}
-            />
+          <div className="card filters-bar" style={{ display: 'flex', flexWrap: 'nowrap', gap: '8px', alignItems: 'center', padding: '10px 12px', marginBottom: '10px', overflowX: 'auto' }}>
+            <div className="filter-group" style={{ flex: '1 1 140px', minWidth: '140px' }}>
+              <input
+                type="text"
+                placeholder="Search..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', fontSize: '13px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+              />
+            </div>
             {isCounselorHead && counselors.length > 0 && (
-              <select
-                value={counselorFilter}
-                onChange={e => setCounselorFilter(e.target.value)}
-                style={{ width: '180px', flexShrink: 0, padding: '8px 12px', fontSize: '13px', border: '1px solid #d1d5db', borderRadius: '6px' }}
-              >
-                <option value="all">All Counselors</option>
-                {counselors.map(c => (
-                  <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
-                ))}
-              </select>
+              <div className="filter-group" style={{ flex: '0 0 auto' }}>
+                <select
+                  value={counselorFilter}
+                  onChange={e => setCounselorFilter(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', fontSize: '13px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                >
+                  <option value="all">All Counselors</option>
+                  {counselors.map(c => (
+                    <option key={c.id} value={c.id}>{c.full_name || c.email}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {!isCounselorHead && (
+              <button className="primary" style={{ flexShrink: 0, padding: '8px 12px', fontSize: '13px', whiteSpace: 'nowrap' }} onClick={() => setShowNewModal(true)}>+ New</button>
             )}
           </div>
 
           {/* Stats Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+          <div className="grid-four pill-stats-grid" style={{ marginBottom: '12px' }}>
             {[
               { key: 'all', label: 'Total', value: counts.all, color: '#111' },
               { key: 'pending', label: 'Pending', value: counts.pending, color: '#92400e' },
@@ -2736,58 +3076,104 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
           </div>
 
           {/* Table */}
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Student</th>
-                  <th>Phone</th>
-                  {isCounselorHead && <th>Counselor</th>}
-                  <th>Total Amt</th>
-                  <th>Hours</th>
-                  <th>Paid Amt</th>
-                  <th>Screenshot</th>
-                  <th>Status</th>
-                  <th>Finance Note</th>
-                  <th>Submitted</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(r => (
-                  <tr key={r.id}>
-                    <td style={{ fontWeight: 500 }}>{r.leads?.student_name || '—'}</td>
-                    <td>{r.leads?.contact_number || '—'}</td>
-                    {isCounselorHead && (
-                      <td style={{ fontSize: '12px', color: '#4338ca' }}>
-                        {counselorMap[r.leads?.counselor_id] || '—'}
-                      </td>
-                    )}
-                    <td style={{ fontWeight: 600 }}>{r.total_amount ? `₹${Number(r.total_amount).toLocaleString('en-IN')}` : '—'}</td>
-                    <td>{r.hours || '—'}</td>
-                    <td style={{ fontWeight: 600, color: '#15803d' }}>₹{Number(r.amount).toLocaleString('en-IN')}</td>
-                    <td>
-                      {r.screenshot_url ? (
-                        <a href={r.screenshot_url} target="_blank" rel="noopener noreferrer"
-                          style={{ color: '#2563eb', fontSize: '12px' }}>View</a>
-                      ) : '—'}
-                    </td>
-                    <td>{statusBadge(r.status)}</td>
-                    <td style={{ fontSize: '12px', color: '#6b7280', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {r.finance_note || '—'}
-                    </td>
-                    <td style={{ fontSize: '12px', color: '#6b7280' }}>
-                      {new Date(r.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}
-                    </td>
+          <>
+            <div className="table-wrap desktop-only">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Phone</th>
+                    {isCounselorHead && <th>Counselor</th>}
+                    <th>Total Amt</th>
+                    <th>Hours</th>
+                    <th>Paid Amt</th>
+                    <th>Screenshot</th>
+                    <th>Status</th>
+                    <th>Finance Note</th>
+                    <th>Submitted</th>
                   </tr>
-                ))}
-                {!filtered.length && (
-                  <tr><td colSpan={isCounselorHead ? 10 : 9} style={{ textAlign: 'center', color: '#9ca3af', padding: '40px' }}>
-                    No payment requests found.
-                  </td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filtered.map(r => (
+                    <tr key={r.id}>
+                      <td style={{ fontWeight: 500 }}>{r.leads?.student_name || '—'}</td>
+                      <td>{r.leads?.contact_number || '—'}</td>
+                      {isCounselorHead && (
+                        <td style={{ fontSize: '12px', color: '#4338ca' }}>
+                          {counselorMap[r.leads?.counselor_id] || '—'}
+                        </td>
+                      )}
+                      <td style={{ fontWeight: 600 }}>{r.total_amount ? `₹${Number(r.total_amount).toLocaleString('en-IN')}` : '—'}</td>
+                      <td>{r.hours || '—'}</td>
+                      <td style={{ fontWeight: 600, color: '#15803d' }}>₹{Number(r.amount).toLocaleString('en-IN')}</td>
+                      <td>
+                        {r.screenshot_url ? (
+                          <a href={r.screenshot_url} target="_blank" rel="noopener noreferrer"
+                            style={{ color: '#2563eb', fontSize: '12px' }}>View</a>
+                        ) : '—'}
+                      </td>
+                      <td>{statusBadge(r.status)}</td>
+                      <td style={{ fontSize: '12px', color: '#6b7280', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {r.finance_note || '—'}
+                      </td>
+                      <td style={{ fontSize: '12px', color: '#6b7280' }}>
+                        {new Date(r.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}
+                      </td>
+                    </tr>
+                  ))}
+                  {!filtered.length && (
+                    <tr><td colSpan={isCounselorHead ? 10 : 9} style={{ textAlign: 'center', color: '#9ca3af', padding: '40px' }}>
+                      No payment requests found.
+                    </td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {filtered.map(r => (
+                <ExpandableMobileCard
+                  key={r.id}
+                  title={r.leads?.student_name}
+                  subtitle={r.leads?.contact_number}
+                  topRight={statusBadge(r.status)}
+                  mainStats={
+                    <>
+                      <div><span style={{ fontSize: '11px', color: '#6b7280', display: 'block' }}>Total</span><strong style={{ fontSize: '14px' }}>{r.total_amount ? `₹${Number(r.total_amount).toLocaleString('en-IN')}` : '—'}</strong></div>
+                      <div><span style={{ fontSize: '11px', color: '#6b7280', display: 'block' }}>Paid</span><strong style={{ fontSize: '14px', color: '#15803d' }}>{r.amount ? `₹${Number(r.amount).toLocaleString('en-IN')}` : '—'}</strong></div>
+                    </>
+                  }
+                  expandedContent={
+                    <>
+                      {isCounselorHead && <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#4338ca' }}>👤 {counselorMap[r.leads?.counselor_id] || '—'}</p>}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', background: '#f9fafb', padding: '12px', borderRadius: '8px', marginBottom: '12px' }}>
+                        <div><span style={{ fontSize: '11px', color: '#6b7280', display: 'block' }}>Total</span><strong style={{ fontSize: '14px' }}>{r.total_amount ? `₹${Number(r.total_amount).toLocaleString('en-IN')}` : '—'}</strong></div>
+                        <div><span style={{ fontSize: '11px', color: '#6b7280', display: 'block' }}>Paid</span><strong style={{ fontSize: '14px', color: '#15803d' }}>{r.amount ? `₹${Number(r.amount).toLocaleString('en-IN')}` : '—'}</strong></div>
+                        <div><span style={{ fontSize: '11px', color: '#6b7280', display: 'block' }}>Hours</span><span style={{ fontSize: '13px', fontWeight: 600 }}>{r.hours || '—'}</span></div>
+                        <div><span style={{ fontSize: '11px', color: '#6b7280', display: 'block' }}>Submitted</span><span style={{ fontSize: '12px', fontWeight: 500 }}>{new Date(r.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span></div>
+                      </div>
+
+                      {r.notes && <p style={{ margin: '0 0 8px', fontSize: '12px', color: '#4b5563' }}><strong>Note:</strong> {r.notes}</p>}
+                      {r.finance_note && <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#92400e', background: '#fef3c7', padding: '6px 10px', borderRadius: '4px' }}><strong>Finance:</strong> {r.finance_note}</p>}
+
+                      {r.screenshot_url && (
+                        <a href={r.screenshot_url} target="_blank" rel="noreferrer" style={{ fontSize: '13px', color: '#4f46e5', fontWeight: 600, display: 'inline-block', marginBottom: '12px' }}>🖼️ Receipt</a>
+                      )}
+                    </>
+                  }
+                  actions={
+                    isCounselorHead && r.status === 'pending' ? (
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button className="primary small" style={{ flex: 1, justifyContent: 'center' }} onClick={(e) => { e.stopPropagation(); setActiveApproval(r); setApprovalAction('approve'); }}>Approve</button>
+                        <button className="danger small" style={{ flex: 1, justifyContent: 'center' }} onClick={(e) => { e.stopPropagation(); setActiveApproval(r); setApprovalAction('reject'); }}>Reject</button>
+                      </div>
+                    ) : null
+                  }
+                />
+              ))}
+              {!filtered.length && <p className="text-muted" style={{ textAlign: 'center', padding: '20px' }}>No requests found.</p>}
+            </div>
+          </>
           {!loading && total > 0 && (
             <Pagination page={page} limit={limit} total={total} onPageChange={setPage} />
           )}

@@ -1,4 +1,11 @@
 import './globals.css';
+import { Manrope } from 'next/font/google';
+
+const manrope = Manrope({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-manrope',
+});
 
 export const metadata = {
   title: 'Edusolve',
@@ -15,7 +22,7 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={manrope.variable} suppressHydrationWarning>
       <body suppressHydrationWarning>{children}</body>
     </html>
   );

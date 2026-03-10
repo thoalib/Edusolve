@@ -103,35 +103,49 @@ export function TeacherDashboardPage() {
 
     return (
         <section className="panel">
+            {/* Salary Summary (Counselor Banner Style) */}
+            <article className="card counselor-target-banner" style={{ padding: '24px', background: 'linear-gradient(to right, #173b73, #1f4b8f)', color: 'white', border: 'none', marginBottom: '16px' }}>
+                <div className="cdb-layout" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '20px' }}>
+
+                    <div className="cdb-main" style={{ flex: '1 1 100px' }}>
+                        <h3 style={{ margin: '0 0 8px', fontSize: '18px', color: 'rgba(255,255,255,0.9)' }}>
+                            Salary Summary -
+                            {salary.month ? (
+                                ` ${new Date(salary.year, salary.month - 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' })}`
+                            ) : (
+                                ` ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}`
+                            )}
+                        </h3>
+
+                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', marginTop: '16px' }}>
+                            <h2 className="cdb-amount" style={{ margin: 0, fontSize: '32px' }}>₹{(salary.total_earned || 0).toLocaleString('en-IN')}</h2>
+                            <p className="cdb-target-label" style={{ margin: '0 0 6px 0', fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>Total Earned</p>
+                        </div>
+
+                        <div style={{ marginTop: '16px', background: 'rgba(0,0,0,0.2)', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `100%`, background: '#10b981', transition: 'width 0.5s ease-in-out' }}></div>
+                        </div>
+                    </div>
+
+                    <div className="cdb-details" style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                        <div className="cdb-detail-box" style={{ background: 'rgba(255,255,255,0.1)', padding: '16px 24px', borderRadius: '12px', textAlign: 'center', flex: '1 1 auto' }}>
+                            <p className="cdb-detail-label" style={{ margin: '0 0 4px', fontSize: '13px', color: 'rgba(255,255,255,0.8)' }}>Working Hours</p>
+                            <p className="cdb-att-value" style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#ffffff' }}>{salary.total_hours || 0} Hours</p>
+                        </div>
+                        <div className="cdb-detail-box" style={{ background: 'rgba(255,255,255,0.1)', padding: '16px 24px', borderRadius: '12px', textAlign: 'center', flex: '1 1 auto' }}>
+                            <p className="cdb-detail-label" style={{ margin: '0 0 4px', fontSize: '13px', color: 'rgba(255,255,255,0.8)' }}>Old Receivables</p>
+                            <p className="cdb-detail-value" style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: '#fef08a' }}>₹{(salary.payable || 0).toLocaleString('en-IN')}</p>
+                        </div>
+                    </div>
+                </div>
+            </article>
+
             <div className="dash-stats-grid">
                 <DashCard label="Montthly Hours" value={`${metrics.monthlyHours}h`} tone="info" />
                 <DashCard label="Monthly Sessions" value={metrics.monthlyCompleted} tone="success" />
                 <DashCard label="Sessions Today" value={todaySessions.length} />
                 <DashCard label="My Students" value={metrics.uniqueStudents} />
             </div>
-
-            {/* Salary Summary */}
-            <article className="card" style={{ padding: '20px', marginTop: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                    <h3 style={{ margin: 0, fontSize: '15px' }}>💰 Salary Summary</h3>
-                    {salary.month ? (
-                        <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 500 }}>
-                            {new Date(salary.year, salary.month - 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
-                        </span>
-                    ) : null}
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
-                    <div style={{ textAlign: 'center', padding: '16px', background: 'linear-gradient(135deg, #eff6ff, #dbeafe)', borderRadius: '12px' }}>
-                        <p style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#1d4ed8' }}>₹{salary.total_earned.toLocaleString('en-IN')}</p>
-                        <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#3b82f6', fontWeight: 600 }}>Total Earned</p>
-                        <p style={{ margin: '2px 0 0', fontSize: '10px', color: '#6b7280' }}>{salary.total_hours}h this month</p>
-                    </div>
-                    <div style={{ textAlign: 'center', padding: '16px', background: 'linear-gradient(135deg, #fffbeb, #fef3c7)', borderRadius: '12px' }}>
-                        <p style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#a16207' }}>₹{salary.payable.toLocaleString('en-IN')}</p>
-                        <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#d97706', fontWeight: 600 }}>Old Recievable</p>
-                    </div>
-                </div>
-            </article>
 
             <div className="grid-three" style={{ marginTop: '16px' }}>
                 {/* Today's Schedule */}
