@@ -42,7 +42,8 @@ import { VerificationQueuePage, SessionLogsPage } from './features/sessions/Sess
 import { TeacherProfilePage } from './features/teachers/TeacherPages.jsx';
 import { TCDashboardPage, TeacherLeadsPage, TCAllLeadsPage, TCTeacherPoolPage, TeacherPerformancePage } from './features/teachers/TeacherCoordinatorPages.jsx';
 import { TeacherSalesReportsPage } from './features/teachers/TeacherSalesReportsPage.jsx';
-import { TeacherDashboardPage, TeacherTodaySessionsPage, TeacherTimetablePage, TeacherMyProfilePage, TeacherStudentsPage, TeacherReportsPage, TeacherInvoicesPage } from './features/teachers/TeacherDashboardPages.jsx';
+import { TeacherDashboardPage, TeacherTodaySessionsPage, TeacherTimetablePage, TeacherMyProfilePage, TeacherStudentsPage, TeacherReportsPage, TeacherInvoicesPage, TeacherMaterialsPage } from './features/teachers/TeacherDashboardPages.jsx';
+import { MaterialTransfersPage } from './features/academic/MaterialTransfersPage.jsx';
 import { HRDashboardPage, AttendancePage, EmployeesPage, SalaryCalculatorPage, HRPaymentRequestsPage, CouncilorLevelsPage } from './features/hr/HRPages.jsx';
 import { getSession, logout } from './lib/auth.js';
 import { defaultPageForRole, getPageByPath, pagesForRole } from './lib/routes.js';
@@ -180,6 +181,7 @@ export default function App() {
     /* Sessions (AC merged page) */
     if (page.path === '/sessions/manage') return <SessionsManagePage />;
     if (page.path === '/sessions/verifications') return <VerificationsPage />;
+    if (page.path === '/ac/transfers') return <MaterialTransfersPage />;
 
     /* Sessions (non-AC standalone pages) */
     if (page.path === '/sessions/verification-queue') return <VerificationQueuePage />;
@@ -207,6 +209,7 @@ export default function App() {
     if (page.path === '/teacher/students') return <TeacherStudentsPage />;
     if (page.path === '/teacher/reports') return <TeacherReportsPage />;
     if (page.path === '/teacher/invoices') return <TeacherInvoicesPage />;
+    if (page.path === '/teacher/materials') return <TeacherMaterialsPage />;
 
     /* Teacher Coordinator */
     if (page.path === '/dashboard/tc') return <TCDashboardPage />;

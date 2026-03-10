@@ -13,7 +13,7 @@ function isSessionOverdue(s) {
     if (s.started_at && s.started_at.includes('T')) {
       endMs = new Date(s.started_at).getTime() + dur * 3600000;
     } else if (s.started_at) {
-      endMs = new Date(`${s.session_date}T${s.started_at.slice(0,5)}:00+05:30`).getTime() + dur * 3600000;
+      endMs = new Date(`${s.session_date}T${s.started_at.slice(0, 5)}:00+05:30`).getTime() + dur * 3600000;
     } else {
       // No time info, compare date only — overdue if date is in the past
       endMs = new Date(s.session_date + 'T23:59:59+05:30').getTime();
@@ -35,7 +35,7 @@ export function AcademicCoordinatorDashboardPage({ targetUserId }) {
       try {
         const uQ = targetUserId ? `?user_id=${targetUserId}` : '';
         const uQAnd = targetUserId ? `&user_id=${targetUserId}` : '';
-        
+
         const [a, b, c, d, w, allSched] = await Promise.all([
           apiFetch(`/students${uQ}`),
           apiFetch(`/students/sessions/today${uQ}`),
@@ -1940,14 +1940,16 @@ export function TodayClassesPage() {
                     {allTeachers.map(t => <option key={t.user_id} value={t.user_id}>{t.users?.full_name || t.user_id}</option>)}
                   </select>
                 </label>
-                {(() => { const rTeacher = allTeachers.find(t => t.user_id === rescheduleData.teacher_id); const rSubjects = rTeacher ? (Array.isArray(rTeacher.subjects_taught) ? rTeacher.subjects_taught : (typeof rTeacher.subjects_taught === 'string' ? JSON.parse(rTeacher.subjects_taught || '[]') : [])) : []; return (
-                <label>Subject
-                  <select value={rescheduleData.subject} onChange={e => setRescheduleData({ ...rescheduleData, subject: e.target.value })} required>
-                    <option value="">{rescheduleData.teacher_id ? 'Select subject' : 'Pick teacher first'}</option>
-                    {rSubjects.filter(Boolean).map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </label>
-                ); })()}
+                {(() => {
+                  const rTeacher = allTeachers.find(t => t.user_id === rescheduleData.teacher_id); const rSubjects = rTeacher ? (Array.isArray(rTeacher.subjects_taught) ? rTeacher.subjects_taught : (typeof rTeacher.subjects_taught === 'string' ? JSON.parse(rTeacher.subjects_taught || '[]') : [])) : []; return (
+                    <label>Subject
+                      <select value={rescheduleData.subject} onChange={e => setRescheduleData({ ...rescheduleData, subject: e.target.value })} required>
+                        <option value="">{rescheduleData.teacher_id ? 'Select subject' : 'Pick teacher first'}</option>
+                        {rSubjects.filter(Boolean).map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </label>
+                  );
+                })()}
                 <label>Date
                   <input type="date" value={rescheduleData.date} min={todayStr}
                     onChange={e => setRescheduleData({ ...rescheduleData, date: e.target.value, time: '' })} required />
@@ -2487,14 +2489,16 @@ export function SessionsManagePage() {
                       {allTeachers.map(t => <option key={t.user_id} value={t.user_id}>{t.users?.full_name || t.user_id}</option>)}
                     </select>
                   </label>
-                  {(() => { const rTeacher = allTeachers.find(t => t.user_id === rescheduleData.teacher_id); const rSubjects = rTeacher ? (Array.isArray(rTeacher.subjects_taught) ? rTeacher.subjects_taught : (typeof rTeacher.subjects_taught === 'string' ? JSON.parse(rTeacher.subjects_taught || '[]') : [])) : []; return (
-                  <label>Subject
-                    <select value={rescheduleData.subject} onChange={e => setRescheduleData({ ...rescheduleData, subject: e.target.value })} required>
-                      <option value="">{rescheduleData.teacher_id ? 'Select subject' : 'Pick teacher first'}</option>
-                      {rSubjects.filter(Boolean).map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </label>
-                  ); })()}
+                  {(() => {
+                    const rTeacher = allTeachers.find(t => t.user_id === rescheduleData.teacher_id); const rSubjects = rTeacher ? (Array.isArray(rTeacher.subjects_taught) ? rTeacher.subjects_taught : (typeof rTeacher.subjects_taught === 'string' ? JSON.parse(rTeacher.subjects_taught || '[]') : [])) : []; return (
+                      <label>Subject
+                        <select value={rescheduleData.subject} onChange={e => setRescheduleData({ ...rescheduleData, subject: e.target.value })} required>
+                          <option value="">{rescheduleData.teacher_id ? 'Select subject' : 'Pick teacher first'}</option>
+                          {rSubjects.filter(Boolean).map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </label>
+                    );
+                  })()}
                   <label>Date
                     <input type="date" value={rescheduleData.date} min={todayStr}
                       onChange={e => setRescheduleData({ ...rescheduleData, date: e.target.value, time: '' })} required />
@@ -2957,7 +2961,7 @@ export function TopUpsPage() {
   const [loadingPending, setLoadingPending] = useState(false);
   const [myInstallments, setMyInstallments] = useState([]);
   const [loadingMyInstallments, setLoadingMyInstallments] = useState(false);
-  
+
   // Warning State
   const [warningAck, setWarningAck] = useState(false);
   const [pendingWarning, setPendingWarning] = useState(null); // { type: 'topup'|'initial', amount: 0 }
@@ -2996,7 +3000,7 @@ export function TopUpsPage() {
   }, [sid, hrs, totalAmt, amt]);
 
   async function submit(e) {
-    if (e) e.preventDefault(); 
+    if (e) e.preventDefault();
     setError(''); setMsg('');
 
     // Warning Check
@@ -3037,7 +3041,7 @@ export function TopUpsPage() {
               <span>⚠️</span> WARNING: Pending Payment Detected
             </h4>
             <p style={{ fontSize: '14px', color: '#92400e', marginTop: '8px', marginBottom: '12px' }}>
-              This student currently has a pending <strong>{pendingWarning.type === 'topup' ? 'Top-up' : 'Initial'}</strong> payment of <strong style={{color:'#dc2626'}}>₹{Number(pendingWarning.amount).toLocaleString('en-IN')}</strong>. 
+              This student currently has a pending <strong>{pendingWarning.type === 'topup' ? 'Top-up' : 'Initial'}</strong> payment of <strong style={{ color: '#dc2626' }}>₹{Number(pendingWarning.amount).toLocaleString('en-IN')}</strong>.
               Are you sure you want to request another top-up before this is cleared?
             </p>
             <div style={{ display: 'flex', gap: '8px' }}>
@@ -3066,7 +3070,7 @@ export function TopUpsPage() {
         </div>
 
         {activeTab === 'all' && (
-          <div className="table-wrap mobile-friendly-table"><table><thead><tr><th>Student</th><th>Hrs</th><th>Total ₹</th><th>Paid ₹</th><th>Note</th><th>Screenshot</th><th>Status</th><th>Date</th></tr></thead><tbody>{requests.map(r => <tr key={r.id}><td data-label="Student">{r.students?.student_name || '—'} <span className="text-muted" style={{fontSize:'11px'}}>({r.students?.student_code || r.student_id})</span></td><td data-label="Hrs">{r.hours_added}</td><td data-label="Total ₹">₹{r.total_amount ? r.total_amount : '—'}</td><td data-label="Paid ₹">₹{r.amount}</td><td data-label="Note" style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.finance_note || '—'}</td><td data-label="Screenshot">{r.screenshot_url ? <a href={r.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca' }}>View</a> : '—'}</td><td data-label="Status"><span className={`status-tag ${r.status === 'approved' ? 'success' : ''}`}>{r.status}</span></td><td data-label="Date">{new Date(r.created_at).toLocaleDateString('en-IN')}</td></tr>)}{!requests.length ? <tr><td colSpan="8">No requests.</td></tr> : null}</tbody></table></div>
+          <div className="table-wrap mobile-friendly-table"><table><thead><tr><th>Student</th><th>Hrs</th><th>Total ₹</th><th>Paid ₹</th><th>Note</th><th>Screenshot</th><th>Status</th><th>Date</th></tr></thead><tbody>{requests.map(r => <tr key={r.id}><td data-label="Student">{r.students?.student_name || '—'} <span className="text-muted" style={{ fontSize: '11px' }}>({r.students?.student_code || r.student_id})</span></td><td data-label="Hrs">{r.hours_added}</td><td data-label="Total ₹">₹{r.total_amount ? r.total_amount : '—'}</td><td data-label="Paid ₹">₹{r.amount}</td><td data-label="Note" style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.finance_note || '—'}</td><td data-label="Screenshot">{r.screenshot_url ? <a href={r.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca' }}>View</a> : '—'}</td><td data-label="Status"><span className={`status-tag ${r.status === 'approved' ? 'success' : ''}`}>{r.status}</span></td><td data-label="Date">{new Date(r.created_at).toLocaleDateString('en-IN')}</td></tr>)}{!requests.length ? <tr><td colSpan="8">No requests.</td></tr> : null}</tbody></table></div>
         )}
 
         {activeTab === 'pending' && (
@@ -3263,7 +3267,7 @@ export function TeacherPoolPage() {
   }, [weekStartMap, dayLabels]);
 
   const fullDayLabels = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  
+
   const targetDateStr = useMemo(() => {
     if (!weekStartMap) return '';
     const parts = weekStartMap.split('-');
@@ -3396,7 +3400,7 @@ export function TeacherPoolPage() {
             </thead>
             <tbody>{filtered.map(t => {
               const slots = (t.teacher_availability || []).filter(s => s.day_of_week === fullDayLabels[selectedMapDay]);
-              
+
               // Pre-filter demos and classes for the selected day to avoid repeated calculations
               const demosForDay = (t.booked_demos || []).filter(d => {
                 if (!d.scheduled_at || !targetDateStr) return false;
@@ -3431,7 +3435,7 @@ export function TeacherPoolPage() {
                     const isDemo = demosForDay.some(d => {
                       const dDate = new Date(d.scheduled_at);
                       const dStartMins = dDate.getHours() * 60 + dDate.getMinutes();
-                      const dEndMins = d.ends_at 
+                      const dEndMins = d.ends_at
                         ? (new Date(d.ends_at).getHours() * 60 + new Date(d.ends_at).getMinutes())
                         : dStartMins + 60;
                       return dStartMins <= cellStart && dEndMins > cellStart;
@@ -3657,7 +3661,9 @@ export function AutomationPage() {
           created_at: m.timestamp * 1000,
           has_media: m.has_media,
           media_url: m.media_url,
+          media_name: m.media_name,
           media_type: m.media_type,
+          sender_role: m.sender_role,
           ack: m.ack,
           ack_name: m.ack_name
         })));
@@ -3686,7 +3692,9 @@ export function AutomationPage() {
           created_at: m.timestamp * 1000,
           has_media: m.has_media,
           media_url: m.media_url,
+          media_name: m.media_name,
           media_type: m.media_type,
+          sender_role: m.sender_role,
           ack: m.ack,
           ack_name: m.ack_name
         }));
@@ -3731,6 +3739,7 @@ export function AutomationPage() {
           body: JSON.stringify({
             chatId: selContact.chatId || `${selContact.phone}@c.us`,
             mediaUrl: uploaded.url,
+            mediaName: pendingFile.file.name,
             mimetype: uploaded.mimetype,
             caption: msgText.trim(),
             sessionName: waSession.session_name
@@ -3948,7 +3957,7 @@ export function AutomationPage() {
                             <div style={{ marginBottom: 4 }}>
                               <a href={m.media_url} target="_blank" rel="noopener noreferrer"
                                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', background: '#f0f0f0', borderRadius: 8, fontSize: 13, color: '#1565C0', textDecoration: 'none' }}>
-                                📄 Download attachment
+                                📄 {m.media_name || 'Download attachment'}
                               </a>
                             </div>
                           );
@@ -3957,7 +3966,10 @@ export function AutomationPage() {
                           <div style={{ padding: '8px 4px', color: '#666', fontSize: 13 }}>📎 Media (loading...)</div>
                         )}
                         {m.content && <p style={{ margin: 0 }}>{m.content}</p>}
-                        <div style={{ fontSize: 11, color: '#999', textAlign: 'right', marginTop: 4, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+                        <div style={{ fontSize: 11, color: '#999', textAlign: 'right', marginTop: 4, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6 }}>
+                          {m.sender_role === 'teacher' && (
+                            <span style={{ background: '#E3F2FD', color: '#1565C0', padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 600 }}>👩‍🏫 Teacher</span>
+                          )}
                           {new Date(m.created_at).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })}
                           {m.direction === 'outgoing' && <AckTick ack={m.ack} />}
                         </div>

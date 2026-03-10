@@ -40,7 +40,7 @@ export class WaappaController {
             return this.getSession(req, res);
         }
         if (url.pathname === '/waappa/sessions' && req.method === 'POST') {
-            return this.createSession(req, res);
+            return this.createSession(req, res, user);
         }
         if (url.pathname.match(/^\/waappa\/sessions\/([^\/]+)\/(start|stop|delete)$/) && req.method === 'POST') {
             const parts = url.pathname.split('/');
@@ -120,7 +120,7 @@ export class WaappaController {
         }
     }
 
-    async createSession(req, res) {
+    async createSession(req, res, user = {}) {
         try {
             const body = await readJson(req);
             const displayName = body.sessionName || 'coordinator'; // Coordinator email slug (for display)
@@ -140,7 +140,8 @@ export class WaappaController {
                 display_name: displayName,
                 api_key: apiKey,
                 status: 'STARTING',
-                webhook_url: webhookUrl
+                webhook_url: webhookUrl,
+                user_id: user.id || null
             }).select().single();
 
             if (error) throw error;
@@ -281,7 +282,7 @@ export class WaappaController {
 
     async sendMessage(req, res) {
         try {
-            let { chatId, text, sessionName, mediaUrl, mimetype, caption } = await readJson(req);
+            let { chatId, text, sessionName, mediaUrl, mediaName, mimetype, caption } = await readJson(req);
             if (!chatId) throw new Error('chatId required');
             if (!text && !mediaUrl) throw new Error('text or mediaUrl required');
 
@@ -299,7 +300,27 @@ export class WaappaController {
             if (!sessionData.api_key) throw new Error('Session api_key is missing in DB — re-create session or update api_key manually');
 
             if (mediaUrl) {
-                await waappaService.sendMedia(sessionData.session_name, sessionData.api_key, chatId, mediaUrl, mimetype, caption || text || '');
+                const mediaRes = await waappaService.sendMedia(sessionData.session_name, sessionData.api_key, chatId, mediaUrl, mimetype, caption || text || '', mediaName);
+                const sentMsgId = mediaRes?.data?.id || mediaRes?.id || mediaRes?.response?.id || mediaRes?.messageId || mediaRes?.[0]?.id;
+
+                if (sentMsgId) {
+                    await supabase.from('whatsapp_messages').insert({
+                        id: sentMsgId,
+                        session_name: sessionData.session_name,
+                        from_jid: sessionData.session_name,
+                        to_jid: chatId,
+                        from_me: true,
+                        body: caption || text || '',
+                        has_media: true,
+                        media_url: mediaUrl,
+                        media_name: mediaName,
+                        media_type: mimetype,
+                        sender_role: 'coordinator',
+                        contact_type: 'unknown',
+                        contact_phone: chatId.split('@')[0],
+                        timestamp: Math.floor(Date.now() / 1000)
+                    }).catch(e => console.error('[waappa sendMessage] DB Pre-insert Error:', e.message));
+                }
             } else {
                 await waappaService.sendText(sessionData.session_name, sessionData.api_key, chatId, text);
             }
@@ -429,10 +450,11 @@ export class WaappaController {
 
             // 3. Incoming Message
             if (event === 'message' || event === 'message.any') {
-                let { id, timestamp, from, to, fromMe, body: msgBody, hasMedia, ack, ackName, source } = payload;
+                let { id, timestamp, from, to, fromMe, body: msgBody, hasMedia, ack, ackName, source, media } = payload;
 
                 let mediaUrl = null;
                 let mediaType = null;
+                let mediaName = media?.filename || payload?._data?.Message?.documentWithCaptionMessage?.message?.documentMessage?.fileName || payload?._data?.Message?.documentWithCaptionMessage?.message?.documentMessage?.title || null;
 
                 // Decrypt Media and Store to R2 (ASYNC - DO NOT AWAIT)
                 // If we await this here, Waappa's webhook timeout might trigger and cause fetch ConnectTimeoutError
@@ -446,6 +468,11 @@ export class WaappaController {
                             }).eq('id', id);
                         }
                     }).catch(e => {
+                        // If we sent this file via API, Waappa cannot decrypt it. This is expected.
+                        if (fromMe && e.message.includes('No decryptable media found')) {
+                            // Silently ignore to prevent log spam
+                            return;
+                        }
                         console.error(`[webhook async media error for ${id}]:`, e.message);
                     });
                 }
@@ -560,7 +587,7 @@ export class WaappaController {
                 console.log(`[webhook msg] STORING message from/to ${contactPhoneToStore} (${contactType})`);
 
                 // Upsert Message
-                const { error: upsertErr } = await supabase.from('whatsapp_messages').upsert({
+                const upsertData = {
                     id,
                     session_name: session,
                     timestamp,
@@ -569,14 +596,20 @@ export class WaappaController {
                     from_me: fromMe,
                     body: msgBody,
                     has_media: hasMedia,
-                    media_url: mediaUrl,
-                    media_type: mediaType,
                     ack: ack,
                     ack_name: ackName || null,
                     source: source,
                     contact_phone: contactPhoneToStore,
                     contact_type: contactType
-                });
+                };
+
+                // Only include media fields if we actually fetched them or they exist
+                // This prevents overwriting pre-populated media_url from send-material with null
+                if (mediaUrl) upsertData.media_url = mediaUrl;
+                if (mediaType) upsertData.media_type = mediaType;
+                if (mediaName) upsertData.media_name = mediaName;
+
+                const { error: upsertErr } = await supabase.from('whatsapp_messages').upsert(upsertData);
 
                 if (upsertErr) {
                     console.error('[webhook msg] DB UPSERT FAILED:', upsertErr);

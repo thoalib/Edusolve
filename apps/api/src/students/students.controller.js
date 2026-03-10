@@ -1,5 +1,8 @@
 import { getSupabaseAdminClient } from '../config/supabase.js';
 import { readJson, sendJson } from '../common/http.js';
+import { WaappaService } from '../waappa/waappa.service.js';
+
+const waappaService = new WaappaService();
 
 const nowIso = () => new Date().toISOString();
 
@@ -139,7 +142,7 @@ export async function handleStudents(req, res, url) {
 
       let query = adminClient
         .from('academic_sessions')
-        .select('*, students!inner(student_code,student_name,academic_coordinator_id), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(id,type,status)')
+        .select('*, students!inner(student_code,student_name,class_level,academic_coordinator_id), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(id,type,status)')
         .eq('session_date', targetDate)
         .order('started_at', { ascending: true });
 
@@ -1035,6 +1038,122 @@ export async function handleStudents(req, res, url) {
         .single();
       if (error) throw new Error(error.message);
       sendJson(res, 201, { ok: true, topup: data });
+      return true;
+    }
+
+    // ─── GET /academic/material-transfers ──────────────────
+    if (req.method === 'GET' && parts.length === 2 && parts[0] === 'academic' && parts[1] === 'material-transfers') {
+      if (!['academic_coordinator', 'super_admin'].includes(actor.role)) {
+        sendJson(res, 403, { ok: false, error: 'User does not have permission' });
+        return true;
+      }
+
+      let query = adminClient.from('material_transfers').select('*, students(student_name), users!material_transfers_teacher_id_fkey(full_name)').order('created_at', { ascending: false });
+
+      if (actor.role === 'academic_coordinator') {
+        query = query.eq('ac_id', actor.userId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+
+      sendJson(res, 200, { ok: true, items: data || [] });
+      return true;
+    }
+
+    // ─── POST /academic/material-transfers/:id/retry ───────
+    if (req.method === 'POST' && parts.length === 4 && parts[0] === 'academic' && parts[1] === 'material-transfers' && parts[3] === 'retry') {
+      if (!['academic_coordinator', 'super_admin'].includes(actor.role)) {
+        sendJson(res, 403, { ok: false, error: 'User does not have permission' });
+        return true;
+      }
+
+      const transferId = parts[2];
+      const { data: transfer, error: tErr } = await adminClient
+        .from('material_transfers')
+        .select('*, students(group_jid, student_name)')
+        .eq('id', transferId)
+        .maybeSingle();
+
+      if (tErr || !transfer) {
+        sendJson(res, 404, { ok: false, error: 'Transfer record not found' });
+        return true;
+      }
+
+      if (actor.role === 'academic_coordinator' && transfer.ac_id !== actor.userId) {
+        sendJson(res, 403, { ok: false, error: 'You do not own this transfer' });
+        return true;
+      }
+
+      const { data: acSession } = await adminClient
+        .from('whatsapp_sessions')
+        .select('*')
+        .eq('user_id', transfer.ac_id)
+        .eq('status', 'WORKING')
+        .maybeSingle();
+
+      const theSessionName = acSession?.session_name;
+      if (!theSessionName) {
+        sendJson(res, 400, { ok: false, error: 'Your WhatsApp session is still offline. Please connect device first.' });
+        return true;
+      }
+
+      // Retry Logic Waappa Construct
+      const WAAPPA_BASE = process.env.WAAPPA_BASE_URL || 'http://main.waappa.com';
+      // Use the AC session's own api_key for proper auth
+      const WAAPPA_KEY = acSession.api_key || process.env.WAAPPA_API_KEY || 'yoursecretkey';
+
+      // Normalise group JID
+      const rawJid = transfer.students.group_jid || '';
+      const groupJid = rawJid.includes('@') ? rawJid : `${rawJid}@g.us`;
+
+      try {
+        if (!transfer.file_url) {
+          await waappaService.sendText(theSessionName, WAAPPA_KEY, groupJid, transfer.caption_text);
+          if ((transfer.mimetype || '').toLowerCase().startsWith('audio/')) {
+            await waappaService.sendText(theSessionName, WAAPPA_KEY, groupJid, transfer.caption_text);
+          }
+          const mediaRes = await waappaService.sendMedia(theSessionName, WAAPPA_KEY, groupJid, transfer.file_url, transfer.mimetype, transfer.caption_text);
+
+          const sentMsgId = mediaRes?.data?.id || mediaRes?.id || mediaRes?.response?.id || mediaRes?.messageId || mediaRes?.[0]?.id;
+
+          // Pre-populate the whatsapp_messages table
+          if (sentMsgId) {
+            const { error: insertErr } = await adminClient.from('whatsapp_messages').insert({
+              id: sentMsgId,
+              session_name: theSessionName,
+              from_jid: theSessionName,
+              to_jid: groupJid,
+              from_me: true,
+              body: transfer.caption_text || '',
+              has_media: true,
+              media_url: transfer.file_url,
+              media_name: transfer.file_url ? transfer.file_url.split('/').pop().split('?')[0] : null,
+              media_type: transfer.mimetype,
+              sender_role: 'teacher',
+              contact_type: 'student',
+              contact_phone: groupJid,
+              timestamp: Math.floor(Date.now() / 1000)
+            });
+            if (insertErr) {
+              console.error('[retry-material] pre-insert msg error:', insertErr.message);
+            }
+          } else {
+            console.warn('[retry-material] Could not extract sent message ID from Waappa response.');
+          }
+        }
+
+        await adminClient.from('material_transfers').update({ status: 'sent', error_message: null }).eq('id', transferId);
+        sendJson(res, 200, { ok: true, message: 'Transfer retried successfully' });
+
+      } catch (extError) {
+        // Leave it as failed
+        await adminClient.from('material_transfers')
+          .update({ error_message: `Retry Failed: ${extError.message}` })
+          .eq('id', transferId);
+        sendJson(res, 500, { ok: false, error: 'Waappa Delivery failed during retry.' });
+      }
+
       return true;
     }
 
