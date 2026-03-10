@@ -101,14 +101,14 @@ export function NotificationBell({ onNavigateToTicket }) {
                 style={{
                     background: open ? '#f1f5f9' : 'transparent',
                     border: 'none', cursor: 'pointer', position: 'relative',
-                    width: '36px', height: '36px', borderRadius: '50%',
+                    width: '44px', height: '44px', borderRadius: '50%',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     color: open ? '#0f172a' : '#64748b', transition: 'all 0.2s'
                 }}
                 onMouseEnter={e => !open && (e.currentTarget.style.background = '#f1f5f9')}
                 onMouseLeave={e => !open && (e.currentTarget.style.background = 'transparent')}
             >
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                     <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                 </svg>
