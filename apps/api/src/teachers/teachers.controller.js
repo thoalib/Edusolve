@@ -962,7 +962,29 @@ export async function handleTeachers(req, res, url) {
 
       try {
         if (!payload.file_url) {
-          await waappaService.sendText(theSessionName, WAAPPA_KEY, groupJid, captionStr);
+          const textRes = await waappaService.sendText(theSessionName, WAAPPA_KEY, groupJid, captionStr);
+          console.log('[send-material] Waappa SendText res:', JSON.stringify(textRes).substring(0, 200));
+          const sentMsgId = textRes?.data?.id || textRes?.id || textRes?.response?.id || textRes?.messageId || textRes?.[0]?.id;
+          if (sentMsgId) {
+            const { error: insertErr } = await adminClient.from('whatsapp_messages').insert({
+              id: sentMsgId,
+              session_name: theSessionName,
+              from_jid: theSessionName,
+              to_jid: groupJid,
+              from_me: true,
+              body: captionStr || '',
+              has_media: false,
+              sender_role: 'teacher',
+              contact_type: 'student',
+              contact_phone: groupJid,
+              timestamp: Math.floor(Date.now() / 1000)
+            });
+            if (insertErr) {
+              console.error('[send-material] pre-insert text msg error:', insertErr.message);
+            }
+          } else {
+            console.warn('[send-material] Could not extract sent text message ID from Waappa response.');
+          }
         } else {
           // For audio, send text caption first since sendVoice doesn't support captions
           if ((payload.mimetype || '').toLowerCase().startsWith('audio/')) {

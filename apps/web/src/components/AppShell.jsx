@@ -145,8 +145,18 @@ export default function AppShell({ roleLabel, role, pages, activePath, onNavigat
 
   const activePage = pages.find((page) => page.path === activePath);
 
-  // Take up to 4 items for the bottom nav
-  const bottomNavPages = navPages.slice(0, 4);
+  // Take up to 4 items for the bottom nav.
+  let bottomNavPages = [];
+  if (role === 'counselor') {
+    // Explicit order for Counselor: Dashboard, Today Leads, Lead Pipeline, Payment Requests
+    const dash = navPages.find(p => p.path === '/dashboard/counselor');
+    const today = navPages.find(p => p.path === '/leads/today');
+    const pipeline = navPages.find(p => p.path === '/leads/mine');
+    const payments = navPages.find(p => p.path === '/leads/payment-requests');
+    bottomNavPages = [dash, today, pipeline, payments].filter(Boolean);
+  } else {
+    bottomNavPages = navPages.slice(0, 4);
+  }
 
   return (
     <div className="app-shell">
@@ -253,6 +263,8 @@ export default function AppShell({ roleLabel, role, pages, activePath, onNavigat
           let displayTitle = page.title.replace(/^My\s/i, '');
           if (displayTitle === 'Today Sessions') displayTitle = 'Today';
           if (displayTitle === 'Send Materials') displayTitle = 'Send';
+          if (displayTitle === 'Counselor Dashboard') displayTitle = 'Dashboard';
+          if (displayTitle === 'Payment Requests') displayTitle = 'Payments';
 
           return (
             <button

@@ -33,7 +33,7 @@ function verificationStatusOf(session) {
 }
 
 export async function handleStudents(req, res, url) {
-  if (!url.pathname.startsWith('/students')) return false;
+  if (!url.pathname.startsWith('/students') && !url.pathname.startsWith('/academic')) return false;
 
   const adminClient = getSupabaseAdminClient();
   if (!adminClient) {
@@ -1107,19 +1107,40 @@ export async function handleStudents(req, res, url) {
       const rawJid = transfer.students.group_jid || '';
       const groupJid = rawJid.includes('@') ? rawJid : `${rawJid}@g.us`;
 
+      let retrySent = false;
       try {
         if (!transfer.file_url) {
-          await waappaService.sendText(theSessionName, WAAPPA_KEY, groupJid, transfer.caption_text);
+          // Text-only material
+          const textRes = await waappaService.sendText(theSessionName, WAAPPA_KEY, groupJid, transfer.caption_text);
+          console.log('[retry-material] sendText res:', JSON.stringify(textRes).substring(0, 200));
+          retrySent = true;
+          const sentMsgId = textRes?.data?.id || textRes?.id || textRes?.response?.id || textRes?.messageId || textRes?.[0]?.id;
+          if (sentMsgId) {
+            await adminClient.from('whatsapp_messages').insert({
+              id: sentMsgId,
+              session_name: theSessionName,
+              from_jid: theSessionName,
+              to_jid: groupJid,
+              from_me: true,
+              body: transfer.caption_text || '',
+              has_media: false,
+              sender_role: 'teacher',
+              contact_type: 'student',
+              contact_phone: groupJid,
+              timestamp: Math.floor(Date.now() / 1000)
+            }).catch(e => console.error('[retry-material] pre-insert text msg error:', e.message));
+          }
+        } else {
+          // File/media material — send caption first for audio
           if ((transfer.mimetype || '').toLowerCase().startsWith('audio/')) {
             await waappaService.sendText(theSessionName, WAAPPA_KEY, groupJid, transfer.caption_text);
           }
           const mediaRes = await waappaService.sendMedia(theSessionName, WAAPPA_KEY, groupJid, transfer.file_url, transfer.mimetype, transfer.caption_text);
-
+          console.log('[retry-material] sendMedia res:', JSON.stringify(mediaRes).substring(0, 200));
+          retrySent = true;
           const sentMsgId = mediaRes?.data?.id || mediaRes?.id || mediaRes?.response?.id || mediaRes?.messageId || mediaRes?.[0]?.id;
-
-          // Pre-populate the whatsapp_messages table
           if (sentMsgId) {
-            const { error: insertErr } = await adminClient.from('whatsapp_messages').insert({
+            await adminClient.from('whatsapp_messages').insert({
               id: sentMsgId,
               session_name: theSessionName,
               from_jid: theSessionName,
@@ -1134,10 +1155,7 @@ export async function handleStudents(req, res, url) {
               contact_type: 'student',
               contact_phone: groupJid,
               timestamp: Math.floor(Date.now() / 1000)
-            });
-            if (insertErr) {
-              console.error('[retry-material] pre-insert msg error:', insertErr.message);
-            }
+            }).catch(e => console.error('[retry-material] pre-insert msg error:', e.message));
           } else {
             console.warn('[retry-material] Could not extract sent message ID from Waappa response.');
           }
@@ -1147,11 +1165,17 @@ export async function handleStudents(req, res, url) {
         sendJson(res, 200, { ok: true, message: 'Transfer retried successfully' });
 
       } catch (extError) {
-        // Leave it as failed
-        await adminClient.from('material_transfers')
-          .update({ error_message: `Retry Failed: ${extError.message}` })
-          .eq('id', transferId);
-        sendJson(res, 500, { ok: false, error: 'Waappa Delivery failed during retry.' });
+        console.error('[retry-material] Error:', extError.message, '| retrySent:', retrySent);
+        if (retrySent) {
+          // Message was actually delivered — mark as sent despite post-send error
+          await adminClient.from('material_transfers').update({ status: 'sent', error_message: null }).eq('id', transferId);
+          sendJson(res, 200, { ok: true, message: 'Transfer retried successfully' });
+        } else {
+          await adminClient.from('material_transfers')
+            .update({ error_message: `Retry Failed: ${extError.message}` })
+            .eq('id', transferId);
+          sendJson(res, 500, { ok: false, error: `Waappa Delivery failed: ${extError.message}` });
+        }
       }
 
       return true;
