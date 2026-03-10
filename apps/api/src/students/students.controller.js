@@ -24,6 +24,11 @@ function isAC(actor) {
   return actor.role === 'academic_coordinator';
 }
 
+function verificationStatusOf(session) {
+  const row = Array.isArray(session.session_verifications) ? session.session_verifications[0] : session.session_verifications;
+  return row?.status || 'pending';
+}
+
 export async function handleStudents(req, res, url) {
   if (!url.pathname.startsWith('/students')) return false;
 
@@ -149,7 +154,7 @@ export async function handleStudents(req, res, url) {
 
       const { data, error } = await query;
       if (error) throw new Error(error.message);
-      sendJson(res, 200, { ok: true, items: data || [] });
+      sendJson(res, 200, { ok: true, items: (data || []).map(s => ({ ...s, verification_status: verificationStatusOf(s) })) });
       return true;
     }
 
@@ -167,7 +172,7 @@ export async function handleStudents(req, res, url) {
       if (actor.role === 'teacher') query = query.eq('teacher_id', actor.userId);
       const { data, error } = await query;
       if (error) throw new Error(error.message);
-      sendJson(res, 200, { ok: true, items: data || [] });
+      sendJson(res, 200, { ok: true, items: (data || []).map(s => ({ ...s, verification_status: verificationStatusOf(s) })) });
       return true;
     }
 
@@ -218,7 +223,7 @@ export async function handleStudents(req, res, url) {
 
       const { data, error } = await query;
       if (error) throw new Error(error.message);
-      sendJson(res, 200, { ok: true, items: data || [], weekStart: startDate, weekEnd: endDate });
+      sendJson(res, 200, { ok: true, items: (data || []).map(s => ({ ...s, verification_status: verificationStatusOf(s) })), weekStart: startDate, weekEnd: endDate });
       return true;
     }
 
@@ -301,15 +306,15 @@ export async function handleStudents(req, res, url) {
       const studentId = parts[1];
       const { data, error } = await adminClient
         .from('academic_sessions')
-        .select('*, users!academic_sessions_teacher_id_fkey(id,full_name)')
+        .select('*, users!academic_sessions_teacher_id_fkey(id,full_name), session_verifications!inner(status)')
         .eq('student_id', studentId)
         .eq('status', 'completed')
-        .eq('verification_status', 'approved')
+        .eq('session_verifications.status', 'approved')
         .order('session_date', { ascending: false })
         .order('started_at', { ascending: false });
 
       if (error) throw new Error(error.message);
-      sendJson(res, 200, { ok: true, items: data || [] });
+      sendJson(res, 200, { ok: true, items: (data || []).map(s => ({ ...s, verification_status: 'approved' })) });
       return true;
     }
 
@@ -389,7 +394,7 @@ export async function handleStudents(req, res, url) {
         ok: true,
         student: data,
         assignments: assignments || [],
-        sessions: sessions || [],
+        sessions: (sessions || []).map(s => ({ ...s, verification_status: verificationStatusOf(s) })),
         messages: messages || [],
         demoSessions,
         paymentRequests,
@@ -796,6 +801,22 @@ export async function handleStudents(req, res, url) {
         .select('*, students(student_code,student_name), users!academic_sessions_teacher_id_fkey(id,full_name)')
         .single();
       if (error) throw new Error(error.message);
+
+      // Auto-upsert student_teacher_assignments so assignment roster stays in sync
+      if (payload.subject && payload.teacher_id) {
+        await adminClient
+          .from('student_teacher_assignments')
+          .upsert({
+            student_id: studentId,
+            teacher_id: payload.teacher_id,
+            subject: payload.subject,
+            is_active: true,
+            status: 'accepted',
+            assigned_by: actor.userId,
+            updated_at: nowIso()
+          }, { onConflict: 'student_id,teacher_id,subject', ignoreDuplicates: true });
+      }
+
       sendJson(res, 201, { ok: true, session: data });
       return true;
     }
@@ -848,6 +869,22 @@ export async function handleStudents(req, res, url) {
         .select('*');
 
       if (error) throw new Error(error.message);
+
+      // Auto-upsert student_teacher_assignments so assignment roster stays in sync
+      if (subject && teacher_id) {
+        await adminClient
+          .from('student_teacher_assignments')
+          .upsert({
+            student_id: studentId,
+            teacher_id: teacher_id,
+            subject: subject,
+            is_active: true,
+            status: 'accepted',
+            assigned_by: actor.userId,
+            updated_at: nowIso()
+          }, { onConflict: 'student_id,teacher_id,subject', ignoreDuplicates: true });
+      }
+
       sendJson(res, 201, { ok: true, count: data.length });
       return true;
     }
