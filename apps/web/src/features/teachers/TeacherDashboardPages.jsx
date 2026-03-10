@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { apiFetch } from '../../lib/api.js';
 
 export function isSessionVerified(session) {
@@ -104,9 +104,9 @@ export function TeacherDashboardPage() {
     return (
         <section className="panel">
             <div className="dash-stats-grid">
-                <DashCard label="Hours" value={`${metrics.monthlyHours}h`} tone="info" />
-                <DashCard label="Sessions" value={metrics.monthlyCompleted} tone="success" />
-                <DashCard label="Today" value={todaySessions.length} />
+                <DashCard label="Montthly Hours" value={`${metrics.monthlyHours}h`} tone="info" />
+                <DashCard label="Monthly Sessions" value={metrics.monthlyCompleted} tone="success" />
+                <DashCard label="Sessions Today" value={todaySessions.length} />
                 <DashCard label="My Students" value={metrics.uniqueStudents} />
             </div>
 
@@ -126,13 +126,9 @@ export function TeacherDashboardPage() {
                         <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#3b82f6', fontWeight: 600 }}>Total Earned</p>
                         <p style={{ margin: '2px 0 0', fontSize: '10px', color: '#6b7280' }}>{salary.total_hours}h this month</p>
                     </div>
-                    <div style={{ textAlign: 'center', padding: '16px', background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)', borderRadius: '12px' }}>
-                        <p style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#15803d' }}>₹{salary.paid.toLocaleString('en-IN')}</p>
-                        <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#22c55e', fontWeight: 600 }}>Paid</p>
-                    </div>
                     <div style={{ textAlign: 'center', padding: '16px', background: 'linear-gradient(135deg, #fffbeb, #fef3c7)', borderRadius: '12px' }}>
                         <p style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#a16207' }}>₹{salary.payable.toLocaleString('en-IN')}</p>
-                        <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#d97706', fontWeight: 600 }}>Payable</p>
+                        <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#d97706', fontWeight: 600 }}>Old Recievable</p>
                     </div>
                 </div>
             </article>
@@ -329,7 +325,10 @@ export function TeacherTodaySessionsPage() {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                 <div>
                                     <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>{s.students?.student_name || 'Student'}</h3>
-                                    <p className="text-muted" style={{ margin: '2px 0 0', fontSize: '12px' }}>{s.students?.student_code || ''}</p>
+                                    <p className="text-muted" style={{ margin: '2px 0 0', fontSize: '12px' }}>
+                                        {s.students?.student_code || ''}
+                                        {s.students?.class ? ` • Class ${s.students.class}` : ''}
+                                    </p>
                                 </div>
                                 {(() => {
                                     const st = getSessionDisplayStatus(s);
@@ -1539,6 +1538,11 @@ export function TeacherStudentsPage() {
     const [savingId, setSavingId] = useState(null);
     const [msg, setMsg] = useState('');
     const [editingIds, setEditingIds] = useState(new Set());
+    const [expandedRow, setExpandedRow] = useState(null);
+
+    const toggleRow = (id) => {
+        setExpandedRow(prev => prev === id ? null : id);
+    };
 
     const toggleEdit = (id) => {
         setEditingIds(prev => {
@@ -1600,64 +1604,179 @@ export function TeacherStudentsPage() {
                 </div>
             )}
 
+            <style dangerouslySetInnerHTML={{
+                __html: `
+                .student-mobile-row { display: none; }
+                .student-toggle-btn { display: none; }
+                
+                @media (max-width: 768px) {
+                    .student-table th.desktop-only, .student-table td.desktop-only { display: none; }
+                    .student-toggle-btn { display: inline-flex; background: none; border: none; padding: 4px; cursor: pointer; color: #6b7280; }
+                    
+                    /* Override the global mobile-friendly-table styles when expanded */
+                    table.student-table tr.expanded-parent {
+                        border-bottom-left-radius: 0 !important;
+                        border-bottom-right-radius: 0 !important;
+                        margin-bottom: 0 !important;
+                        border-bottom: none !important;
+                    }
+                    
+                    table.student-table tr.student-mobile-row { 
+                        display: block !important; 
+                        margin-top: -1px !important;
+                        border-top-left-radius: 0 !important;
+                        border-top-right-radius: 0 !important;
+                        border-top: none !important;
+                    }
+                    table.student-table tr.student-mobile-row td { 
+                        display: block;
+                        padding: 0 16px 16px 16px !important; 
+                        border-top: none !important; 
+                        background: transparent !important;
+                    }
+                    .student-mobile-content { display: flex; flex-direction: column; gap: 8px; font-size: 13px; padding-top: 12px; border-top: 1px dashed #e5e7eb; }
+                }
+            `}} />
+
             <article className="card" style={{ padding: '20px' }}>
                 <div className="table-wrap mobile-friendly-table">
-                    <table>
+                    <table className="student-table">
                         <thead>
                             <tr>
                                 <th>Student Name</th>
-                                <th>Subject</th>
-                                <th>Meeting Link (Specific)</th>
-                                <th>Action</th>
+                                <th>Class</th>
+                                <th className="desktop-only">Subject</th>
+                                <th className="desktop-only">Meeting Link (Specific)</th>
+                                <th className="desktop-only">Action</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {assignments.map(a => (
-                                <tr key={a.student_id}>
-                                    <td data-label="Student Name">{a.student_name || 'Unknown'}</td>
-                                    <td data-label="Subjects">{(a.subjects || []).join(', ') || '—'}</td>
-                                    <td data-label="Meeting Link">
-                                        {a.meeting_link && !editingIds.has(a.student_id) ? (
-                                            <a href={a.meeting_link} target="_blank" rel="noopener noreferrer" style={{ color: '#1d4ed8', textDecoration: 'underline', fontSize: '13px', wordBreak: 'break-all' }}>
-                                                {a.meeting_link}
-                                            </a>
-                                        ) : (
-                                            <input
-                                                type="url"
-                                                value={a.meeting_link || ''}
-                                                onChange={e => handleLinkChange(a.student_id, e.target.value)}
-                                                placeholder="https://meet.google.com/..."
-                                                style={{
-                                                    width: '100%', padding: '6px 10px', border: '1px solid #d1d5db',
-                                                    borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box'
-                                                }}
-                                            />
+                            {assignments.map(a => {
+                                const isExpanded = expandedRow === a.student_id;
+                                return (
+                                    <React.Fragment key={a.student_id}>
+                                        <tr
+                                            className={isExpanded ? 'expanded-parent' : ''}
+                                            onClick={(e) => {
+                                                if (window.innerWidth <= 768) {
+                                                    toggleRow(a.student_id);
+                                                }
+                                            }}
+                                            style={{ cursor: 'pointer' }}
+                                        >
+                                            <td data-label="Student Name">
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                    <div style={{
+                                                        width: '32px', height: '32px', borderRadius: '50%', background: '#e0e7ff', color: '#4338ca',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '600', flexShrink: 0
+                                                    }}>
+                                                        {(a.student_name || 'U').substring(0, 2).toUpperCase()}
+                                                    </div>
+                                                    <span style={{ fontWeight: 500 }}>{a.student_name || 'Unknown'}</span>
+                                                </div>
+                                            </td>
+                                            <td data-label="Class">{a.student_class || '—'}</td>
+                                            <td data-label="Subjects" className="desktop-only">{(a.subjects || []).join(', ') || '—'}</td>
+                                            <td data-label="Meeting Link" className="desktop-only">
+                                                {a.meeting_link && !editingIds.has(a.student_id) ? (
+                                                    <a href={a.meeting_link} target="_blank" rel="noopener noreferrer" style={{ color: '#1d4ed8', textDecoration: 'underline', fontSize: '13px', wordBreak: 'break-all' }}>
+                                                        {a.meeting_link}
+                                                    </a>
+                                                ) : (
+                                                    <input
+                                                        type="url"
+                                                        value={a.meeting_link || ''}
+                                                        onChange={e => handleLinkChange(a.student_id, e.target.value)}
+                                                        onClick={e => e.stopPropagation()}
+                                                        placeholder="https://meet.google.com/..."
+                                                        style={{
+                                                            width: '100%', padding: '6px 10px', border: '1px solid #d1d5db',
+                                                            borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box'
+                                                        }}
+                                                    />
+                                                )}
+                                            </td>
+                                            <td data-label="Action" className="desktop-only">
+                                                {a.meeting_link && !editingIds.has(a.student_id) ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => { e.stopPropagation(); toggleEdit(a.student_id); }}
+                                                        style={{ padding: '6px 12px', fontSize: '13px', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', color: '#374151', fontWeight: 500 }}
+                                                    >
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                                        Edit
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        className="small primary"
+                                                        onClick={(e) => { e.stopPropagation(); saveMeetingLink(a.student_id, a.meeting_link); }}
+                                                        disabled={savingId === a.student_id}
+                                                        style={{ padding: '6px 12px', fontSize: '13px' }}
+                                                    >
+                                                        {savingId === a.student_id ? 'Saving...' : 'Save Link'}
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                        {/* Mobile Expansion Row */}
+                                        {isExpanded && (
+                                            <tr className="student-mobile-row">
+                                                <td colSpan="6" style={{ borderBottom: 'none' }}>
+                                                    <div className="student-mobile-content">
+                                                        <div><strong style={{ color: '#6b7280' }}>Subjects:</strong> {(a.subjects || []).join(', ') || '—'}</div>
+                                                        <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                            <div>
+                                                                <strong style={{ color: '#6b7280' }}>Meeting Link: </strong>
+                                                                {a.meeting_link && !editingIds.has(a.student_id) ? (
+                                                                    <a href={a.meeting_link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: '#1d4ed8', textDecoration: 'underline', wordBreak: 'break-all' }}>
+                                                                        {a.meeting_link}
+                                                                    </a>
+                                                                ) : (
+                                                                    <div style={{ marginTop: '4px' }}>
+                                                                        <input
+                                                                            type="url"
+                                                                            value={a.meeting_link || ''}
+                                                                            onChange={e => handleLinkChange(a.student_id, e.target.value)}
+                                                                            onClick={e => e.stopPropagation()}
+                                                                            placeholder="https://meet.google.com/..."
+                                                                            style={{
+                                                                                width: '100%', padding: '8px 12px', border: '1px solid #d1d5db',
+                                                                                borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box'
+                                                                            }}
+                                                                        />
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div>
+                                                                {a.meeting_link && !editingIds.has(a.student_id) ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => { e.stopPropagation(); toggleEdit(a.student_id); }}
+                                                                        style={{ padding: '6px 12px', fontSize: '13px', background: '#fff', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#374151', fontWeight: 500 }}
+                                                                    >
+                                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                                                        Edit Link
+                                                                    </button>
+                                                                ) : (
+                                                                    <button
+                                                                        className="small primary"
+                                                                        onClick={(e) => { e.stopPropagation(); saveMeetingLink(a.student_id, a.meeting_link); }}
+                                                                        disabled={savingId === a.student_id}
+                                                                        style={{ padding: '6px 12px', fontSize: '13px' }}
+                                                                    >
+                                                                        {savingId === a.student_id ? 'Saving...' : 'Save Link'}
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
                                         )}
-                                    </td>
-                                    <td data-label="Action">
-                                        {a.meeting_link && !editingIds.has(a.student_id) ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => toggleEdit(a.student_id)}
-                                                style={{ padding: '6px 12px', fontSize: '13px', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', color: '#374151', fontWeight: 500 }}
-                                            >
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                                                Edit
-                                            </button>
-                                        ) : (
-                                            <button
-                                                className="small primary"
-                                                onClick={() => saveMeetingLink(a.student_id, a.meeting_link)}
-                                                disabled={savingId === a.student_id}
-                                                style={{ padding: '6px 12px', fontSize: '13px' }}
-                                            >
-                                                {savingId === a.student_id ? 'Saving...' : 'Save Link'}
-                                            </button>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                            {!assignments.length ? <tr><td colSpan="4" style={{ textAlign: 'center', color: '#9ca3af', padding: '24px' }}>No students assigned yet.</td></tr> : null}
+                                    </React.Fragment>
+                                );
+                            })}
+                            {!assignments.length ? <tr><td colSpan="6" style={{ textAlign: 'center', color: '#9ca3af', padding: '24px' }}>No students assigned yet.</td></tr> : null}
                         </tbody>
                     </table>
                 </div>
@@ -2000,6 +2119,453 @@ export function TeacherInvoicesPage() {
                     </table>
                 </div>
             </article>
+        </section>
+    );
+}
+
+export function TeacherMaterialsPage() {
+    const [studentsData, setStudentsData] = useState([]);
+    const [selectedStudentId, setSelectedStudentId] = useState('');
+    const [selectedSubject, setSelectedSubject] = useState('');
+    const [captionText, setCaptionText] = useState('');
+    const [file, setFile] = useState(null);
+    const [uploading, setUploading] = useState(false);
+    const [sending, setSending] = useState(false);
+    const [message, setMessage] = useState({ text: '', type: '' });
+    const [loading, setLoading] = useState(true);
+
+    const [chatHistory, setChatHistory] = useState([]);
+    const [loadingHistory, setLoadingHistory] = useState(false);
+    const [visibleCount, setVisibleCount] = useState(10);
+    const chatEndRef = useRef(null);
+
+    const [isMobileChatOpen, setIsMobileChatOpen] = useState(false);
+
+    useEffect(() => {
+        // Iron-clad scroll lock for mobile chat
+        if (isMobileChatOpen && window.innerWidth <= 768) {
+            document.body.style.overflow = 'hidden';
+            document.body.style.position = 'fixed';
+            document.body.style.width = '100%';
+        } else {
+            document.body.style.overflow = '';
+            document.body.style.position = '';
+            document.body.style.width = '';
+        }
+        return () => {
+            document.body.style.overflow = '';
+            document.body.style.position = '';
+            document.body.style.width = '';
+        };
+    }, [isMobileChatOpen]);
+
+    useEffect(() => {
+        apiFetch('/teachers/my-students')
+            .then(res => {
+                setStudentsData(res.items || []);
+                setLoading(false);
+            })
+            .catch(() => setLoading(false));
+    }, []);
+
+    const fetchHistory = (sid) => {
+        setLoadingHistory(true);
+        setVisibleCount(10);
+        apiFetch(`/teachers/materials/${sid}`)
+            .then(res => {
+                setChatHistory(res.items || []);
+                setLoadingHistory(false);
+            })
+            .catch(() => setLoadingHistory(false));
+    };
+
+    const handleSelectContact = (studentObj) => {
+        setSelectedStudentId(studentObj.student_id);
+        setSelectedSubject(studentObj.subjects && studentObj.subjects.length > 0 ? studentObj.subjects[0] : '');
+        setFile(null);
+        setCaptionText('');
+        setMessage({ text: '', type: '' });
+        fetchHistory(studentObj.student_id);
+        setIsMobileChatOpen(true);
+    };
+
+    const handleBackToContacts = () => {
+        setIsMobileChatOpen(false);
+        setSelectedStudentId('');
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!selectedStudentId || !selectedSubject) {
+            return setMessage({ text: 'Please select a student and subject.', type: 'error' });
+        }
+
+        setSending(true);
+        setMessage({ text: '', type: '' });
+
+        let finalUrl = '';
+        let finalMime = 'text/plain';
+
+        if (file) {
+            setUploading(true);
+            try {
+                finalMime = file.type || 'application/octet-stream';
+
+                // 1. Get Presigned URL
+                const preRes = await apiFetch('/upload/presigned-url', {
+                    method: 'POST',
+                    body: JSON.stringify({ filename: file.name, contentType: finalMime })
+                });
+
+                // 2. Upload file bytes to R2
+                const uploadRes = await fetch(preRes.uploadUrl, {
+                    method: 'PUT',
+                    body: file,
+                    headers: { 'Content-Type': finalMime }
+                });
+
+                if (!uploadRes.ok) throw new Error('File upload to R2 failed.');
+
+                finalUrl = preRes.publicUrl;
+                setUploading(false);
+            } catch (err) {
+                setUploading(false);
+                setSending(false);
+                return setMessage({ text: 'R2 Upload failed: ' + err.message, type: 'error' });
+            }
+        } else if (!captionText.trim()) {
+            setSending(false);
+            return setMessage({ text: 'Please provide either a file or a text message.', type: 'error' });
+        }
+
+        // 3. Send to Backend Whatsapp Queue
+        try {
+            const pushRes = await apiFetch('/teachers/send-material', {
+                method: 'POST',
+                body: JSON.stringify({
+                    student_id: selectedStudentId,
+                    subject: selectedSubject,
+                    file_url: finalUrl,
+                    mimetype: finalMime,
+                    caption_text: captionText,
+                    filename: file ? file.name : undefined
+                })
+            });
+
+            if (pushRes.queued) {
+                setMessage({ text: pushRes.message || 'Queued for delivery', type: 'info' });
+            } else {
+                setMessage({ text: pushRes.message || 'Sent successfully', type: 'success' });
+            }
+
+            setFile(null);
+            setCaptionText('');
+            // Refresh chat instantly
+            fetchHistory(selectedStudentId);
+
+            setTimeout(() => setMessage({ text: '', type: '' }), 3000);
+        } catch (err) {
+            setMessage({ text: err.message, type: 'error' });
+        }
+        setSending(false);
+    };
+
+    const selectedStudentObj = studentsData.find(s => s.student_id === selectedStudentId);
+
+    // Scroll to bottom whenever chat updates
+    useEffect(() => {
+        if (chatEndRef.current) {
+            chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [chatHistory, visibleCount]);
+
+    // Helper to render file previews like WhatsApp
+    const renderFilePreview = (msg) => {
+        if (!msg.file_url) return null;
+        const mime = (msg.mimetype || '').toLowerCase();
+        if (mime.startsWith('image/')) {
+            return (
+                <a href={msg.file_url} target="_blank" rel="noreferrer">
+                    <img src={msg.file_url} alt="attachment" style={{ maxWidth: '100%', maxHeight: '220px', borderRadius: '8px', display: 'block', marginBottom: '4px', objectFit: 'cover' }} />
+                </a>
+            );
+        }
+        if (mime.startsWith('video/')) {
+            return (
+                <video controls style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px', display: 'block', marginBottom: '4px' }}>
+                    <source src={msg.file_url} type={mime} />
+                </video>
+            );
+        }
+        if (mime.startsWith('audio/')) {
+            return (
+                <audio controls style={{ width: '100%', marginBottom: '4px' }}>
+                    <source src={msg.file_url} type={mime} />
+                </audio>
+            );
+        }
+        // PDF / doc / other
+        const ext = msg.file_url.split('.').pop()?.split('?')[0]?.toUpperCase() || 'FILE';
+        return (
+            <a href={msg.file_url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(0,0,0,0.07)', padding: '10px 12px', borderRadius: '8px', marginBottom: '4px', textDecoration: 'none', color: '#1d4ed8' }}>
+                <span style={{ fontSize: '22px' }}>{ext === 'PDF' ? '📄' : '📁'}</span>
+                <span style={{ fontSize: '13px', fontWeight: 500 }}>Open {ext} file</span>
+            </a>
+        );
+    };
+
+    if (loading) {
+        return <section className="panel"><p>Loading students...</p></section>;
+    }
+
+    return (
+        <section className="panel" style={{ maxWidth: '1000px', margin: '0 auto', padding: '0' }}>
+            <style dangerouslySetInnerHTML={{
+                __html: `
+                .tm-chat-container { display: flex; flex-direction: row; flex-wrap: nowrap; height: 75vh; min-height: 500px; background: #fff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e7eb; }
+                .tm-chat-sidebar { width: 300px; min-width: 300px; border-right: 1px solid #e5e7eb; background: #f9fafb; display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; }
+                .tm-chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #ece5dd; min-height: 0; overflow: hidden; }
+                .tm-chat-history { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; -webkit-overflow-scrolling: touch; }
+                .tm-mobile-back-btn { display: none; background: none; border: none; font-size: 20px; cursor: pointer; padding: 0 10px 0 0; color: #374151; }
+                @keyframes tm-spin { to { transform: rotate(360deg); } }
+                .tm-spinner { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: tm-spin 0.8s linear infinite; }
+                
+                @media (max-width: 768px) {
+                    .tm-chat-container { ${isMobileChatOpen ? 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; height: 100dvh; z-index: 50; background: #fff;' : 'height: calc(100dvh - 120px); min-height: unset;'} border-radius: 0; border: none; flex-direction: column; overflow: hidden; }
+                    .tm-chat-sidebar { width: 100%; min-width: 100%; display: ${isMobileChatOpen ? 'none' : 'flex'}; border-right: none; flex: 1; min-height: 0; }
+                    .tm-chat-main { display: ${isMobileChatOpen ? 'flex' : 'none'}; flex: 1; min-height: 0; }
+                    .tm-chat-history { flex: 1; min-height: 0; overscroll-behavior: none; }
+                    .tm-mobile-back-btn { display: inline-block; }
+                }
+            `}} />
+
+            <div className="tm-chat-container">
+
+                {/* Left Pane - Contacts List */}
+                <div className="tm-chat-sidebar">
+                    <div style={{ padding: '16px', background: '#f3f4f6', borderBottom: '1px solid #e5e7eb', fontWeight: 600 }}>
+                        My Students
+                    </div>
+                    <div style={{ overflowY: 'auto', flex: 1 }}>
+                        {studentsData.map(studentObj => {
+                            const isSelected = studentObj.student_id === selectedStudentId;
+                            const initial = studentObj.student_name ? studentObj.student_name.charAt(0).toUpperCase() : '?';
+                            return (
+                                <div
+                                    key={studentObj.student_id}
+                                    onClick={() => handleSelectContact(studentObj)}
+                                    style={{
+                                        padding: '16px 16px 16px 12px',
+                                        borderBottom: '1px solid #e5e7eb',
+                                        borderLeft: isSelected ? '4px solid #2563eb' : '4px solid transparent',
+                                        cursor: 'pointer',
+                                        background: isSelected ? '#eff6ff' : '#fff',
+                                        transition: 'background 0.2s',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '12px'
+                                    }}
+                                >
+                                    <div style={{
+                                        width: '40px', height: '40px', borderRadius: '50%', background: '#bfdbfe', color: '#1e3a8a',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '18px', flexShrink: 0
+                                    }}>
+                                        {initial}
+                                    </div>
+                                    <div style={{ overflow: 'hidden' }}>
+                                        <div style={{ fontWeight: 600, color: '#111827', marginBottom: '4px', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{studentObj.student_name}</div>
+                                        <div style={{ fontSize: '12px', color: '#6b7280', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                                            {studentObj.subjects ? studentObj.subjects.join(', ') : 'No Subjects'}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        {studentsData.length === 0 && (
+                            <div style={{ padding: '20px', textAlign: 'center', color: '#6b7280', fontSize: '13px' }}>
+                                No assigned students.
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Right Pane - Chat Window */}
+                <div className="tm-chat-main">
+                    {selectedStudentId && selectedStudentObj ? (
+                        <>
+                            {/* Chat Header */}
+                            <div style={{ padding: '16px', background: '#f3f4f6', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <button className="tm-mobile-back-btn" onClick={handleBackToContacts} aria-label="Back">
+                                    &larr;
+                                </button>
+                                <div style={{
+                                    width: '40px', height: '40px', borderRadius: '50%', background: '#bfdbfe', color: '#1e3a8a',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '18px', flexShrink: 0
+                                }}>
+                                    {selectedStudentObj.student_name ? selectedStudentObj.student_name.charAt(0).toUpperCase() : '?'}
+                                </div>
+                                <div style={{ fontWeight: 600, fontSize: '16px', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                                    {selectedStudentObj.student_name}
+                                </div>
+                            </div>
+
+                            {/* Chat History Area */}
+                            <div className="tm-chat-history">
+                                {loadingHistory ? (
+                                    <div style={{ textAlign: 'center', color: '#6b7280', fontSize: '13px', marginTop: '20px' }}>Loading history...</div>
+                                ) : chatHistory.length > 0 ? (
+                                    <>
+                                        {/* Load More */}
+                                        {chatHistory.length > visibleCount && (
+                                            <div style={{ textAlign: 'center' }}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setVisibleCount(v => v + 10)}
+                                                    style={{ padding: '6px 18px', fontSize: '12px', background: 'rgba(255,255,255,0.8)', border: '1px solid #d1d5db', borderRadius: '20px', cursor: 'pointer', color: '#374151' }}
+                                                >
+                                                    Load more ({chatHistory.length - visibleCount} older)
+                                                </button>
+                                            </div>
+                                        )}
+                                        {chatHistory.slice(-visibleCount).map(msg => (
+                                            <div key={msg.id} style={{ alignSelf: 'flex-end', background: '#dcf8c6', padding: '8px 12px', borderRadius: '8px 0 8px 8px', maxWidth: '85%', boxShadow: '0 1px 1px rgba(0,0,0,0.1)' }}>
+                                                <div style={{ fontSize: '11px', color: '#166534', fontWeight: 600, marginBottom: '4px' }}>Subject: {msg.subject}</div>
+                                                {renderFilePreview(msg)}
+                                                {msg.caption_text && (
+                                                    <div style={{ fontSize: '14px', color: '#111827', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.caption_text}</div>
+                                                )}
+                                                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                                                    <span style={{ fontSize: '10px', color: '#6b7280' }}>
+                                                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                    {msg.status === 'sent' && <span title="Sent" style={{ color: '#3b82f6', fontSize: '12px' }}>✓✓</span>}
+                                                    {msg.status === 'pending' && <span title="Pending" style={{ color: '#9ca3af', fontSize: '12px' }}>✓</span>}
+                                                    {msg.status === 'failed' && <span title={`Failed: ${msg.error_message || 'Device offline'}`} style={{ color: '#dc2626', fontSize: '12px' }}>❌</span>}
+                                                </div>
+                                            </div>
+                                        ))}
+                                        <div ref={chatEndRef} />
+                                    </>
+                                ) : (
+                                    <div style={{ textAlign: 'center', color: '#6b7280', fontSize: '13px', marginTop: '20px', background: 'rgba(255,255,255,0.6)', padding: '10px', borderRadius: '8px', alignSelf: 'center' }}>
+                                        No materials sent yet. Start the conversation below.
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Chat Input Area */}
+                            <div style={{ padding: '12px 16px', background: '#f3f4f6', borderTop: '1px solid #e5e7eb' }}>
+                                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+
+                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                        {selectedStudentObj.subjects && selectedStudentObj.subjects.length > 1 ? (
+                                            <select
+                                                required
+                                                value={selectedSubject}
+                                                onChange={e => setSelectedSubject(e.target.value)}
+                                                style={{ flex: 1, minWidth: '120px', padding: '10px', borderRadius: '20px', border: '1px solid #d1d5db', outline: 'none' }}
+                                            >
+                                                <option value="">-- Subject --</option>
+                                                {selectedStudentObj.subjects.map(sub => (
+                                                    <option key={sub} value={sub}>{sub}</option>
+                                                ))}
+                                            </select>
+                                        ) : (
+                                            <div style={{ flex: 1, padding: '10px 16px', background: '#e5e7eb', borderRadius: '20px', fontSize: '13px', color: '#4b5563', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                Subject: <strong>{selectedSubject || 'None'}</strong>
+                                            </div>
+                                        )}
+
+                                        <div style={{ flex: 1, minWidth: '120px' }}>
+                                            <input
+                                                type="file"
+                                                id="chat-file-upload"
+                                                onChange={e => setFile(e.target.files[0] || null)}
+                                                style={{ display: 'none' }}
+                                                accept="image/*,video/*,audio/*,.pdf,.doc,.docx"
+                                            />
+                                            <label htmlFor="chat-file-upload" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px', borderRadius: '20px', background: '#fff', border: '1px solid #d1d5db', cursor: 'pointer', fontSize: '13px', color: '#374151', textOverflow: 'ellipsis', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                                                {file ? `📎 Change File` : '📎 Attach File'}
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    {/* File Preview Box */}
+                                    {file && (
+                                        <div style={{ padding: '8px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '12px', position: 'relative', marginTop: '4px' }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => setFile(null)}
+                                                style={{ position: 'absolute', top: '-6px', right: '-6px', width: '22px', height: '22px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', padding: 0, boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}
+                                            >×</button>
+
+                                            {file.type.startsWith('image/') ? (
+                                                <img src={URL.createObjectURL(file)} alt="preview" style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '6px' }} />
+                                            ) : (
+                                                <div style={{ fontSize: '24px' }}>{file.type.startsWith('video/') ? '🎬' : file.type.startsWith('audio/') ? '🎵' : file.name.endsWith('.pdf') ? '📄' : '📁'}</div>
+                                            )}
+
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
+                                                <div style={{ fontSize: '11px', color: '#64748b' }}>{(file.size / 1024 / 1024).toFixed(2)} MB</div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <textarea
+                                            rows="2"
+                                            required={!file}
+                                            value={captionText}
+                                            onChange={e => setCaptionText(e.target.value)}
+                                            placeholder="Type a message or caption..."
+                                            style={{ flex: 1, padding: '12px 16px', borderRadius: '20px', border: '1px solid #d1d5db', outline: 'none', resize: 'none', fontFamily: 'inherit' }}
+                                        />
+                                        <button
+                                            type="submit"
+                                            disabled={sending || (!file && !captionText.trim()) || !selectedSubject}
+                                            style={{
+                                                width: '45px',
+                                                height: '45px',
+                                                borderRadius: '50%',
+                                                background: '#2563eb',
+                                                color: '#fff',
+                                                border: 'none',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                cursor: (sending || !selectedSubject) ? 'not-allowed' : 'pointer',
+                                                opacity: (sending || !selectedSubject) ? 0.7 : 1,
+                                                alignSelf: 'center',
+                                                fontSize: '18px'
+                                            }}
+                                            title="Send"
+                                        >
+                                            {sending || uploading ? <div className="tm-spinner"></div> : '➤'}
+                                        </button>
+                                    </div>
+
+                                    {message.text && (
+                                        <div style={{ fontSize: '12px', padding: '4px', textAlign: 'center', color: message.type === 'error' ? '#dc2626' : '#16a34a', fontWeight: 500 }}>
+                                            {message.text}
+                                        </div>
+                                    )}
+                                </form>
+                            </div>
+                        </>
+                    ) : (
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f9fafb' }}>
+                            <div style={{ textAlign: 'center', padding: '40px', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+                                <div style={{ fontSize: '40px', marginBottom: '16px' }}>📱</div>
+                                <h3 style={{ margin: '0 0 8px 0', color: '#111827' }}>Teacher Materials</h3>
+                                <p style={{ color: '#6b7280', margin: 0, fontSize: '14px', maxWidth: '250px' }}>
+                                    Select a student from the sidebar to view history or send new study materials via WhatsApp.
+                                </p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
         </section>
     );
 }

@@ -1,5 +1,8 @@
 import { getSupabaseAdminClient } from '../config/supabase.js';
 import { readJson, sendJson } from '../common/http.js';
+import { WaappaService } from '../waappa/waappa.service.js';
+
+const waappaService = new WaappaService();
 
 const nowIso = () => new Date().toISOString();
 
@@ -168,8 +171,8 @@ export async function handleTeachers(req, res, url) {
           .in('status', ['scheduled', 'rescheduled']);
 
         if (startDate && endDate) {
-            demosQuery = demosQuery.gte('scheduled_at', `${startDate}T00:00:00+05:30`)
-                                   .lte('scheduled_at', `${endDate}T23:59:59+05:30`);
+          demosQuery = demosQuery.gte('scheduled_at', `${startDate}T00:00:00+05:30`)
+            .lte('scheduled_at', `${endDate}T23:59:59+05:30`);
         } else {
           demosQuery = demosQuery.gte('scheduled_at', new Date().toISOString());
         }
@@ -259,7 +262,7 @@ export async function handleTeachers(req, res, url) {
       }
       const { data, error } = await adminClient
         .from('student_teacher_assignments')
-        .select('id, student_id, subject, meeting_link, students(student_name, student_code)')
+        .select('id, student_id, subject, meeting_link, students(student_name, student_code, class_level)')
         .eq('teacher_id', actor.userId);
 
       if (error) throw new Error(error.message);
@@ -274,6 +277,7 @@ export async function handleTeachers(req, res, url) {
             student_id: sid,
             student_name: row.students.student_name,
             student_code: row.students.student_code,
+            student_class: row.students.class_level,
             subjects: [],
             meeting_link: row.meeting_link || ''
           };
@@ -283,7 +287,7 @@ export async function handleTeachers(req, res, url) {
         }
         // Take the first available meeting link if not set
         if (!studentMap[sid].meeting_link && row.meeting_link) {
-            studentMap[sid].meeting_link = row.meeting_link;
+          studentMap[sid].meeting_link = row.meeting_link;
         }
       });
 
@@ -837,6 +841,180 @@ export async function handleTeachers(req, res, url) {
       if (insertErr) throw new Error('Failed to create reschedule request: ' + insertErr.message);
 
       sendJson(res, 200, { ok: true, message: 'Reschedule request sent for coordinator approval' });
+      return true;
+    }
+
+    // ── GET /teachers/materials/:studentId — get material transfer history ──
+    const materialHistoryMatch = url.pathname.match(/^\/teachers\/materials\/([0-9a-fA-F-]+)$/);
+    if (req.method === 'GET' && materialHistoryMatch) {
+      if (actor.role !== 'teacher') {
+        sendJson(res, 403, { ok: false, error: 'teacher role required' });
+        return true;
+      }
+      const studentId = materialHistoryMatch[1];
+
+      const { data, error } = await adminClient
+        .from('material_transfers')
+        .select('*')
+        .eq('teacher_id', actor.userId)
+        .eq('student_id', studentId)
+        .order('created_at', { ascending: true }) // Chat order
+        .limit(50);
+
+      if (error) throw new Error(error.message);
+
+      sendJson(res, 200, { ok: true, items: data || [] });
+      return true;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/teachers/send-material') {
+      if (actor.role !== 'teacher') {
+        sendJson(res, 403, { ok: false, error: 'Only teachers can send materials directly' });
+        return true;
+      }
+
+      const payload = await readJson(req);
+      if (!payload.student_id || !payload.subject) {
+        sendJson(res, 400, { ok: false, error: 'Missing student ID or subject' });
+        return true;
+      }
+
+      // 1. Validate Teacher is assigned to this Student for that subject
+      const { data: assignment, error: aErr } = await adminClient
+        .from('student_teacher_assignments')
+        .select(`
+          id, subject,
+          students ( id, group_jid, academic_coordinator_id, student_name )
+        `)
+        .eq('student_id', payload.student_id)
+        .eq('teacher_id', actor.userId)
+        .eq('subject', payload.subject)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (aErr || !assignment || !assignment.students) {
+        sendJson(res, 403, { ok: false, error: 'You are not actively assigned to this student for this subject.' });
+        return true;
+      }
+
+      const student = assignment.students;
+      if (!student.group_jid) {
+        sendJson(res, 400, { ok: false, error: 'Student does not have a connected WhatsApp group.' });
+        return true;
+      }
+
+      // 2. Locate the assigned AC's session by their user_id
+      const { data: acSession } = await adminClient
+        .from('whatsapp_sessions')
+        .select('*')
+        .eq('user_id', student.academic_coordinator_id)
+        .eq('status', 'WORKING')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      // We still log the attempt even if the session is offline, but it's "failed"
+      const theSessionName = acSession?.session_name || null;
+      const isOnline = !!theSessionName;
+
+      // Ensure teacher name is fetched for the caption footprint
+      const { data: teacherMeta } = await adminClient.from('users').select('full_name').eq('id', actor.userId).single();
+      const teacherName = teacherMeta ? teacherMeta.full_name : 'Your Teacher';
+
+      // Simple caption: 📚 Subject - Teacher Name (+ optional note)
+      let captionStr = `📚 ${payload.subject} - ${teacherName} (Teacher)`;
+      if (payload.caption_text) captionStr += `\n${payload.caption_text}`;
+
+      // Insert Row into material_transfers immediately
+      const insertRecord = {
+        student_id: student.id,
+        teacher_id: actor.userId,
+        ac_id: student.academic_coordinator_id,
+        subject: payload.subject,
+        file_url: payload.file_url || null,
+        mimetype: payload.mimetype || 'text',
+        caption_text: captionStr,
+        status: isOnline ? 'pending' : 'failed',
+        error_message: isOnline ? null : 'Assigned Coordinator WhatsApp session is offline.'
+      };
+
+      const { data: row, error: insErr } = await adminClient.from('material_transfers').insert(insertRecord).select('id').single();
+      if (insErr) {
+        sendJson(res, 500, { ok: false, error: 'Failed to record transfer in database.' });
+        return true;
+      }
+
+      if (!isOnline) {
+        sendJson(res, 200, {
+          ok: true,
+          queued: true,
+          message: 'AC Controller WhatsApp is offline. The material has been queued for them to send.'
+        });
+        return true;
+      }
+
+      // 3. Assemble Waappa API request
+      const WAAPPA_BASE = process.env.WAAPPA_BASE_URL || 'http://main.waappa.com';
+      const WAAPPA_KEY = acSession.api_key || process.env.WAAPPA_API_KEY || 'yoursecretkey';
+
+      // Ensure group_jid has the @g.us suffix required by Waappa
+      const groupJid = student.group_jid.includes('@') ? student.group_jid : `${student.group_jid}@g.us`;
+
+      try {
+        if (!payload.file_url) {
+          await waappaService.sendText(theSessionName, WAAPPA_KEY, groupJid, captionStr);
+        } else {
+          // For audio, send text caption first since sendVoice doesn't support captions
+          if ((payload.mimetype || '').toLowerCase().startsWith('audio/')) {
+            await waappaService.sendText(theSessionName, WAAPPA_KEY, groupJid, captionStr);
+          }
+          const mediaRes = await waappaService.sendMedia(theSessionName, WAAPPA_KEY, groupJid, payload.file_url, payload.mimetype, captionStr, payload.filename);
+
+          console.log('[send-material] Waappa SendMedia res:', JSON.stringify(mediaRes).substring(0, 300));
+
+          // Depending on API version, Waqppa returns { data: { id } }, { response: { id } } or { messageId }
+          const sentMsgId = mediaRes?.data?.id || mediaRes?.id || mediaRes?.response?.id || mediaRes?.messageId || mediaRes?.[0]?.id;
+
+          // Pre-populate the whatsapp_messages table so the webhook doesn't try to download it
+          if (sentMsgId) {
+            const { error: insertErr } = await adminClient.from('whatsapp_messages').insert({
+              id: sentMsgId,
+              session_name: theSessionName,
+              from_jid: theSessionName,
+              to_jid: groupJid,
+              from_me: true,
+              body: captionStr || '',
+              has_media: true,
+              media_url: payload.file_url,
+              media_name: payload.filename,
+              media_type: payload.mimetype,
+              sender_role: 'teacher',
+              contact_type: 'student',
+              contact_phone: groupJid,
+              timestamp: Math.floor(Date.now() / 1000)
+            });
+            if (insertErr) {
+              console.error('[send-material] pre-insert msg error:', insertErr.message);
+            }
+          } else {
+            console.warn('[send-material] Could not extract sent message ID from Waappa response.');
+          }
+        }
+
+        // Overwrite status to sent
+        await adminClient.from('material_transfers').update({ status: 'sent', error_message: null }).eq('id', row.id);
+
+        sendJson(res, 200, { ok: true, message: 'Material sent successfully' });
+
+      } catch (extError) {
+        console.error('Waappa transfer failed:', extError.message);
+        await adminClient.from('material_transfers')
+          .update({ status: 'failed', error_message: extError.message || 'Waappa Request Error' })
+          .eq('id', row.id);
+
+        sendJson(res, 500, { ok: false, error: 'Waappa Delivery failed. Marked as failed.' });
+      }
+
       return true;
     }
 

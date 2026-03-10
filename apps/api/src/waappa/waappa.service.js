@@ -161,14 +161,15 @@ export class WaappaService {
         return await res.json();
     }
 
-    async sendMedia(session, apiKey, chatId, mediaUrl, mimetype, caption = '') {
+    async sendMedia(session, apiKey, chatId, mediaUrl, mimetype, caption = '', actualFilename = null) {
         let endpoint = 'sendImage';
         if (mimetype?.startsWith('video/')) endpoint = 'sendVideo';
         else if (mimetype?.startsWith('audio/')) endpoint = 'sendVoice';
         else if (!mimetype?.startsWith('image/')) endpoint = 'sendFile';
 
         // Waappa body: { session, chatId, file: { url, mimetype, filename }, caption }
-        const filename = caption || `media.${mimetype?.split('/')[1] || 'bin'}`;
+        const ext = mimetype?.split('/')[1]?.split(';')[0] || 'bin';
+        const filename = actualFilename || `media.${ext}`;
         const body = {
             session,
             chatId,
@@ -179,7 +180,14 @@ export class WaappaService {
                 filename
             }
         };
-        if (endpoint === 'sendVoice') body.convert = true; // Required for some audio formats
+        if (endpoint === 'sendVideo') {
+            body.asNote = false;
+            body.convert = false;
+        }
+        if (endpoint === 'sendVoice') {
+            body.convert = false; // as per Waappa spec
+            delete body.caption;  // sendVoice doesn't use caption field
+        }
 
         const res = await fetch(`${this.baseUrl}/api/${endpoint}`, {
             method: 'POST',

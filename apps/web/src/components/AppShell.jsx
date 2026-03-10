@@ -60,6 +60,14 @@ function NavIcon({ path, active }) {
         <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
       </svg>
     );
+  } else if (p.includes('materials') || p.includes('resources')) {
+    // Send / Paper Plane icon
+    return (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill={active ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13"></line>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+      </svg>
+    );
   } else {
     // Default list icon
     return (
@@ -244,6 +252,7 @@ export default function AppShell({ roleLabel, role, pages, activePath, onNavigat
           // Keep it short but clear: "My Timetable" -> "Timetable", "Today Sessions" -> "Today"
           let displayTitle = page.title.replace(/^My\s/i, '');
           if (displayTitle === 'Today Sessions') displayTitle = 'Today';
+          if (displayTitle === 'Send Materials') displayTitle = 'Send';
 
           return (
             <button
