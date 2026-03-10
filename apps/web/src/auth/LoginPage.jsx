@@ -34,7 +34,6 @@ export default function LoginPage({ onSuccess }) {
     <main className="login-page">
       <section className="login-card">
         <h1>Edusolve</h1>
-        <p>Internal operations sign-in. All actions are tracked with role-based control.</p>
 
         <form onSubmit={onSubmit} className="form-grid">
           <label>

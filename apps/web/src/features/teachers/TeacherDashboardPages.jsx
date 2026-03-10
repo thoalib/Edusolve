@@ -74,21 +74,42 @@ export function TeacherDashboardPage() {
     }, []);
 
     const metrics = useMemo(() => {
+        const currentMonth = new Date().getMonth();
+        const currentYear = new Date().getFullYear();
+
         const completed = allSessions.filter(s => s.status === 'completed' || s.status === 'verified').length;
+        const monthlyCompleted = allSessions.filter(s => {
+            if (s.status !== 'completed' && s.status !== 'verified') return false;
+            const d = new Date(s.started_at || s.created_at);
+            return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+        }).length;
+
         const pending = todaySessions.filter(s => s.status === 'scheduled' || s.status === 'in_progress').length;
         const rescheduled = allSessions.filter(s => s.status === 'rescheduled').length;
         const uniqueStudents = new Set(allSessions.map(s => s.student_id)).size;
-        return { completed, pending, rescheduled, uniqueStudents };
-    }, [todaySessions, allSessions]);
+
+        const monthlyHours = (hours.items || []).filter(h => {
+            const d = new Date(h.created_at);
+            return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+        }).reduce((sum, h) => sum + Number(h.hours_delta || 0), 0);
+
+        const rate = profile?.per_hour_rate || 0;
+        const monthlyReceivables = rate * monthlyHours;
+
+        return { completed, monthlyCompleted, pending, rescheduled, uniqueStudents, monthlyHours, monthlyReceivables };
+    }, [todaySessions, allSessions, hours.items, profile]);
 
     if (loading) return <section className="panel"><p>Loading dashboard...</p></section>;
 
     return (
         <section className="panel">
-            <div className="grid-four">
-                <DashCard label="Total Hours" value={`${hours.total_hours}h`} tone="info" />
-                <DashCard label="Today's Sessions" value={todaySessions.length} />
-                <DashCard label="Sessions Completed" value={metrics.completed} tone="success" />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginBottom: '6px' }}>
+                <DashCard label="Hours" value={`${metrics.monthlyHours}h`} tone="info" />
+                <DashCard label="Sessions" value={metrics.monthlyCompleted} tone="success" />
+                <DashCard label="Receivables" value={`₹${metrics.monthlyReceivables.toLocaleString('en-IN')}`} tone="success" />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px' }}>
+                <DashCard label="Today" value={todaySessions.length} />
                 <DashCard label="My Students" value={metrics.uniqueStudents} />
             </div>
 
@@ -186,9 +207,9 @@ function DashCard({ label, value, tone }) {
     const bg = tone === 'success' ? '#dcfce7' : tone === 'danger' ? '#fee2e2' : tone === 'info' ? '#e0e7ff' : '#f3f4f6';
     const color = tone === 'success' ? '#15803d' : tone === 'danger' ? '#dc2626' : tone === 'info' ? '#4338ca' : '#111';
     return (
-        <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
-            <p style={{ margin: 0, fontSize: '28px', fontWeight: 700, color }}>{value}</p>
-            <p className="text-muted" style={{ margin: '4px 0 0', fontSize: '12px' }}>{label}</p>
+        <div className="card" style={{ padding: '16px 8px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <p style={{ margin: 0, fontSize: '20px', fontWeight: 700, color, overflowWrap: 'break-word', wordBreak: 'break-word' }}>{value}</p>
+            <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#4b5563', fontWeight: 600, lineHeight: 1.2 }}>{label}</p>
         </div>
     );
 }
@@ -1074,7 +1095,7 @@ export function TeacherMyProfilePage() {
 
     return (
         <section className="panel">
-            <h2 style={{ margin: '0 0 16px', fontSize: '20px' }}>My Profile</h2>
+            {/* My Profile H2 Removed to avoid duplication with Header on Mobile */}
 
             {profileMsg && (
                 <div style={{
@@ -1087,7 +1108,7 @@ export function TeacherMyProfilePage() {
             )}
 
             {/* Tabs Navigation */}
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #e5e7eb', paddingBottom: '0' }}>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #e5e7eb', paddingBottom: '0', overflowX: 'auto', whiteSpace: 'nowrap', WebkitOverflowScrolling: 'touch' }}>
                 {['Personal', 'Professional', 'Bank', 'Slots'].map(tab => {
                     const key = tab.toLowerCase();
                     const isActive = activeTab === key;
@@ -1104,7 +1125,8 @@ export function TeacherMyProfilePage() {
                                 fontWeight: isActive ? 600 : 500,
                                 cursor: 'pointer',
                                 transition: 'all 0.2s',
-                                fontSize: '14px'
+                                fontSize: '14px',
+                                whiteSpace: 'nowrap'
                             }}
                         >
                             {tab}
@@ -1117,10 +1139,10 @@ export function TeacherMyProfilePage() {
             {activeTab === 'personal' && (
                 <article className="card" style={{ padding: '24px', marginBottom: '24px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #e5e7eb', paddingBottom: '16px' }}>
-                        <h3 style={{ margin: 0, fontSize: '18px' }}>Personal Information</h3>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div style={{ fontWeight: 600, color: profile?.is_in_pool ? '#15803d' : '#dc2626', fontSize: '14px', padding: '4px 12px', background: profile?.is_in_pool ? '#dcfce7' : '#fee2e2', borderRadius: '20px' }}>
-                                {profile?.is_in_pool ? '✅ Active Pool Member' : '❌ Inactive'}
+                        <h3 style={{ margin: 0, fontSize: '18px' }}>Personal</h3>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ fontWeight: 600, color: profile?.is_in_pool ? '#15803d' : '#dc2626', fontSize: '12px', padding: '2px 8px', background: profile?.is_in_pool ? '#dcfce7' : '#fee2e2', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                {profile?.is_in_pool ? '✅ Active' : '❌ Inactive'}
                             </div>
                             {!editingPersonal ? (
                                 <button onClick={startEditPersonal} style={editBtnStyle}>
