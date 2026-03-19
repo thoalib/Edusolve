@@ -262,7 +262,7 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
   const teacherOptions = useMemo(() => {
     const opts = teachers.map(t => ({
       value: t.user_id,
-      label: t.users?.full_name || t.teacher_code || t.user_id,
+      label: `${t.users?.full_name || t.user_id}${t.teacher_code ? ` (${t.teacher_code})` : ''}`,
       isAssigned: assignedTeacherIds.has(t.user_id)
     }));
     // Sort: assigned first, then alphabetical

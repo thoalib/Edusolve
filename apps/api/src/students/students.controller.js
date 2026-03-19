@@ -650,7 +650,7 @@ export async function handleStudents(req, res, url) {
           if (num.length === 10) num = `91${num}`;
           return num;
         })
-        .filter(p => p.length >= 12);
+        .filter(p => p.length >= 10);
 
       const uniquePhones = [...new Set(phones)].map(p => ({ id: `${p}@c.us` }));
       if (uniquePhones.length === 0) {
