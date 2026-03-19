@@ -118,7 +118,7 @@ async function generateStudentCode(adminClient) {
   const { count: totalStudents, error } = await adminClient
     .from('students')
     .select('*', { count: 'exact', head: true });
-    
+
   if (error) throw new Error(error.message);
 
   const seq = (totalStudents || 0) + 1;
@@ -228,10 +228,10 @@ export async function handleStudents(req, res, url) {
         return true;
       }
       const payload = await readJson(req);
-      
+
       const { data: acUserRow } = await adminClient.from('users').select('full_name').eq('id', actor.userId).maybeSingle();
       const acName = acUserRow?.full_name || actor.userId || 'Unknown AC';
-      
+
       // Auto-create a dummy lead to hold the source information
       // Since student is tied to a lead
       const { data: leadModel, error: leadErr } = await adminClient.from('leads').insert({
@@ -246,7 +246,7 @@ export async function handleStudents(req, res, url) {
         owner_stage: 'finance',
         status: 'payment_verification'
       }).select('id').single();
-      
+
       if (leadErr) throw new Error(`Lead creation failed: ${leadErr.message}`);
 
       // Create a payment request for finance to verify
@@ -261,8 +261,8 @@ export async function handleStudents(req, res, url) {
       }).select('*').single();
 
       if (reqErr) {
-         await adminClient.from('leads').delete().eq('id', leadModel.id);
-         throw new Error(`Payment request creation failed: ${reqErr.message}`);
+        await adminClient.from('leads').delete().eq('id', leadModel.id);
+        throw new Error(`Payment request creation failed: ${reqErr.message}`);
       }
 
       sendJson(res, 201, { ok: true, msg: 'Onboarding payment request submitted to Finance.' });
@@ -643,14 +643,15 @@ export async function handleStudents(req, res, url) {
       const phones = [st.contact_number, st.alternative_number, st.parent_phone]
         .filter(Boolean)
         .map(p => {
+          const hasPlus = p.trim().startsWith('+');
           let num = p.replace(/[^0-9]/g, '');
           // If starting with 0, remove it
           if (num.startsWith('0') && num.length === 11) num = num.substring(1);
-          // If 10 digits, assume India (+91)
-          if (num.length === 10) num = `91${num}`;
+          // If 10 digits and NO '+', assume India (+91)
+          if (!hasPlus && num.length === 10) num = `91${num}`;
           return num;
         })
-        .filter(p => p.length >= 10);
+        .filter(p => p.length >= 9);
 
       const uniquePhones = [...new Set(phones)].map(p => ({ id: `${p}@c.us` }));
       if (uniquePhones.length === 0) {
@@ -1373,22 +1374,22 @@ export async function handleStudents(req, res, url) {
       }
       const rawPayload = await readJson(req);
       const items = Array.isArray(rawPayload) ? rawPayload : [rawPayload];
-      
+
       const imported = [];
       const errors = [];
-      
+
       for (const item of items) {
         try {
           if (!item.student_name) {
             errors.push({ student: item, error: 'student_name is required' });
             continue;
           }
-          
+
           let studentCode = item.student_code;
           if (!studentCode) {
             studentCode = await generateStudentCode(adminClient);
           }
-          
+
           const { data: student, error: insertErr } = await adminClient
             .from('students')
             .insert({
@@ -1405,15 +1406,15 @@ export async function handleStudents(req, res, url) {
             })
             .select('*')
             .single();
-            
+
           if (insertErr) throw insertErr;
           imported.push(student);
-          
+
         } catch (e) {
           errors.push({ student: item, error: e.message });
         }
       }
-      
+
       sendJson(res, 200, { ok: true, imported_count: imported.length, errors });
       return true;
     }
