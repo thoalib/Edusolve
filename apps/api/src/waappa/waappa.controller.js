@@ -337,22 +337,26 @@ export class WaappaController {
                 const sentMsgId = mediaRes?.data?.id || mediaRes?.id || mediaRes?.response?.id || mediaRes?.messageId || mediaRes?.[0]?.id;
 
                 if (sentMsgId) {
-                    await supabase.from('whatsapp_messages').insert({
-                        id: sentMsgId,
-                        session_name: sessionData.session_name,
-                        from_jid: sessionData.session_name,
-                        to_jid: chatId,
-                        from_me: true,
-                        body: caption || text || '',
-                        has_media: true,
-                        media_url: mediaUrl,
-                        media_name: mediaName,
-                        media_type: mimetype,
-                        sender_role: 'coordinator',
-                        contact_type: 'unknown',
-                        contact_phone: chatId.split('@')[0],
-                        timestamp: Math.floor(Date.now() / 1000)
-                    }).catch(e => console.error('[waappa sendMessage] DB Pre-insert Error:', e.message));
+                    try {
+                        await supabase.from('whatsapp_messages').insert({
+                            id: sentMsgId,
+                            session_name: sessionData.session_name,
+                            from_jid: sessionData.session_name,
+                            to_jid: chatId,
+                            from_me: true,
+                            body: caption || text || '',
+                            has_media: true,
+                            media_url: mediaUrl,
+                            media_name: mediaName,
+                            media_type: mimetype,
+                            sender_role: 'coordinator',
+                            contact_type: 'unknown',
+                            contact_phone: chatId.split('@')[0],
+                            timestamp: Math.floor(Date.now() / 1000)
+                        });
+                    } catch (e) {
+                        console.error('[waappa sendMessage] DB Pre-insert Error:', e.message);
+                    }
                 }
             } else {
                 await waappaService.sendText(sessionData.session_name, sessionData.api_key, chatId, text);
