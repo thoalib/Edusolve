@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef, Fragment } from 'react';
-import { apiFetch } from '../../lib/api.js';
+import { apiFetch, API_BASE_URL } from '../../lib/api.js';
 import { PhoneInput } from '../../components/PhoneInput.jsx';
 import { ReceiptModal } from '../finance/InvoiceTemplate.jsx';
 import { MultiSelectDropdown } from '../../components/ui/MultiSelectDropdown.jsx';
@@ -250,6 +250,33 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
   const [editTeacherDemos, setEditTeacherDemos] = useState([]);
   const [editLoadingSlots, setEditLoadingSlots] = useState(false);
 
+  // Compute previously assigned teachers
+  const assignedTeacherIds = useMemo(() => {
+    const ids = new Set();
+    sessions.forEach(s => {
+      if (s.teacher_id) ids.add(s.teacher_id);
+    });
+    return ids;
+  }, [sessions]);
+
+  const teacherOptions = useMemo(() => {
+    const opts = teachers.map(t => ({
+      value: t.user_id,
+      label: t.users?.full_name || t.teacher_code || t.user_id,
+      isAssigned: assignedTeacherIds.has(t.user_id)
+    }));
+    // Sort: assigned first, then alphabetical
+    opts.sort((a, b) => {
+      if (a.isAssigned && !b.isAssigned) return -1;
+      if (!a.isAssigned && b.isAssigned) return 1;
+      return a.label.localeCompare(b.label);
+    });
+    return opts.map(o => ({
+      ...o,
+      label: o.isAssigned ? `${o.label} (Assigned)` : o.label
+    }));
+  }, [teachers, assignedTeacherIds]);
+
   // Bulk Form State
   const today = new Date().toISOString().slice(0, 10);
   const [showForm, setShowForm] = useState(false);
@@ -359,9 +386,17 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
 
     if (!targetDates.length) return { allStarts: [], slotChecks: {} };
 
+    const nowLocal = new Date();
+    const todayStr = nowLocal.getFullYear() + '-' + String(nowLocal.getMonth() + 1).padStart(2, '0') + '-' + String(nowLocal.getDate()).padStart(2, '0');
+    const currentMins = nowLocal.getHours() * 60 + nowLocal.getMinutes();
+
     function checkOverlapType(start, end) {
       if (start >= end) return 'invalid';
+      const [sH, sM] = start.split(':').map(Number);
+
       for (const td of targetDates) {
+        if (td.dateStr === todayStr && (sH * 60 + sM) <= currentMins) return 'past';
+
         // Teacher class clash
         const tClash = teacherAvail.classes.some(c => {
           if (c.session_date !== td.dateStr || !c.started_at) return false;
@@ -764,12 +799,15 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
               <label>End Date
                 <input type="date" value={fEnd} min={fStart} onChange={e => setFEnd(e.target.value)} required />
               </label>
-              <label>Teacher
-                <select value={fTeacher} onChange={e => { setFTeacher(e.target.value); setFTime(''); setFEndTime(''); }} required>
-                  <option value="">Select Teacher</option>
-                  {teachers.map(t => <option key={t.id} value={t.user_id}>{t.users?.full_name || t.teacher_code}</option>)}
-                </select>
-              </label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <SearchSelect 
+                  label="Teacher" 
+                  value={fTeacher} 
+                  onChange={val => { setFTeacher(val); setFTime(''); setFEndTime(''); }} 
+                  options={teacherOptions} 
+                  placeholder="Select Teacher" 
+                />
+              </div>
             </div>
 
             <label style={{ gridColumn: '1 / -1' }}>Days of Week
@@ -811,7 +849,7 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
                   {allStarts.map(t => {
                     const overlap = slotChecks[t];
                     const disabled = !!overlap;
-                    const suffix = overlap === 'student' ? ' (Student Busy)' : overlap === 'teacher' ? ' (Teacher Busy)' : '';
+                    const suffix = overlap === 'student' ? ' (Student Busy)' : overlap === 'teacher' ? ' (Teacher Busy)' : overlap === 'past' ? ' (Past)' : '';
                     return <option key={t} value={t} disabled={disabled}>{format24to12(t)}{suffix}</option>;
                   })}
                 </select>
@@ -2500,6 +2538,17 @@ export function TodayClassesPage() {
     } catch (e) { setError(e.message); }
   }
 
+  async function handleCancelSession(id) {
+    if (!window.confirm('Are you sure you want to cancel this session?')) return;
+    try {
+      await apiFetch(`/sessions/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'cancelled' })
+      });
+      await load();
+    } catch (e) { setError(e.message); }
+  }
+
   async function handleDelete(id) {
     try {
       await apiFetch(`/sessions/${id}`, { method: 'DELETE' });
@@ -2589,7 +2638,7 @@ export function TodayClassesPage() {
                 return (
                   <tr key={s.id}>
                     <td data-label="Time">{formatTime12(s.started_at)}</td>
-                    <td data-label="Student">{s.students?.student_name || s.student_id}</td>
+                    <td data-label="Student">{s.leads?.student_name || (Array.isArray(s.students) ? s.students[0]?.student_name : s.students?.student_name) || s.student_name || s.student_id}</td>
                     <td data-label="Teacher">{s.users?.full_name || s.teacher_id}</td>
                     <td data-label="Subject">{s.subject || '—'}</td>
                     <td data-label="Hrs">{s.duration_hours}h</td>
@@ -2609,6 +2658,10 @@ export function TodayClassesPage() {
                           {s.status !== 'completed' && (
                             <button type="button" title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', width: '28px' }}
                               onClick={() => setEditData({ id: s.id, teacher_id: s.teacher_id || '', student_id: s.student_id || '', subject: s.subject || '', date: s.session_date || '', time: s.started_at ? s.started_at.slice(11, 16) : '', duration: s.duration_hours || 1, status: s.status || 'scheduled' })}>✏️</button>
+                          )}
+                          {s.status !== 'completed' && s.status !== 'cancelled' && (
+                            <button type="button" title="Cancel" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', width: '28px' }}
+                              onClick={() => handleCancelSession(s.id)}>🚫</button>
                           )}
                           {s.status !== 'completed' && (
                             <button type="button" title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', width: '28px' }}
@@ -3022,6 +3075,17 @@ export function SessionsManagePage() {
     return false;
   }
 
+  async function handleCancelSession(id) {
+    if (!window.confirm('Are you sure you want to cancel this session?')) return;
+    try {
+      await apiFetch(`/sessions/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'cancelled' })
+      });
+      await loadAllSessions();
+    } catch (e) { setError(e.message); }
+  }
+
   async function handleDelete(id) {
     try {
       await apiFetch(`/sessions/${id}`, { method: 'DELETE' });
@@ -3134,7 +3198,7 @@ export function SessionsManagePage() {
                     <td data-label="Date">{s.session_date}</td>
                     <td data-label="Day">{dayName}</td>
                     <td data-label="Time">{formatTime12(s.started_at)}</td>
-                    <td data-label="Student">{s.students?.student_name || s.student_id}</td>
+                    <td data-label="Student">{s.leads?.student_name || (Array.isArray(s.students) ? s.students[0]?.student_name : s.students?.student_name) || s.student_name || s.student_id}</td>
                     <td data-label="Teacher">{s.users?.full_name || s.teacher_id}</td>
                     <td data-label="Subject">{s.subject || '—'}</td>
                     <td data-label="Hrs">{s.duration_hours}h</td>
@@ -3171,6 +3235,12 @@ export function SessionsManagePage() {
                                 duration: s.duration_hours || 1,
                                 status: s.status || 'scheduled'
                               })}>✏️</button>
+                          )}
+                          {s.status !== 'completed' && s.status !== 'cancelled' && (
+                            <button
+                              type="button" title="Cancel session"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', width: '28px' }}
+                              onClick={() => handleCancelSession(s.id)}>🚫</button>
                           )}
                           {s.status !== 'completed' && (
                             <button
@@ -3376,7 +3446,7 @@ function ApprovalTable({ items, fTeacher, fStudent, onVerify }) {
               <tr key={item.id}>
                 <td data-label="Requested At">{requestedAt}</td>
                 <td data-label="Date">{item.session_date || '-'}</td>
-                <td data-label="Student">{item.students?.student_name || item.student_id}</td>
+                <td data-label="Student">{item.leads?.student_name || (Array.isArray(item.students) ? item.students[0]?.student_name : item.students?.student_name) || item.student_name || item.student_id}</td>
                 <td data-label="Teacher">{item.users?.full_name || item.teacher_id}</td>
                 <td data-label="Subject">{item.subject || '—'}</td>
                 <td data-label="Note" style={{ maxWidth: '200px', fontSize: '13px' }}>{pendingV?.reason ? <span style={{ color: '#4b5563', fontStyle: 'italic' }}>"{pendingV.reason}"</span> : '—'}</td>
@@ -3442,7 +3512,7 @@ function RescheduleTable({ items, fTeacher, fStudent, onVerify }) {
               <tr key={item.id}>
                 <td data-label="Requested At">{requestedAt}</td>
                 <td data-label="Current Date">{session.session_date || '-'}</td>
-                <td data-label="Student">{session.students?.student_name || session.student_id || '—'}</td>
+                <td data-label="Student">{session.leads?.student_name || (Array.isArray(session.students) ? session.students[0]?.student_name : session.students?.student_name) || session.student_name || session.student_id || '—'}</td>
                 <td data-label="Teacher">{session.users?.full_name || session.teacher_id || '—'}</td>
                 <td data-label="Reason" style={{ maxWidth: '200px' }}>{item.reason || '—'}</td>
                 <td data-label="New Date">
@@ -3643,7 +3713,7 @@ export function VerificationsPage() {
                           <td data-label="Type">
                             <span style={{ fontSize: 12, fontWeight: 600 }}>{typeLabel}</span>
                           </td>
-                          <td data-label="Student">{sess.students?.student_name || '—'}</td>
+                          <td data-label="Student">{sess.leads?.student_name || (Array.isArray(sess.students) ? sess.students[0]?.student_name : sess.students?.student_name) || sess.student_name || '—'}</td>
                           <td data-label="Teacher">{sess.users?.full_name || '—'}</td>
                           <td data-label="Subject">{sess.subject || '—'}</td>
                           <td data-label="Session Date" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
@@ -5154,7 +5224,7 @@ export function AutomationPage() {
               <div style={{ gridColumn: '1 / -1', textAlign: 'center', margin: '16px 0' }}>
                 <p className="muted" style={{ marginBottom: 12 }}>Scan this QR code with your WhatsApp app to link.</p>
                 <img
-                  src={`http://localhost:4000/waappa/sessions/${waSession.session_name}/qr?t=${qrKey}`}
+                  src={`${API_BASE_URL}/waappa/sessions/${waSession.session_name}/qr?t=${qrKey}`}
                   alt="WhatsApp QR Code"
                   style={{ width: 250, height: 250, border: '1px solid #ddd', borderRadius: 8, display: 'block', margin: '0 auto' }}
                   onError={(e) => { e.target.style.display = 'none'; }}

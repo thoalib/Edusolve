@@ -17,7 +17,7 @@ function ApprovalTable({ items, onVerify }) {
           {items.map((item) => (
             <tr key={item.id}>
               <td data-label="Date">{item.session_date || '-'}</td>
-              <td data-label="Student">{item.students?.student_name || item.student_id}</td>
+              <td data-label="Student">{item.leads?.student_name || (Array.isArray(item.students) ? item.students[0]?.student_name : item.students?.student_name) || item.student_name || item.student_id}</td>
               <td data-label="Teacher">{item.users?.full_name || item.teacher_id}</td>
               <td data-label="Subject">{item.subject || '—'}</td>
               <td data-label="Duration">{item.duration_hours ? `${item.duration_hours}h` : '—'}</td>
@@ -51,7 +51,7 @@ function RescheduleTable({ items, onVerify }) {
             return (
               <tr key={item.id}>
                 <td data-label="Current Date">{session.session_date || '-'}</td>
-                <td data-label="Student">{session.students?.student_name || session.student_id || '—'}</td>
+                <td data-label="Student">{session.leads?.student_name || (Array.isArray(session.students) ? session.students[0]?.student_name : session.students?.student_name) || session.student_name || session.student_id || '—'}</td>
                 <td data-label="Teacher">{session.users?.full_name || session.teacher_id || '—'}</td>
                 <td data-label="Reason" style={{ maxWidth: '200px' }}>{item.reason || '—'}</td>
                 <td data-label="New Date">
@@ -229,7 +229,7 @@ export function SessionLogsPage() {
                 return (
                   <tr key={item.id}>
                     <td data-label="Date">{item.session_date || '-'}</td>
-                    <td data-label="Student">{item.students?.student_name || item.student_id}</td>
+                    <td data-label="Student">{item.leads?.student_name || (Array.isArray(item.students) ? item.students[0]?.student_name : item.students?.student_name) || item.student_name || item.student_id}</td>
                     <td data-label="Teacher">{item.users?.full_name || item.teacher_id}</td>
                     <td data-label="Subject">{item.subject || '—'}</td>
                     <td data-label="Status">
