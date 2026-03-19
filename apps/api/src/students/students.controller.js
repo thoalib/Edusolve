@@ -24,7 +24,8 @@ const updateStudentSchema = z.object({
   class_level: z.string().max(100).optional(),
   package_name: z.string().max(100).optional(),
   board: z.string().max(100).optional(),
-  medium: z.string().max(50).optional()
+  medium: z.string().max(50).optional(),
+  status: z.enum(['active', 'vacation', 'inactive']).optional()
 });
 
 const studentStatusSchema = z.object({
@@ -578,7 +579,7 @@ export async function handleStudents(req, res, url) {
       if (!body) return true;
       const text = body.text || `Hello ${st.student_name}, this is a gentle reminder regarding your upcoming classes.`;
 
-      const { data: sessRow } = await adminClient.from('whatsapp_sessions').select('session_name, api_key').eq('status', 'WORKING').order('updated_at', { ascending: false }).limit(1).maybeSingle();
+      const { data: sessRow } = await adminClient.from('whatsapp_sessions').select('session_name, api_key').eq('status', 'WORKING').eq('user_id', actor.userId).order('updated_at', { ascending: false }).limit(1).maybeSingle();
       if (!sessRow) {
         sendJson(res, 500, { ok: false, error: 'No active WhatsApp session found' });
         return true;
@@ -628,6 +629,7 @@ export async function handleStudents(req, res, url) {
         .from('whatsapp_sessions')
         .select('session_name, api_key, connected_phone')
         .eq('status', 'WORKING')
+        .eq('user_id', actor.userId)
         .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle();
