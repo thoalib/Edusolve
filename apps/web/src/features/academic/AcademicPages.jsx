@@ -4,6 +4,12 @@ import { PhoneInput } from '../../components/PhoneInput.jsx';
 import { ReceiptModal } from '../finance/InvoiceTemplate.jsx';
 import { MultiSelectDropdown } from '../../components/ui/MultiSelectDropdown.jsx';
 
+export function getISTTimeForInput(isoStr) {
+  if (!isoStr) return '';
+  if (!isoStr.includes('T')) return isoStr.slice(0, 5);
+  return new Date(isoStr).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+}
+
 function ExpandableMobileCard({ title, subtitle, topRight, mainStats, expandedContent, actions, borderColor }) {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -1033,7 +1039,7 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
                     teacher_id: selectedSession.teacher_id,
                     subject: selectedSession.subject || '',
                     date: selectedSession.session_date,
-                    time: selectedSession.started_at ? selectedSession.started_at.slice(11, 16) : '',
+                    time: selectedSession.started_at ? getISTTimeForInput(selectedSession.started_at) : '',
                     duration: selectedSession.duration_hours
                   });
                 }}>Reschedule</button>
@@ -1045,7 +1051,7 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
                     teacher_id: selectedSession.teacher_id || '',
                     subject: selectedSession.subject || '',
                     date: selectedSession.session_date || '',
-                    time: selectedSession.started_at ? selectedSession.started_at.slice(11, 16) : '',
+                    time: selectedSession.started_at ? getISTTimeForInput(selectedSession.started_at) : '',
                     duration: selectedSession.duration_hours || 1,
                     status: selectedSession.status || 'scheduled'
                   })}>✏️</button>
@@ -1617,7 +1623,7 @@ function StudentDetailPage({ studentId, onBack }) {
               <tbody>
                 {verifiedSessions.slice((logPage - 1) * 10, logPage * 10).map(vs => (
                   <tr key={vs.id}>
-                    <td data-label="Date">{vs.session_date} {vs.started_at ? vs.started_at.slice(11, 16) : ''}</td>
+                    <td data-label="Date">{vs.session_date} {vs.started_at ? getISTTimeForInput(vs.started_at) : ''}</td>
                     <td data-label="Teacher">{vs.users?.full_name || vs.teacher_id}</td>
                     <td data-label="Subject">{vs.subject || '—'}</td>
                     <td data-label="Hours">{vs.duration_hours}h</td>
@@ -2651,13 +2657,13 @@ export function TodayClassesPage() {
                         <div style={{ width: '85px' }}>
                           {isUpcoming && <button type="button" className="small secondary" style={{ width: '100%', padding: '4px 8px' }} onClick={() => setRescheduleData({
                             id: s.id, student_id: s.student_id || '', teacher_id: s.teacher_id || '',
-                            subject: s.subject || '', date: s.session_date || '', time: s.started_at ? s.started_at.slice(11, 16) : '', duration: s.duration_hours || 1
+                            subject: s.subject || '', date: s.session_date || '', time: s.started_at ? getISTTimeForInput(s.started_at) : '', duration: s.duration_hours || 1
                           })}>Reschedule</button>}
                         </div>
                         <div style={{ display: 'flex', gap: '4px', width: '64px' }}>
                           {s.status !== 'completed' && (
                             <button type="button" title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', width: '28px' }}
-                              onClick={() => setEditData({ id: s.id, teacher_id: s.teacher_id || '', student_id: s.student_id || '', subject: s.subject || '', date: s.session_date || '', time: s.started_at ? s.started_at.slice(11, 16) : '', duration: s.duration_hours || 1, status: s.status || 'scheduled' })}>✏️</button>
+                              onClick={() => setEditData({ id: s.id, teacher_id: s.teacher_id || '', student_id: s.student_id || '', subject: s.subject || '', date: s.session_date || '', time: s.started_at ? getISTTimeForInput(s.started_at) : '', duration: s.duration_hours || 1, status: s.status || 'scheduled' })}>✏️</button>
                           )}
                           {s.status !== 'completed' && s.status !== 'cancelled' && (
                             <button type="button" title="Cancel" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', width: '28px' }}
@@ -3216,7 +3222,7 @@ export function SessionsManagePage() {
                             teacher_id: s.teacher_id || '',
                             subject: s.subject || '',
                             date: s.session_date || '',
-                            time: s.started_at ? s.started_at.slice(11, 16) : '',
+                            time: s.started_at ? getISTTimeForInput(s.started_at) : '',
                             duration: s.duration_hours || 1
                           })}>Reschedule</button>}
                         </div>
@@ -3231,7 +3237,7 @@ export function SessionsManagePage() {
                                 student_id: s.student_id || '',
                                 subject: s.subject || '',
                                 date: s.session_date || '',
-                                time: s.started_at ? s.started_at.slice(11, 16) : '',
+                                time: s.started_at ? getISTTimeForInput(s.started_at) : '',
                                 duration: s.duration_hours || 1,
                                 status: s.status || 'scheduled'
                               })}>✏️</button>
@@ -5347,6 +5353,23 @@ function parseSubjects(s) {
 
 /* ─── View Lead Modal (Reused for Teachers) ─── */
 /* ─── View Lead Modal (Reused for Teachers) ─── */
+
+function EditTeacherInputField({ label, name, type = 'text', required, style, value, onChange }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', ...style }}>
+      <label style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>{label} {required ? <span style={{ color: '#ef4444' }}>*</span> : null}</label>
+      <input
+        type={type}
+        name={name}
+        value={value || ''}
+        onChange={onChange}
+        style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px' }}
+        required={required}
+      />
+    </div>
+  );
+}
+
 export function ViewTeacherModal({ teacher, onClose }) {
   const [activeTab, setActiveTab] = useState('details');
   const [isEditing, setIsEditing] = useState(false);
@@ -5633,19 +5656,6 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
     }
   };
 
-  const InputField = ({ label, name, type = 'text', required, style }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', ...style }}>
-      <label style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>{label} {required && <span style={{ color: '#ef4444' }}>*</span>}</label>
-      <input
-        type={type}
-        name={name}
-        value={formData[name]}
-        onChange={handleChange}
-        style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px' }}
-        required={required}
-      />
-    </div>
-  );
 
   const isExperienced = formData.experience_level !== 'fresher';
 
@@ -5666,7 +5676,7 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
             {/* Personal Details */}
             <h4 style={{ fontSize: '15px', fontWeight: 600, color: '#374151', marginBottom: '12px' }}>Personal Information</h4>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-              <InputField label="Full Name" name="full_name" required />
+              <EditTeacherInputField label="Full Name" name="full_name" required  value={formData.full_name} onChange={handleChange} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <label style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>Phone</label>
                 <PhoneInput
@@ -5675,18 +5685,18 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
                   placeholder="Phone Number"
                 />
               </div>
-              <InputField label="Gender" name="gender" />
-              <InputField label="Date of Birth" name="dob" type="date" />
-              <InputField label="Address" name="address" />
-              <InputField label="Pincode" name="pincode" />
-              <InputField label="Place/Area" name="place" />
-              <InputField label="City" name="city" />
+              <EditTeacherInputField label="Gender" name="gender"  value={formData.gender} onChange={handleChange} />
+              <EditTeacherInputField label="Date of Birth" name="dob" type="date"  value={formData.dob} onChange={handleChange} />
+              <EditTeacherInputField label="Address" name="address"  value={formData.address} onChange={handleChange} />
+              <EditTeacherInputField label="Pincode" name="pincode"  value={formData.pincode} onChange={handleChange} />
+              <EditTeacherInputField label="Place/Area" name="place"  value={formData.place} onChange={handleChange} />
+              <EditTeacherInputField label="City" name="city"  value={formData.city} onChange={handleChange} />
             </div>
 
             {/* Professional Details */}
             <h4 style={{ fontSize: '15px', fontWeight: 600, color: '#374151', marginTop: '20px', marginBottom: '12px', borderTop: '1px solid #e5e7eb', paddingTop: '16px' }}>Professional Information</h4>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-              <InputField label="Qualification" name="qualification" />
+              <EditTeacherInputField label="Qualification" name="qualification"  value={formData.qualification} onChange={handleChange} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <label style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>Communication Level</label>
                 <CustomDropdown
@@ -5710,11 +5720,11 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
               </div>
               {isExperienced && (
                 <>
-                  <InputField label="Exp. Type" name="experience_type" />
-                  <InputField label="Exp. Duration" name="experience_duration" />
+                  <EditTeacherInputField label="Exp. Type" name="experience_type"  value={formData.experience_type} onChange={handleChange} />
+                  <EditTeacherInputField label="Exp. Duration" name="experience_duration"  value={formData.experience_duration} onChange={handleChange} />
                 </>
               )}
-              <InputField label="Rate per Hour" name="per_hour_rate" type="number" />
+              <EditTeacherInputField label="Rate per Hour" name="per_hour_rate" type="number"  value={formData.per_hour_rate} onChange={handleChange} />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '16px' }}>
@@ -5753,12 +5763,12 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
             {/* Bank Details */}
             <h4 style={{ fontSize: '15px', fontWeight: 600, color: '#374151', marginTop: '20px', marginBottom: '12px', borderTop: '1px solid #e5e7eb', paddingTop: '16px' }}>Bank Information</h4>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-              <InputField label="Account Holder Name" name="account_holder_name" />
-              <InputField label="Account Number" name="account_number" />
-              <InputField label="IFSC Code" name="ifsc_code" />
-              <InputField label="UPI ID" name="upi_id" />
-              <InputField label="GPay Name" name="gpay_holder_name" />
-              <InputField label="GPay Number" name="gpay_number" />
+              <EditTeacherInputField label="Account Holder Name" name="account_holder_name"  value={formData.account_holder_name} onChange={handleChange} />
+              <EditTeacherInputField label="Account Number" name="account_number"  value={formData.account_number} onChange={handleChange} />
+              <EditTeacherInputField label="IFSC Code" name="ifsc_code"  value={formData.ifsc_code} onChange={handleChange} />
+              <EditTeacherInputField label="UPI ID" name="upi_id"  value={formData.upi_id} onChange={handleChange} />
+              <EditTeacherInputField label="GPay Name" name="gpay_holder_name"  value={formData.gpay_holder_name} onChange={handleChange} />
+              <EditTeacherInputField label="GPay Number" name="gpay_number"  value={formData.gpay_number} onChange={handleChange} />
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
