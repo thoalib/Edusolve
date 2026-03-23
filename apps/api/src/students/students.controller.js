@@ -1101,6 +1101,13 @@ export async function handleStudents(req, res, url) {
       const updateFields = validatePayload(res, rescheduleSessionSchema, rawBody);
       if (!updateFields) return true;
 
+      if (updateFields.session_date && updateFields.started_at && !updateFields.started_at.includes('T')) {
+        updateFields.started_at = `${updateFields.session_date}T${updateFields.started_at}:00+05:30`;
+      }
+
+      // Auto-set the status to rescheduled
+      updateFields.status = 'rescheduled';
+
       if (Object.keys(updateFields).length === 0) {
         sendJson(res, 400, { ok: false, error: 'no fields to update' });
         return true;

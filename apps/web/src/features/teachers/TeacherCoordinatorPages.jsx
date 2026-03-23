@@ -4,6 +4,7 @@ import { apiFetch } from '../../lib/api.js';
 import { getSession } from '../../lib/auth.js';
 import DateTimePicker from '../../components/DateTimePicker.jsx';
 import { MultiSelectDropdown } from '../../components/ui/MultiSelectDropdown.jsx';
+import { Pagination } from '../../components/ui/Pagination.jsx';
 
 /* ─── Inline SVG Icons ─── */
 const Icon = ({ d, color = 'currentColor', size = 16 }) => (
@@ -1584,6 +1585,8 @@ export function TeacherPerformancePage() {
     const [teachers, setTeachers] = useState([]);
     const [sessions, setSessions] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [page, setPage] = useState(1);
+    const limit = 15;
 
     useEffect(() => {
         (async () => {
@@ -1629,6 +1632,11 @@ export function TeacherPerformancePage() {
         return Object.values(map).sort((a, b) => b.completedSessions - a.completedSessions);
     }, [teachers, sessions]);
 
+    const paginatedStats = useMemo(() => {
+        const start = (page - 1) * limit;
+        return teacherStats.slice(start, start + limit);
+    }, [teacherStats, page, limit]);
+
     if (loading) return <section className="panel"><p>Loading performance data...</p></section>;
 
     return (
@@ -1667,9 +1675,9 @@ export function TeacherPerformancePage() {
                             </tr>
                         </thead>
                         <tbody>
-                            {teacherStats.map((t, idx) => (
+                            {paginatedStats.map((t, idx) => (
                                 <tr key={idx}>
-                                    <td data-label="#">{idx + 1}</td>
+                                    <td data-label="#">{(page - 1) * limit + idx + 1}</td>
                                     <td data-label="Teacher">{t.name}</td>
                                     <td data-label="Code">{t.code || '—'}</td>
                                     <td data-label="Phone">{t.phone || '—'}</td>
@@ -1680,11 +1688,12 @@ export function TeacherPerformancePage() {
                                 </tr>
                             ))}
                             {!teacherStats.length ? (
-                                <tr><td colSpan="7" style={{ textAlign: 'center' }}>No teachers yet.</td></tr>
+                                <tr><td colSpan="8" style={{ textAlign: 'center' }}>No teachers yet.</td></tr>
                             ) : null}
                         </tbody>
                     </table>
                 </div>
+                <Pagination page={page} limit={limit} total={teacherStats.length} onPageChange={setPage} />
             </article>
         </section>
     );

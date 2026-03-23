@@ -87,8 +87,8 @@ const teacherProfileUpdateSchema = z.object({
 const updateAvailabilitySchema = z.object({
   slots: z.array(z.object({
     day_of_week: z.enum(['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']),
-    start_time: z.string().regex(/^([0-1]?[0-9]|2[0-4]):[0-5][0-9]$/, 'Invalid time (HH:MM)'),
-    end_time: z.string().regex(/^([0-1]?[0-9]|2[0-4]):[0-5][0-9]$/, 'Invalid time (HH:MM)')
+    start_time: z.string().regex(/^([0-1]?[0-9]|2[0-4]):[0-5][0-9](?::[0-5][0-9])?$/, 'Invalid time'),
+    end_time: z.string().regex(/^([0-1]?[0-9]|2[0-4]):[0-5][0-9](?::[0-5][0-9])?$/, 'Invalid time')
   }))
 });
 

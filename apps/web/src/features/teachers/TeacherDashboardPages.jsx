@@ -1005,10 +1005,7 @@ export function TeacherMyProfilePage() {
     function formatTime(m) {
         let h = Math.floor(m / 60);
         const min = m % 60;
-        const period = h >= 12 ? 'PM' : 'AM';
-        if (h > 12) h -= 12;
-        if (h === 0) h = 12;
-        return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')} ${period}`;
+        return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
     }
 
     function checkOverlap(newSlot, existingSlots) {

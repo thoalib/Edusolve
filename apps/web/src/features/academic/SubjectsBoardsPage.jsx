@@ -46,13 +46,13 @@ export function SubjectsBoardsPage() {
     /* ── Subject CRUD ── */
     const addSubject = async () => {
         if (!newSubject.trim()) return;
-        const res = await apiFetch('/subjects', { method: 'POST', body: { name: newSubject.trim() } });
+        const res = await apiFetch('/subjects', { method: 'POST', body: JSON.stringify({ name: newSubject.trim() }) });
         if (res.ok) { setNewSubject(''); load(); }
         else alert(res.error || 'Failed');
     };
     const updateSubject = async (id) => {
         if (!editName.trim()) return;
-        await apiFetch(`/subjects/${id}`, { method: 'PATCH', body: { name: editName.trim() } });
+        await apiFetch(`/subjects/${id}`, { method: 'PATCH', body: JSON.stringify({ name: editName.trim() }) });
         setEditingSubject(null); load();
     };
     const deleteSubject = async (id) => {
@@ -64,13 +64,13 @@ export function SubjectsBoardsPage() {
     /* ── Board CRUD ── */
     const addBoard = async () => {
         if (!newBoard.trim()) return;
-        const res = await apiFetch('/boards', { method: 'POST', body: { name: newBoard.trim() } });
+        const res = await apiFetch('/boards', { method: 'POST', body: JSON.stringify({ name: newBoard.trim() }) });
         if (res.ok) { setNewBoard(''); load(); }
         else alert(res.error || 'Failed');
     };
     const updateBoard = async (id) => {
         if (!editName.trim()) return;
-        await apiFetch(`/boards/${id}`, { method: 'PATCH', body: { name: editName.trim() } });
+        await apiFetch(`/boards/${id}`, { method: 'PATCH', body: JSON.stringify({ name: editName.trim() }) });
         setEditingBoard(null); load();
     };
     const deleteBoard = async (id) => {
@@ -82,13 +82,13 @@ export function SubjectsBoardsPage() {
     /* ── Medium CRUD ── */
     const addMedium = async () => {
         if (!newMedium.trim()) return;
-        const res = await apiFetch('/mediums', { method: 'POST', body: { name: newMedium.trim() } });
+        const res = await apiFetch('/mediums', { method: 'POST', body: JSON.stringify({ name: newMedium.trim() }) });
         if (res.ok) { setNewMedium(''); load(); }
         else alert(res.error || 'Failed');
     };
     const updateMedium = async (id) => {
         if (!editName.trim()) return;
-        await apiFetch(`/mediums/${id}`, { method: 'PATCH', body: { name: editName.trim() } });
+        await apiFetch(`/mediums/${id}`, { method: 'PATCH', body: JSON.stringify({ name: editName.trim() }) });
         setEditingMedium(null); load();
     };
     const deleteMedium = async (id) => {
