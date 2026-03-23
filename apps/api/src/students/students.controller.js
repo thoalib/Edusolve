@@ -65,6 +65,7 @@ const rescheduleSessionSchema = z.object({
   started_at: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).optional(),
   ended_at: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).optional(),
   status: z.enum(['scheduled', 'rescheduled', 'completed', 'cancelled', 'held']).optional(),
+  duration_hours: z.coerce.number().positive().optional(),
   subject: z.string().max(100).optional(),
   teacher_id: z.string().uuid().optional()
 });

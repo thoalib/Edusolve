@@ -231,6 +231,7 @@ export async function handleSessions(req, res, url) {
           session_date,
           started_at: started_at.includes('T') ? started_at : `${session_date}T${started_at}:00+05:30`,
           duration_hours: Number(duration_hours),
+          status: 'rescheduled',
           ...(payload.subject !== undefined ? { subject: payload.subject } : {}),
           ...(payload.teacher_id ? { teacher_id: payload.teacher_id } : {}),
           updated_at: nowIso()
