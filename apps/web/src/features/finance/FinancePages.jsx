@@ -2,6 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../../lib/api.js';
 import { ReceiptModal, PaySlipModal, CompanyBrandingSettings } from './InvoiceTemplate.jsx';
 
+/* ═══════ HELPERS ═══════ */
+function CurrencyDisplay({ value, prefix = '₹', style = {} }) {
+  const val = Number(value) || 0;
+  const parts = val.toFixed(2).split('.');
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'baseline', ...style }}>
+      <span>{prefix}{Number(parts[0]).toLocaleString('en-IN')}</span>
+      <span style={{ fontSize: '0.65em', opacity: 0.75, fontWeight: 600, marginLeft: '1px' }}>.{parts[1]}</span>
+    </span>
+  );
+}
+
 /* ═══════ FINANCE DASHBOARD ═══════ */
 export function FinanceDashboardPage() {
 
@@ -41,19 +53,19 @@ export function FinanceDashboardPage() {
       <div className="grid-four">
         <article className="card stat-card success">
           <p className="eyebrow">Total Income</p>
-          <h3>₹{income.toLocaleString()}</h3>
+          <h3><CurrencyDisplay value={income} /></h3>
         </article>
         <article className="card stat-card danger">
           <p className="eyebrow">Total Expenses</p>
-          <h3>₹{expense.toLocaleString()}</h3>
+          <h3><CurrencyDisplay value={expense} /></h3>
         </article>
         <article className={`card stat-card ${net >= 0 ? 'success' : 'danger'}`}>
           <p className="eyebrow">Net Profit</p>
-          <h3>₹{net.toLocaleString()}</h3>
+          <h3><CurrencyDisplay value={net} /></h3>
         </article>
         <article className="card stat-card spotlight">
           <p className="eyebrow">Total Balance</p>
-          <h3>₹{balance.toLocaleString()}</h3>
+          <h3><CurrencyDisplay value={balance} /></h3>
         </article>
       </div>
 
@@ -68,7 +80,7 @@ export function FinanceDashboardPage() {
           <div style={{ marginBottom: '10px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
               <span style={{ color: '#15803d', fontWeight: 600 }}>Income</span>
-              <span style={{ fontWeight: 700, color: '#15803d' }}>₹{income.toLocaleString()}</span>
+              <span style={{ fontWeight: 700, color: '#15803d' }}><CurrencyDisplay value={income} /></span>
             </div>
             <div style={{ height: '18px', background: '#f3f4f6', borderRadius: '9px', overflow: 'hidden' }}>
               <div style={{ width: `${(income / maxBar) * 100}%`, height: '100%', background: 'linear-gradient(90deg, #22c55e, #15803d)', borderRadius: '9px', transition: 'width 0.6s ease' }} />
@@ -77,7 +89,7 @@ export function FinanceDashboardPage() {
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
               <span style={{ color: '#dc2626', fontWeight: 600 }}>Expenses</span>
-              <span style={{ fontWeight: 700, color: '#dc2626' }}>₹{expense.toLocaleString()}</span>
+              <span style={{ fontWeight: 700, color: '#dc2626' }}><CurrencyDisplay value={expense} /></span>
             </div>
             <div style={{ height: '18px', background: '#f3f4f6', borderRadius: '9px', overflow: 'hidden' }}>
               <div style={{ width: `${(expense / maxBar) * 100}%`, height: '100%', background: 'linear-gradient(90deg, #f87171, #dc2626)', borderRadius: '9px', transition: 'width 0.6s ease' }} />
@@ -85,7 +97,7 @@ export function FinanceDashboardPage() {
           </div>
           <div style={{ marginTop: '14px', padding: '10px', background: net >= 0 ? '#ecfdf5' : '#fef2f2', borderRadius: '8px', textAlign: 'center' }}>
             <span style={{ fontSize: '13px', fontWeight: 700, color: net >= 0 ? '#15803d' : '#dc2626' }}>
-              {net >= 0 ? '▲' : '▼'} Net: ₹{Math.abs(net).toLocaleString()} ({net >= 0 ? '+' : '-'}{Math.abs(profitMargin)}% margin)
+              {net >= 0 ? '▲' : '▼'} Net: <CurrencyDisplay value={Math.abs(net)} /> ({net >= 0 ? '+' : '-'}{Math.abs(profitMargin)}% margin)
             </span>
           </div>
         </div>
@@ -157,7 +169,7 @@ export function FinanceDashboardPage() {
                       <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {acc.name} {acc.is_main ? <span style={{ color: '#4338ca', fontSize: '10px' }}>(Main)</span> : ''}
                       </span>
-                      <span style={{ fontWeight: 700, color: accBal >= 0 ? '#15803d' : '#dc2626', flexShrink: 0 }}>₹{accBal.toLocaleString()}</span>
+                      <span style={{ fontWeight: 700, color: accBal >= 0 ? '#15803d' : '#dc2626', flexShrink: 0 }}><CurrencyDisplay value={accBal} /></span>
                     </div>
                     <div style={{ height: '8px', background: '#f3f4f6', borderRadius: '4px', overflow: 'hidden' }}>
                       <div style={{ width: `${(Math.abs(accBal) / maxBal) * 100}%`, height: '100%', background: accBal >= 0 ? 'linear-gradient(90deg, #34d399, #059669)' : 'linear-gradient(90deg, #f87171, #dc2626)', borderRadius: '4px' }} />

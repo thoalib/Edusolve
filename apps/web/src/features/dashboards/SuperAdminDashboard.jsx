@@ -1,6 +1,17 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../../lib/api.js';
 
+function CurrencyDisplay({ value, prefix = '₹', style = {} }) {
+    const val = Number(value) || 0;
+    const parts = val.toFixed(2).split('.');
+    return (
+        <span style={{ display: 'inline-flex', alignItems: 'baseline', ...style }}>
+            <span>{prefix}{Number(parts[0]).toLocaleString('en-IN')}</span>
+            <span style={{ fontSize: '0.65em', opacity: 0.75, fontWeight: 600, marginLeft: '1px' }}>.{parts[1]}</span>
+        </span>
+    );
+}
+
 export function SuperAdminDashboardPage() {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -25,26 +36,26 @@ export function SuperAdminDashboardPage() {
             <div className="grid-four">
                 <article className="card stat-card success">
                     <p className="eyebrow">Total Revenue</p>
-                    <h3>₹{finance.income?.toLocaleString() || 0}</h3>
+                    <h3><CurrencyDisplay value={finance.income} /></h3>
                 </article>
                 <article className="card stat-card danger">
                     <p className="eyebrow">Total Expenses</p>
-                    <h3>₹{finance.expenses?.toLocaleString() || 0}</h3>
+                    <h3><CurrencyDisplay value={finance.expenses} /></h3>
                 </article>
                 <article className="card stat-card">
                     <p className="eyebrow">Net Profit</p>
                     <h3 style={{ color: finance.net >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                        ₹{finance.net?.toLocaleString() || 0}
+                        <CurrencyDisplay value={finance.net} prefix="₹" />
                     </h3>
                 </article>
 
                 <article className="card stat-card warning">
                     <p className="eyebrow">Payable to Teachers</p>
-                    <h3>₹{finance.teacherPayable?.toLocaleString() || 0}</h3>
+                    <h3><CurrencyDisplay value={finance.teacherPayable} /></h3>
                 </article>
                 <article className="card stat-card info">
                     <p className="eyebrow">Pending Incoming</p>
-                    <h3>₹{finance.pendingIncoming?.toLocaleString() || 0}</h3>
+                    <h3><CurrencyDisplay value={finance.pendingIncoming} /></h3>
                 </article>
             </div>
 
