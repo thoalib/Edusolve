@@ -92,6 +92,16 @@ export async function handleUsers(req, res) {
 
             if (error) throw error;
 
+            // Get the role id corresponding to the role code
+            const { data: roleData } = await adminClient.from('roles').select('id').eq('code', role).single();
+            if (roleData) {
+                const { error: roleError } = await adminClient.from('user_roles').insert({
+                    user_id: data.user.id,
+                    role_id: roleData.id
+                });
+                if (roleError) console.error('Failed to insert user role:', roleError.message);
+            }
+
             // Auto-add to employees table (for HR attendance/salary) — skip teachers and super_admin
             const skipRoles = ['super_admin', 'teacher'];
             if (!skipRoles.includes(role)) {
@@ -191,6 +201,20 @@ export async function handleUsers(req, res) {
                 // Also update employees table phone/name if record exists
                 if (phone) await adminClient.from('employees').update({ phone }).eq('user_id', id);
                 if (name) await adminClient.from('employees').update({ full_name: name }).eq('user_id', id);
+            }
+
+            // Sync user_roles if role changed
+            if (role) {
+                const { data: roleData } = await adminClient.from('roles').select('id').eq('code', role).single();
+                if (roleData) {
+                    // Remove old roles for this user
+                    await adminClient.from('user_roles').delete().eq('user_id', id);
+                    // Insert new role
+                    await adminClient.from('user_roles').insert({
+                        user_id: id,
+                        role_id: roleData.id
+                    });
+                }
             }
 
             sendJson(res, 200, { ok: true, user: data.user });

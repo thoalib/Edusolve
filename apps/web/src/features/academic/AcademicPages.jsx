@@ -32,13 +32,41 @@ function ExpandableMobileCard({ title, subtitle, topRight, mainStats, expandedCo
   );
 }
 
-// Map helper function to return proper colors
+// Session Status Color Mapping
+export const getSessionStatusStyles = (status, verificationStatus) => {
+  // If it's verified, always show the green success state
+  if (status === 'verified' || verificationStatus === 'approved') {
+    return { label: 'Verified', bg: '#dcfce7', color: '#15803d' };
+  }
+
+  // If it's completed but verification status is pending, show waiting state
+  if (status === 'completed' && (!verificationStatus || verificationStatus === 'pending')) {
+    return { label: 'Waiting for verification', bg: '#fef3c7', color: '#92400e' };
+  }
+
+  // Handle specific session statuses
+  switch (status) {
+    case 'scheduled':
+      return { label: 'Scheduled', bg: '#e0e7ff', color: '#4338ca' };
+    case 'completed':
+      return { label: 'Completed', bg: '#cffafe', color: '#0891b2' };
+    case 'rescheduled':
+      return { label: 'Rescheduled', bg: '#fef3c7', color: '#92400e' };
+    case 'cancelled':
+      return { label: 'Cancelled', bg: '#fee2e2', color: '#991b1b' };
+    case 'in_progress':
+      return { label: 'In Progress', bg: '#ffedd5', color: '#ea580c' };
+    default:
+      return { label: status || 'Unknown', bg: '#f3f4f6', color: '#4b5563' };
+  }
+};
+
 const getStatusColor = (status) => {
   switch (status) {
-    case 'active': return '#22c55e'; // green
-    case 'pending': return '#f97316'; // orange
-    case 'inactive': return '#ef4444'; // red
-    default: return '#6b7280'; // gray
+    case 'active': return '#22c55e';
+    case 'vacation': return '#f97316';
+    case 'inactive': return '#ef4444';
+    default: return '#6b7280';
   }
 };
 import { SearchSelect } from '../../components/ui/SearchSelect.jsx';
@@ -1001,7 +1029,10 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
                     <div className="calendar-session-info">
                       <strong>{s.subject || 'Class'}</strong>
                       <span>{s.users?.full_name || 'Teacher'}</span>
-                      <span className={`status-tag small ${s.status === 'scheduled' ? 'warning' : 'success'}`}>{s.status}</span>
+                      {(() => {
+                        const style = getSessionStatusStyles(s.status, s.verification_status);
+                        return <span className="status-tag small" style={{ background: style.bg, color: style.color }}>{style.label}</span>;
+                      })()}
                       {isSessionOverdue(s) && <span className="status-tag small" style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', marginLeft: 4 }}>Overdue</span>}
                     </div>
                   </div>
@@ -2068,7 +2099,10 @@ export function StudentsHubPage({ role }) {
               </td>
               <td data-label="Class" style={{ padding: '16px 12px' }}>{s.class_level || '—'}</td>
               <td data-label="Status" style={{ padding: '16px 12px' }}>
-                <span className={`status-tag ${statusColor[s.status] || ''}`}>{s.status}</span>
+                {(() => {
+                  const style = getSessionStatusStyles(s.status, s.verification_status);
+                  return <span className="status-tag" style={{ background: style.bg, color: style.color }}>{style.label}</span>;
+                })()}
               </td>
               <td data-label="Hours Left" style={{ padding: '16px 12px' }}><span className={Number(s.remaining_hours) <= 5 ? 'text-danger' : ''}>{s.remaining_hours}</span></td>
               {isSuperAdmin && <td data-label="Coordinator" style={{ padding: '16px 12px', fontSize: '13px', color: '#4b5563' }}>{s.ac_user?.full_name || '—'}</td>}
@@ -2649,7 +2683,10 @@ export function TodayClassesPage() {
                     <td data-label="Subject">{s.subject || '—'}</td>
                     <td data-label="Hrs">{s.duration_hours}h</td>
                     <td data-label="Status">
-                      <span className={`status-tag ${s.status === 'completed' ? 'primary' : s.status === 'scheduled' ? 'warning' : ''}`}>{s.status}</span>
+                      {(() => {
+                        const style = getSessionStatusStyles(s.status, s.verification_status);
+                        return <span className="status-tag" style={{ background: style.bg, color: style.color }}>{style.label}</span>;
+                      })()}
                       {isSessionOverdue(s) && <span className="status-tag small" style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', marginLeft: 4 }}>Overdue</span>}
                     </td>
                     <td className="actions" data-label="Actions" style={{ whiteSpace: 'nowrap' }}>
@@ -3209,7 +3246,10 @@ export function SessionsManagePage() {
                     <td data-label="Subject">{s.subject || '—'}</td>
                     <td data-label="Hrs">{s.duration_hours}h</td>
                     <td data-label="Status">
-                      <span className={`status-tag ${s.status === 'completed' ? 'primary' : s.status === 'scheduled' ? 'warning' : ''}`}>{s.status}</span>
+                      {(() => {
+                        const style = getSessionStatusStyles(s.status, s.verification_status);
+                        return <span className="status-tag" style={{ background: style.bg, color: style.color }}>{style.label}</span>;
+                      })()}
                       {isSessionOverdue(s) && <span className="status-tag small" style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', marginLeft: 4 }}>Overdue</span>}
                       {s.status === 'completed' && <span className={`status-tag small ${s.verification_status === 'approved' ? 'success' : 'muted'}`} style={{ marginLeft: 4 }}>{s.verification_status}</span>}
                     </td>
@@ -3425,7 +3465,7 @@ export function SessionsManagePage() {
 
 /* ═══════ Verifications (separate page — only teacher-submitted approvals) ═══════ */
 function ApprovalTable({ items, fTeacher, fStudent, onVerify }) {
-  const [durationOverrides, setDurationOverrides] = useState({});
+  const [selectedItem, setSelectedItem] = useState(null);
   const [page, setPage] = useState(1);
 
   const filtered = items.filter(s => {
@@ -3438,7 +3478,7 @@ function ApprovalTable({ items, fTeacher, fStudent, onVerify }) {
     <div className="table-wrap mobile-friendly-table" style={{ marginTop: '12px' }}>
       <table>
         <thead>
-          <tr><th>Requested At</th><th>Date</th><th>Student</th><th>Teacher</th><th>Subject</th><th>Note / Reason</th><th>Duration (Override)</th><th>Actions</th></tr>
+          <tr><th>Requested At</th><th>Date</th><th>Student</th><th>Teacher</th><th>Subject</th><th>Sched.</th><th>Taken</th><th>Actions</th></tr>
         </thead>
         <tbody>
           {filtered.slice((page - 1) * 10, page * 10).map((item) => {
@@ -3455,38 +3495,128 @@ function ApprovalTable({ items, fTeacher, fStudent, onVerify }) {
                 <td data-label="Student">{item.leads?.student_name || (Array.isArray(item.students) ? item.students[0]?.student_name : item.students?.student_name) || item.student_name || item.student_id}</td>
                 <td data-label="Teacher">{item.users?.full_name || item.teacher_id}</td>
                 <td data-label="Subject">{item.subject || '—'}</td>
-                <td data-label="Note" style={{ maxWidth: '200px', fontSize: '13px' }}>{pendingV?.reason ? <span style={{ color: '#4b5563', fontStyle: 'italic' }}>"{pendingV.reason}"</span> : '—'}</td>
-                <td data-label="Duration">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <input
-                      type="number"
-                      step="0.25"
-                      min="0.25"
-                      style={{ width: '70px', padding: '4px', fontSize: '13px', borderRadius: '4px', border: '1px solid #d1d5db' }}
-                      value={durationOverrides[item.id] !== undefined ? durationOverrides[item.id] : (item.duration_hours || 1)}
-                      onChange={(e) => setDurationOverrides(prev => ({ ...prev, [item.id]: e.target.value }))}
-                    />
-                    <span style={{ fontSize: '12px', color: '#6b7280' }}>hrs</span>
-                  </div>
+                <td data-label="Sched.">{item.duration_hours || '—'}h</td>
+                <td data-label="Taken">
+                  {pendingV?.new_duration ? (
+                    <span style={{ fontWeight: 600, color: '#1d4ed8' }}>{pendingV.new_duration}h</span>
+                  ) : <span style={{ color: '#9ca3af' }}>{item.duration_hours}h</span>}
                 </td>
                 <td className="actions" data-label="Actions">
-                  <button type="button" onClick={() => {
-                    const finalDuration = durationOverrides[item.id] !== undefined ? Number(durationOverrides[item.id]) : Number(item.duration_hours || 1);
-                    onVerify(item.id, true, 'approval', finalDuration);
-                  }}>Approve</button>
+                  <button type="button" onClick={() => setSelectedItem(item)}>Review & Approve</button>
                   <button type="button" className="danger" onClick={() => onVerify(item.id, false, 'approval')}>Reject</button>
                 </td>
               </tr>
             );
           })}
           {!filtered.length ? (
-            <tr><td colSpan="6" style={{ textAlign: 'center', color: '#9ca3af', padding: '24px' }}>No pending session approvals.</td></tr>
+            <tr><td colSpan="8" style={{ textAlign: 'center', color: '#9ca3af', padding: '24px' }}>No pending session approvals.</td></tr>
           ) : null}
         </tbody>
       </table>
       {filtered.length > 10 && (
         <Pagination page={page} limit={10} total={filtered.length} onPageChange={setPage} />
       )}
+
+      {selectedItem && (
+        <ApprovalModal
+          item={selectedItem}
+          onClose={() => setSelectedItem(null)}
+          onVerify={(approved, duration) => {
+            onVerify(selectedItem.id, approved, 'approval', duration);
+            setSelectedItem(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ApprovalModal({ item, onClose, onVerify }) {
+  const [loading, setLoading] = useState(false);
+  const pendingV = Array.isArray(item.session_verifications)
+    ? item.session_verifications.find(v => v.status === 'pending' && v.type === 'approval')
+    : item.session_verifications;
+  
+  const [duration, setDuration] = useState(pendingV?.new_duration || item.duration_hours || 1);
+
+  async function handleApprove() {
+    setLoading(true);
+    try {
+      await onVerify(true, Number(duration));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={!loading ? onClose : undefined} style={{ zIndex: 1000 }}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '450px', padding: '24px', opacity: loading ? 0.7 : 1, pointerEvents: loading ? 'none' : 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h3 style={{ margin: 0, fontSize: '18px' }}>Session Verification</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#9ca3af' }}>&times;</button>
+        </div>
+
+        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', marginBottom: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
+            <div>
+              <span style={{ color: '#64748b', fontWeight: 500 }}>Student</span>
+              <p style={{ margin: '2px 0 0', fontWeight: 600 }}>{item.leads?.student_name || (Array.isArray(item.students) ? item.students[0]?.student_name : item.students?.student_name) || item.student_name || '—'}</p>
+            </div>
+            <div>
+              <span style={{ color: '#64748b', fontWeight: 500 }}>Teacher</span>
+              <p style={{ margin: '2px 0 0', fontWeight: 600 }}>{item.users?.full_name || '—'}</p>
+            </div>
+            <div>
+              <span style={{ color: '#64748b', fontWeight: 500 }}>Session Date</span>
+              <p style={{ margin: '2px 0 0', fontWeight: 600 }}>{item.session_date || '—'}</p>
+            </div>
+            <div>
+              <span style={{ color: '#64748b', fontWeight: 500 }}>Subject</span>
+              <p style={{ margin: '2px 0 0', fontWeight: 600 }}>{item.subject || '—'}</p>
+            </div>
+          </div>
+        </div>
+
+        {pendingV?.reason && (
+          <div style={{ marginBottom: '20px' }}>
+            <span style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>Teacher's Note</span>
+            <div style={{ background: '#fff7ed', border: '1px solid #ffedd5', borderRadius: '8px', padding: '12px', fontSize: '13px', color: '#9a3412', fontStyle: 'italic' }}>
+              "{pendingV.reason}"
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px', padding: '16px', background: '#f1f5f9', borderRadius: '12px' }}>
+          <div>
+            <span style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '4px', textTransform: 'uppercase' }}>Scheduled</span>
+            <p style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>{item.duration_hours || '—'} hrs</p>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '4px', textTransform: 'uppercase' }}>Final Approval</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="number"
+                step="0.25"
+                min="0.25"
+                value={duration}
+                onChange={e => setDuration(e.target.value)}
+                style={{ width: '80px', padding: '6px 10px', borderRadius: '6px', border: '2px solid #3b82f6', fontSize: '15px', fontWeight: 700 }}
+              />
+              <span style={{ fontSize: '14px', fontWeight: 600, color: '#475569' }}>hrs</span>
+            </div>
+            {pendingV?.new_duration && Number(pendingV.new_duration) !== Number(item.duration_hours) && (
+              <p style={{ margin: '4px 0 0', fontSize: '10px', color: '#2563eb', fontWeight: 600 }}>Teacher proposed {pendingV.new_duration}h</p>
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button type="button" className="danger" style={{ flex: 1, padding: '12px' }} onClick={() => onVerify(false)} disabled={loading}>Reject</button>
+          <button type="button" className="primary" style={{ flex: 2, padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} onClick={handleApprove} disabled={loading}>
+            {loading ? <><span className="spinner" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}></span> Approving...</> : 'Approve Session'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3588,7 +3718,8 @@ export function VerificationsPage() {
   async function verify(sessionId, approved, type, overrideDuration) {
     const action = approved ? 'approve' : 'reject';
     const reqName = type === 'approval' ? 'session completion and deduct student hours' : 'reschedule request';
-    if (!window.confirm(`Are you sure you want to ${action} this ${reqName}?`)) return;
+    // If it's from the modal (with overrideDuration), the modal itself is the confirmation.
+    if (overrideDuration === undefined && !window.confirm(`Are you sure you want to ${action} this ${reqName}?`)) return;
 
     setError('');
     try {

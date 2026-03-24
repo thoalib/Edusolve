@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { apiFetch } from '../../lib/api.js';
+import { getSessionStatusStyles } from '../academic/AcademicPages.jsx';
 import { TeacherOnboardingModal } from './TeacherOnboardingModal.jsx';
 
 export function isSessionVerified(session) {
@@ -10,26 +11,21 @@ export function isSessionVerified(session) {
 }
 
 export function getSessionDisplayStatus(session) {
+    // Forward to the shared logic in AcademicPages if needed, or keep local if they differ
+    // For consistency, let's use a similar mapping.
     if (session._type === 'demo') return { label: '🎯 Demo', bg: '#ffedd5', color: '#ea580c' };
-    if (session.status === 'rescheduled') return { label: '🔄 Rescheduled', bg: '#fee2e2', color: '#ef4444' };
+    
+    // Check if verified using local helper
+    if (isSessionVerified(session)) return { label: 'Verified', bg: '#dcfce7', color: '#15803d' };
 
-    if (isSessionVerified(session)) return { label: '✅ Verified', bg: '#dcfce7', color: '#15803d' };
-
-    const sv = session.session_verifications || [];
-    const svArr = Array.isArray(sv) ? sv : [sv];
-
-    if (svArr.some(v => v.type === 'approval' && v.status === 'pending')) {
-        return { label: '⏳ Waiting for verification', bg: '#fef3c7', color: '#d97706' };
+    switch (session.status) {
+        case 'scheduled': return { label: 'Scheduled', bg: '#e0e7ff', color: '#4338ca' };
+        case 'completed': return { label: 'Completed', bg: '#cffafe', color: '#0891b2' };
+        case 'rescheduled': return { label: 'Rescheduled', bg: '#fef3c7', color: '#92400e' };
+        case 'cancelled': return { label: 'Cancelled', bg: '#fee2e2', color: '#991b1b' };
+        case 'in_progress': return { label: 'In Progress', bg: '#ffedd5', color: '#ea580c' };
+        default: return { label: session.status || 'Unknown', bg: '#f3f4f6', color: '#4b5563' };
     }
-    if (svArr.some(v => v.type === 'reschedule' && v.status === 'pending')) {
-        return { label: '⏳ Reschedule pending', bg: '#fef3c7', color: '#d97706' };
-    }
-
-    if (session.status === 'completed') return { label: 'Completed', bg: '#cffafe', color: '#0891b2' };
-    if (session.status === 'scheduled') return { label: 'Scheduled', bg: '#e0e7ff', color: '#4338ca' };
-    if (session.status === 'in_progress') return { label: 'In Progress', bg: '#ffedd5', color: '#ea580c' };
-
-    return { label: session.status || 'Unknown', bg: '#f3f4f6', color: '#6b7280' };
 }
 
 /* ═══════ Teacher Dashboard ═══════ */
@@ -89,16 +85,11 @@ export function TeacherDashboardPage() {
         const rescheduled = allSessions.filter(s => s.status === 'rescheduled').length;
         const uniqueStudents = new Set(allSessions.map(s => s.student_id)).size;
 
-        const monthlyHours = (hours.items || []).filter(h => {
-            const d = new Date(h.created_at);
-            return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-        }).reduce((sum, h) => sum + Number(h.hours_delta || 0), 0);
-
-        const rate = profile?.per_hour_rate || 0;
-        const monthlyReceivables = rate * monthlyHours;
+        const monthlyHours = salary.total_hours || 0;
+        const monthlyReceivables = salary.total_earned || 0;
 
         return { completed, monthlyCompleted, pending, rescheduled, uniqueStudents, monthlyHours, monthlyReceivables };
-    }, [todaySessions, allSessions, hours.items, profile]);
+    }, [todaySessions, allSessions, salary, profile]);
 
     if (loading) return <section className="panel"><p>Loading dashboard...</p></section>;
 
@@ -142,7 +133,7 @@ export function TeacherDashboardPage() {
             </article>
 
             <div className="dash-stats-grid">
-                <DashCard label="Montthly Hours" value={`${metrics.monthlyHours}h`} tone="info" />
+                <DashCard label="Monthly Hours" value={`${metrics.monthlyHours}h`} tone="info" />
                 <DashCard label="Monthly Sessions" value={metrics.monthlyCompleted} tone="success" />
                 <DashCard label="Sessions Today" value={todaySessions.length} />
                 <DashCard label="My Students" value={metrics.uniqueStudents} />
@@ -162,7 +153,7 @@ export function TeacherDashboardPage() {
                                 </p>
                             </div>
                             {(() => {
-                                const st = getSessionDisplayStatus(s);
+                                const st = getSessionStatusStyles(s.status, s.verification_status);
                                 return (
                                     <span style={{
                                         padding: '3px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: 600,
@@ -178,7 +169,7 @@ export function TeacherDashboardPage() {
                 <article className="card" style={{ padding: '20px' }}>
                     <h3 style={{ margin: '0 0 16px', fontSize: '15px' }}>Hours Summary</h3>
                     <div style={{ textAlign: 'center', padding: '20px', background: '#eff6ff', borderRadius: '12px', marginBottom: '12px' }}>
-                        <p style={{ margin: 0, fontSize: '32px', fontWeight: 700, color: '#1d4ed8' }}>{hours.total_hours}h</p>
+                        <p style={{ margin: 0, fontSize: '32px', fontWeight: 700, color: '#1d4ed8' }}>{salary.total_hours}h</p>
                         <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#1d4ed8' }}>Total Teaching Hours</p>
                     </div>
                     <div style={{ display: 'flex', gap: '12px' }}>
@@ -228,8 +219,9 @@ export function TeacherTodaySessionsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [rescheduleSession, setRescheduleSession] = useState(null);
-    const [confirmSession, setConfirmSession] = useState(null); // custom confirm modal
+    const [confirmSession, setConfirmSession] = useState(null); // restored missing state
     const [approvalReason, setApprovalReason] = useState(''); // Teacher note for approval
+    const [actualHours, setActualHours] = useState(''); // Teacher proposed hours
     const [approving, setApproving] = useState(false);
     const [dayOffset, setDayOffset] = useState(0);
 
@@ -250,10 +242,14 @@ export function TeacherTodaySessionsPage() {
         try {
             await apiFetch(`/teachers/sessions/${confirmSession.id}/request-approval`, {
                 method: 'POST',
-                body: JSON.stringify({ reason: approvalReason.trim() || undefined })
+                body: JSON.stringify({ 
+                    reason: approvalReason.trim() || undefined,
+                    actual_hours: actualHours ? Number(actualHours) : undefined
+                })
             });
             setConfirmSession(null);
             setApprovalReason('');
+            setActualHours('');
             await loadSessions(dayOffset);
         } catch (e) {
             console.error('Approval error:', e);
@@ -346,7 +342,7 @@ export function TeacherTodaySessionsPage() {
                                     </p>
                                 </div>
                                 {(() => {
-                                    const st = getSessionDisplayStatus(s);
+                                    const st = getSessionStatusStyles(s.status, s.verification_status);
                                     return (
                                         <span style={{
                                             padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 600,
@@ -422,6 +418,23 @@ export function TeacherTodaySessionsPage() {
                                     {confirmSession.started_at ? new Date(confirmSession.started_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : 'TBD'}
                                     {confirmSession.duration_hours ? ` · ${confirmSession.duration_hours}h` : ''}
                                 </p>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>Actual Hours Taken</label>
+                                    <input
+                                        type="number"
+                                        step="0.25"
+                                        min="0.25"
+                                        value={actualHours}
+                                        onChange={e => setActualHours(e.target.value)}
+                                        placeholder={confirmSession.duration_hours || '1'}
+                                        style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                                    />
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+                                    <p style={{ margin: 0, fontSize: '11px', color: '#6b7280', fontStyle: 'italic' }}>Scheduled: {confirmSession.duration_hours}h</p>
+                                </div>
                             </div>
                             <div style={{ marginBottom: '16px' }}>
                                 <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '4px' }}>Session Note (Optional)</label>
