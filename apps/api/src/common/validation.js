@@ -8,6 +8,7 @@ import { sendJson } from './http.js';
  */
 export const phoneSchema = z.string()
     .trim()
+    .transform(val => val.replace(/[\s-]/g, ''))
     .refine(val => val === '' || /^\+?[0-9]{7,15}$/.test(val), {
         message: 'Must be a valid phone number (7 to 15 digits), optionally starting with +'
     });
