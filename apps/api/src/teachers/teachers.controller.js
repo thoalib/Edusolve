@@ -1046,6 +1046,9 @@ export async function handleTeachers(req, res, url) {
         return true;
       }
 
+      const rawBody = await readJson(req);
+      const { actual_hours, reason } = rawBody;
+
       // Update session status to completed
       const { error: updateErr } = await adminClient.from('academic_sessions').update({ status: 'completed' }).eq('id', sessionId);
       if (updateErr) throw new Error('Failed to update session: ' + updateErr.message);
@@ -1059,7 +1062,8 @@ export async function handleTeachers(req, res, url) {
         verifier_id: actor.userId,
         status: 'pending',
         type: 'approval',           // Explicitly tag this as 'approval' so it shows up in Coordinator Tab
-        reason: 'Session completed, pending approval',
+        reason: reason || 'Session completed, pending approval',
+        new_duration: actual_hours ? Number(actual_hours) : null,
         verified_at: null
       });
       if (insertErr) throw new Error('Failed to create verification: ' + insertErr.message);

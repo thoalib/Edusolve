@@ -49,7 +49,7 @@ export async function handleSessions(req, res, url) {
 
       let query = adminClient
         .from('academic_sessions')
-        .select('*, students(student_code,student_name,academic_coordinator_id), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(id,type,status,reason,verified_at,new_date,new_time,created_at)')
+        .select('*, students(student_code,student_name,academic_coordinator_id), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(id,type,status,reason,verified_at,new_date,new_time,new_duration,created_at)')
         .eq('status', 'completed')
         .order('session_date', { ascending: false })
         .limit(120);
@@ -168,7 +168,7 @@ export async function handleSessions(req, res, url) {
 
       let query = adminClient
         .from('academic_sessions')
-        .select('*, students(student_code,student_name), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(status,reason,verified_at)');
+        .select('*, students!inner(student_code,student_name,academic_coordinator_id), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(status,reason,verified_at)');
 
       if (startDate) query = query.gte('session_date', startDate);
       if (endDate) query = query.lte('session_date', endDate);
@@ -181,13 +181,11 @@ export async function handleSessions(req, res, url) {
       const { data, error } = await (async () => {
         let q = query.order('session_date', { ascending: false }).limit(500);
         const requestedUserId = url.searchParams.get('user_id');
-        if (actor.role === 'super_admin' && requestedUserId) {
-          // Join students to filter
-          // Wait, the select already has students. But we need to ensure it's an inner join if we want to filter efficiently?
-          // Actually, we can just use the dot notation if students is joined.
-          q = q.eq('students.academic_coordinator_id', requestedUserId);
-        } else if (isAC(actor)) {
+        
+        if (isAC(actor)) {
           q = q.eq('students.academic_coordinator_id', actor.userId);
+        } else if (actor.role === 'super_admin' && requestedUserId) {
+          q = q.eq('students.academic_coordinator_id', requestedUserId);
         }
         return q;
       })();
@@ -294,16 +292,18 @@ export async function handleSessions(req, res, url) {
 
       // Handle approval-type verification
       if (verifyType === 'approval') {
-        const newSessionStatus = approved ? 'verified' : 'scheduled';
+        const newSessionStatus = approved ? 'completed' : 'scheduled';
 
-        let durationObj = { status: newSessionStatus };
+        let sessionUpdate = { status: newSessionStatus, updated_at: nowIso() };
         const duration = payload.override_duration ? Number(payload.override_duration) : Number(session.duration_hours || 0);
 
-        if (approved && payload.override_duration) {
-          durationObj.duration_hours = duration;
+        // Always update duration_hours on approval to ensure consistency across all tables/dashboards
+        if (approved) {
+          sessionUpdate.duration_hours = duration;
         }
 
-        await adminClient.from('academic_sessions').update(durationObj).eq('id', sessionId);
+        const { error: sessUpdateErr } = await adminClient.from('academic_sessions').update(sessionUpdate).eq('id', sessionId);
+        if (sessUpdateErr) throw new Error(sessUpdateErr.message);
 
         if (approved) {
           if (duration > 0) {
