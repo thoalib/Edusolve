@@ -122,6 +122,11 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
                 finalData.languages = finalData.languages.split(',').map(s => s.trim()).filter(Boolean);
             }
 
+            // Clean phone numbers (remove non-digits except +)
+            const cleanPhone = (p) => p ? p.replace(/[^\d+]/g, '') : p;
+            if (finalData.phone) finalData.phone = cleanPhone(finalData.phone);
+            if (finalData.gpay_number) finalData.gpay_number = cleanPhone(finalData.gpay_number);
+
             // 1. Save Profile Data
             const res = await apiFetch('/teachers/me/profile', {
                 method: 'PUT',

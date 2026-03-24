@@ -931,10 +931,16 @@ export async function handleTeachers(req, res, url) {
 
       const isDuringOnboarding = profile.onboarding_completed === false;
       const allowedFields = isDuringOnboarding ? onboardingAllowed : selfAllowedAfterOnboarding;
-
       const updates = {};
       for (const k of allowedFields) {
-        if (payload[k] !== undefined) updates[k] = payload[k];
+        if (payload[k] !== undefined) {
+          // Convert empty strings to null for specific fields to satisfy DB constraints
+          if ((k === 'dob' || k === 'meeting_link' || k === 'phone' || k === 'gpay_number') && payload[k] === '') {
+            updates[k] = null;
+          } else {
+            updates[k] = payload[k];
+          }
+        }
       }
 
       // Handle onboarding completion
