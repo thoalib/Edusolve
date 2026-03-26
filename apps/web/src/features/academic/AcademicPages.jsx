@@ -1679,12 +1679,9 @@ function StudentDetailPage({ studentId, onBack }) {
           {student.leads ? (
             <div className="detail-grid">
               <div><span className="eyebrow">Status History</span><p>{student.leads.status || '—'}</p></div>
-              <div><span className="eyebrow">Assigned To</span><p>{student.leads.counselor_id ? 'Assigned Counselor' : 'Unassigned'}</p></div>
+              <div><span className="eyebrow">Assigned To</span><p>{student.leads.counselors?.full_name || 'Unassigned'}</p></div>
               <div><span className="eyebrow">Assigned At</span><p>{student.leads.assigned_at ? new Date(student.leads.assigned_at).toLocaleDateString('en-IN') : '—'}</p></div>
-              <div><span className="eyebrow">Follow-Up Date</span><p>{student.leads.next_followup_date ? new Date(student.leads.next_followup_date).toLocaleDateString('en-IN') : '—'}</p></div>
-              <div><span className="eyebrow">Lost Reason</span><p>{student.leads.lost_reason || '—'}</p></div>
               <div style={{ gridColumn: '1 / -1' }}><span className="eyebrow">Counselor Notes</span><p style={{ whiteSpace: 'pre-wrap', marginTop: 4 }}>{student.leads.counselor_notes || '—'}</p></div>
-              <div style={{ gridColumn: '1 / -1' }}><span className="eyebrow">Initial Remarks</span><p style={{ whiteSpace: 'pre-wrap', marginTop: 4 }}>{student.leads.remarks || '—'}</p></div>
             </div>
           ) : (
             <p className="muted">No original lead record found for this student.</p>
@@ -1698,6 +1695,7 @@ function StudentDetailPage({ studentId, onBack }) {
               <thead>
                 <tr>
                   <th>Date</th>
+                  <th>Subject</th>
                   <th>Teacher</th>
                   <th>Status</th>
                   <th>Outcome</th>
@@ -1710,6 +1708,7 @@ function StudentDetailPage({ studentId, onBack }) {
                   return (
                     <tr key={d.id}>
                       <td data-label="Date">{new Date(d.scheduled_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })}</td>
+                      <td data-label="Subject">{d.subject || '—'}</td>
                       <td data-label="Teacher">{d.users?.full_name ? `${d.users.full_name}${codeLabel}` : '—'}</td>
                       <td data-label="Status"><span className={`status-tag ${d.status === 'completed' ? 'success' : ''}`}>{d.status}</span></td>
                       <td data-label="Outcome" style={{ whiteSpace: 'pre-wrap', fontSize: '0.9em' }}>{d.outcome || '—'}</td>
@@ -2209,9 +2208,9 @@ export function StudentsHubPage({ role }) {
       {deleteStudentTarget && (
         <StudentDeleteConfirmModal
           name={deleteStudentTarget.name}
-          onConfirm={async () => {
+          onConfirm={async (hardDelete) => {
             try {
-              const res = await apiFetch(`/students/${deleteStudentTarget.id}`, { method: 'DELETE' });
+              const res = await apiFetch(`/students/${deleteStudentTarget.id}?hard_delete=${hardDelete}`, { method: 'DELETE' });
               if (!res.ok) throw new Error(res.error || 'Delete failed');
               setDeleteStudentTarget(null);
               loadData();
@@ -6005,11 +6004,12 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
 function StudentDeleteConfirmModal({ name, onConfirm, onClose }) {
   const [typed, setTyped] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [hardDelete, setHardDelete] = useState(false);
   const matches = typed.trim() === name.trim();
 
   const handleConfirm = async () => {
     setDeleting(true);
-    await onConfirm();
+    await onConfirm(hardDelete);
     setDeleting(false);
   };
 
@@ -6021,8 +6021,13 @@ function StudentDeleteConfirmModal({ name, onConfirm, onClose }) {
           <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer' }}>✕</button>
         </div>
         <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
-          <p style={{ margin: 0, fontSize: 13, color: '#b91c1c', fontWeight: 600 }}>⚠ This action cannot be undone.</p>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#7f1d1d' }}>All linked assignments, sessions, and topups will be permanently deleted.</p>
+          <p style={{ margin: 0, fontSize: 13, color: '#b91c1c', fontWeight: 600 }}>⚠ This action deletes the student's active enrollment.</p>
+          <div style={{ marginTop: '8px', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+            <input type="checkbox" id="hardDeleteCheck" checked={hardDelete} onChange={e => setHardDelete(e.target.checked)} style={{ marginTop: '3px' }} />
+            <label htmlFor="hardDeleteCheck" style={{ fontSize: 12, color: '#7f1d1d', cursor: 'pointer', lineHeight: '1.4', margin: 0 }}>
+              <strong>Hard Delete:</strong> Permanently wipe all financial ledgers, past sessions, and messages. (Not Recommended: breaks historical accounting).
+            </label>
+          </div>
         </div>
         <p style={{ fontSize: 14, color: '#374151', marginBottom: 8 }}>
           Type <strong style={{ fontFamily: 'monospace', background: '#f1f5f9', padding: '1px 6px', borderRadius: 4 }}>{name}</strong> to confirm:
