@@ -65,6 +65,17 @@ export async function handleLeads(req, res, url) {
       return true;
     }
 
+    if (req.method === 'DELETE' && url.pathname === '/leads/types') {
+      const payload = await readJson(req);
+      const result = await leadsService.deleteType(payload.name, actor);
+      if (result?.error) {
+        sendJson(res, 403, { ok: false, error: result.error });
+        return true;
+      }
+      sendJson(res, 200, { ok: true, ...result });
+      return true;
+    }
+
     if (req.method === 'GET' && url.pathname === '/leads/outcomes') {
       const items = await leadsService.listOutcomes(actor);
       if (items?.error) {

@@ -32,6 +32,24 @@ export function AddLeadModal({ onClose, onSuccess }) {
         }
     }
 
+    async function handleDeleteType(name) {
+        if (!window.confirm(`Are you sure you want to delete the lead type "${name}"? Leads having this type will be updated to have no type.`)) {
+            return;
+        }
+        const res = await apiFetch('/leads/types', {
+            method: 'DELETE',
+            body: JSON.stringify({ name })
+        });
+        if (res.ok) {
+            setLeadTypes(prev => prev.filter(t => t !== name));
+            if (leadType === name) {
+                setLeadType('');
+            }
+        } else {
+            alert(res.error || 'Failed to delete lead type');
+        }
+    }
+
     async function fetchSubjects() {
         const res = await apiFetch('/subjects');
         if (res.ok) setSubjects(res.subjects ? res.subjects.map(s => s.name).sort() : []);
@@ -124,6 +142,7 @@ export function AddLeadModal({ onClose, onSuccess }) {
                             options={leadTypes}
                             placeholder="Select or Add New"
                             onAdd={handleAddType}
+                            onDelete={handleDeleteType}
                         />
                     </div>
                     <label>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 
-export function CreatableSelect({ label, value, onChange, options, placeholder, onAdd }) {
+export function CreatableSelect({ label, value, onChange, options, placeholder, onAdd, onDelete }) {
     const [search, setSearch] = useState('');
     const [open, setOpen] = useState(false);
     const [adding, setAdding] = useState(false);
@@ -68,9 +68,19 @@ export function CreatableSelect({ label, value, onChange, options, placeholder, 
                             <div
                                 key={o}
                                 className={`search-select-option ${value === o ? 'active' : ''}`}
+                                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                                 onClick={() => handleSelect(o)}
                             >
-                                {o}
+                                <span>{o}</span>
+                                {onDelete && (
+                                    <span 
+                                        onClick={(e) => { e.stopPropagation(); onDelete(o); }}
+                                        style={{ cursor: 'pointer', padding: '0 4px', color: '#dc2626', fontSize: '14px', borderRadius: '4px' }}
+                                        title="Delete"
+                                    >
+                                        ✕
+                                    </span>
+                                )}
                             </div>
                         ))}
                         {search && !isExactMatch && (
