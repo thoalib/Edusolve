@@ -7,7 +7,9 @@ import { GenerateInvoiceModal, ReceiptModal } from '../finance/InvoiceTemplate.j
 import { LeadFilters } from './components/LeadFilters.jsx';
 import { SearchSelect } from '../../components/ui/SearchSelect.jsx';
 import { CreatableSelect } from '../../components/ui/CreatableSelect.jsx';
+import { MultiSelectDropdown } from '../../components/ui/MultiSelectDropdown.jsx';
 import { Pagination } from '../../components/ui/Pagination.jsx';
+import { PhoneInput } from '../../components/PhoneInput.jsx';
 
 const CORE_SUBJECTS = [
   'Mathematics', 'Physics', 'Chemistry', 'Biology', 'English',
@@ -1645,6 +1647,7 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
   const [paymentMessage, setPaymentMessage] = useState('');
   const [form, setForm] = useState({ student_name: '', class_level: '', subject: '', lead_type: '', status: 'new' });
   const [leadTypes, setLeadTypes] = useState([]);
+  const [allSubjects, setAllSubjects] = useState([]);
   const [showNoteModal, setShowNoteModal] = useState(null);
 
   async function handleAddType(name) {
@@ -1668,10 +1671,12 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
         const data = await apiFetch(`/leads/${leadId}`);
         const historyData = await apiFetch(`/leads/${leadId}/history`);
         const typesData = await apiFetch('/leads/types').catch(() => ({ types: [] }));
+        const subjectsData = await apiFetch('/subjects').catch(() => ({ subjects: [] }));
         if (cancelled) return;
         setLead(data.lead);
         setHistory(historyData.items || []);
         setLeadTypes(typesData.types || []);
+        setAllSubjects(subjectsData.subjects ? subjectsData.subjects.map(s => s.name).sort() : []);
         setForm({
           student_name: data.lead.student_name || '',
           parent_name: data.lead.parent_name || '',
@@ -1975,7 +1980,7 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
                 </label>
                 <label>
                   Contact Number
-                  <input value={form.contact_number} onChange={(e) => setForm((v) => ({ ...v, contact_number: e.target.value }))} />
+                  <PhoneInput value={form.contact_number} onChange={(val) => setForm((v) => ({ ...v, contact_number: val }))} />
                 </label>
                 <label>
                   Class
@@ -1983,12 +1988,11 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
                 </label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>Subject</label>
-                  <SearchSelect
-                    label=""
-                    value={form.subject}
-                    onChange={(val) => setForm((v) => ({ ...v, subject: val }))}
-                    options={CORE_SUBJECTS}
-                    placeholder="Select Subject"
+                  <MultiSelectDropdown
+                    value={form.subject ? form.subject.split(',').map(s => s.trim()).filter(Boolean) : []}
+                    onChange={(val) => setForm((v) => ({ ...v, subject: val.join(', ') }))}
+                    options={allSubjects}
+                    placeholder="Select Subjects"
                   />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
