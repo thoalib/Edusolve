@@ -32,6 +32,10 @@ const studentStatusSchema = z.object({
   status: z.enum(['active', 'vacation', 'inactive'])
 });
 
+const reassignACSchema = z.object({
+  academic_coordinator_id: z.string().uuid()
+});
+
 const createAssignmentSchema = z.object({
   teacher_id: z.string().uuid(),
   subject: z.string().max(100),
@@ -385,12 +389,19 @@ export async function handleStudents(req, res, url) {
         return true;
       }
       const { data, error } = await adminClient
-        .from('users')
-        .select('id, full_name, email')
-        .eq('role', 'academic_coordinator')
-        .order('full_name', { ascending: true });
+        .from('user_roles')
+        .select('user_id, roles!inner(code), users!inner(full_name, email)')
+        .eq('roles.code', 'academic_coordinator');
+        
       if (error) throw new Error(error.message);
-      sendJson(res, 200, { ok: true, items: data || [] });
+      
+      const items = (data || []).map(r => ({
+        id: r.user_id,
+        full_name: r.users?.full_name || 'Unknown',
+        email: r.users?.email || ''
+      })).sort((a, b) => a.full_name.localeCompare(b.full_name));
+
+      sendJson(res, 200, { ok: true, items });
       return true;
     }
 
@@ -766,6 +777,32 @@ export async function handleStudents(req, res, url) {
         .eq('id', studentId)
         .is('deleted_at', null)
         .select('id, status')
+        .single();
+      if (error) throw new Error(error.message);
+      if (!data) {
+        sendJson(res, 404, { ok: false, error: 'student not found' });
+        return true;
+      }
+      sendJson(res, 200, { ok: true, student: data });
+      return true;
+    }
+
+    // ─── PATCH /students/:id/coordinator ─────────────────────────
+    if (req.method === 'PATCH' && parts.length === 3 && parts[0] === 'students' && parts[2] === 'coordinator') {
+      if (actor.role !== 'super_admin') {
+        sendJson(res, 403, { ok: false, error: 'only super admin can reassign academic coordinators' });
+        return true;
+      }
+      const studentId = parts[1];
+      const rawBody = await readJson(req);
+      const payload = validatePayload(res, reassignACSchema, rawBody);
+      if (!payload) return true;
+      const { data, error } = await adminClient
+        .from('students')
+        .update({ academic_coordinator_id: payload.academic_coordinator_id, updated_at: nowIso() })
+        .eq('id', studentId)
+        .is('deleted_at', null)
+        .select('id, academic_coordinator_id')
         .single();
       if (error) throw new Error(error.message);
       if (!data) {
