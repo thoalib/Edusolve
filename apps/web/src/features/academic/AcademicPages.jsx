@@ -1909,6 +1909,75 @@ function StudentOnboardingForm({ onDone }) {
   );
 }
 
+function ReassignACModal({ student, onClose, onDone }) {
+  const [coordinators, setCoordinators] = useState([]);
+  const [selectedAC, setSelectedAC] = useState(student.academic_coordinator_id || '');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    async function fetchACs() {
+      try {
+        const res = await apiFetch('/students/coordinators');
+        setCoordinators(res.items || []);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchACs();
+  }, []);
+
+  async function handleSave(e) {
+    e.preventDefault();
+    if (!selectedAC) return setError('Please select an Academic Coordinator.');
+    setSaving(true);
+    setError('');
+    try {
+      await apiFetch(`/students/${student.id}/coordinator`, {
+        method: 'PATCH',
+        body: JSON.stringify({ academic_coordinator_id: selectedAC })
+      });
+      onDone();
+    } catch (err) {
+      setError(err.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={() => !saving && onClose()}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+        <h3>Reassign Academic Coordinator</h3>
+        <p style={{ margin: '0 0 16px', color: '#6b7280', fontSize: '14px' }}>
+          Select a new coordinator for <strong>{student.student_name}</strong>.
+        </p>
+        {error && <p className="error" style={{ marginBottom: '16px' }}>{error}</p>}
+        {loading ? (
+          <p>Loading coordinators...</p>
+        ) : (
+          <form onSubmit={handleSave}>
+            <label>Coordinator
+              <select value={selectedAC} onChange={e => setSelectedAC(e.target.value)} disabled={saving} required>
+                <option value="">-- Select Coordinator --</option>
+                {coordinators.map(ac => (
+                  <option key={ac.id} value={ac.id}>{ac.full_name}</option>
+                ))}
+              </select>
+            </label>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '24px' }}>
+              <button type="button" className="secondary" onClick={onClose} disabled={saving}>Cancel</button>
+              <button type="submit" disabled={saving || !selectedAC}>{saving ? 'Saving...' : 'Confirm'}</button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ═══════ Students Hub ═══════ */
 export function StudentsHubPage({ role }) {
   const [selId, setSelId] = useState(null);
@@ -1929,6 +1998,7 @@ export function StudentsHubPage({ role }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showImportOld, setShowImportOld] = useState(false);
   const [deleteStudentTarget, setDeleteStudentTarget] = useState(null); // { id, name }
+  const [reassignModal, setReassignModal] = useState(null); // student object
 
   // Group creation modal
   const [groupModal, setGroupModal] = useState(null);
@@ -2085,7 +2155,7 @@ export function StudentsHubPage({ role }) {
           <th>ID</th><th>Name</th><th>Group</th><th>Class</th><th>Status</th><th>Hours Left</th>
           {isSuperAdmin && <th>Coordinator</th>}
           <th>Payment</th>
-          {isAC && <th></th>}
+          {(isAC || isSuperAdmin) && <th>Actions</th>}
         </tr></thead><tbody>
             {filtered.map(s => <tr key={s.id} onClick={() => setSelId(s.id)} className="clickable-row" style={{ cursor: 'pointer' }}>
               <td data-label="ID" style={{ padding: '16px 12px' }}>{s.student_code || '—'}</td>
@@ -2111,13 +2181,23 @@ export function StudentsHubPage({ role }) {
                 {s.pending_payment === 'initial' && <span style={{ padding: '3px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 700, background: '#fce7f3', color: '#9d174d' }}>Initial Pending</span>}
                 {!s.pending_payment && <span style={{ padding: '3px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600, background: '#d1fae5', color: '#065f46' }}>✓ Clear</span>}
               </td>
-              {isAC && (
-                <td style={{ padding: '16px 12px' }} onClick={e => e.stopPropagation()}>
-                  <button
-                    title="Delete Student"
-                    onClick={() => setDeleteStudentTarget({ id: s.id, name: s.student_name })}
-                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: '16px', padding: '4px 8px' }}
-                  >🗑</button>
+              {/* Actions */}
+              {(isAC || isSuperAdmin) && (
+                <td style={{ padding: '16px 12px', display: 'flex', gap: '8px' }} onClick={e => e.stopPropagation()}>
+                  {isSuperAdmin && (
+                    <button
+                      title="Reassign AC"
+                      onClick={() => setReassignModal(s)}
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#2563eb', fontSize: '18px', padding: '4px 8px' }}
+                    >🔄</button>
+                  )}
+                  {isAC && (
+                    <button
+                      title="Delete Student"
+                      onClick={() => setDeleteStudentTarget({ id: s.id, name: s.student_name })}
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: '18px', padding: '4px 8px' }}
+                    >🗑</button>
+                  )}
                 </td>
               )}
             </tr>)}
@@ -2138,6 +2218,15 @@ export function StudentsHubPage({ role }) {
             } catch (e) { alert('Delete failed: ' + e.message); }
           }}
           onClose={() => setDeleteStudentTarget(null)}
+        />
+      )}
+
+      {/* Reassign AC Modal */}
+      {reassignModal && (
+        <ReassignACModal
+          student={reassignModal}
+          onClose={() => setReassignModal(null)}
+          onDone={() => { setReassignModal(null); loadData(); }}
         />
       )}
 
