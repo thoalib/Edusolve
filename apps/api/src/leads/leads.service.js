@@ -382,6 +382,49 @@ export class LeadsService {
     return { ok: true, type: data };
   }
 
+  async deleteType(name, actor) {
+    const adminClient = getSupabaseAdminClient();
+    if (!name) return { error: 'name is required' };
+
+    if (!isCounselor(actor) && !isCounselorHead(actor) && !isSuperAdmin(actor)) {
+       return { error: 'only authorized roles can delete lead types' };
+    }
+
+    if (!adminClient) {
+      memoryLeads.forEach(l => {
+         if (l.lead_type === name) l.lead_type = null;
+      });
+      return { ok: true, name };
+    }
+
+    // Update all leads with this type to have null type
+    const { error: updateError } = await adminClient
+      .from('leads')
+      .update({ lead_type: null })
+      .eq('lead_type', name);
+
+    if (updateError) throw new Error(updateError.message);
+
+    // Delete the type from lead_types
+    const { data: deletedType, error: deleteError } = await adminClient
+      .from('lead_types')
+      .delete()
+      .eq('name', name)
+      .select('*')
+      .single();
+
+    if (deleteError) {
+       // if row doesn't exist, we still updated leads, so it's fine
+       if (deleteError.code !== 'PGRST116') throw new Error(deleteError.message);
+    }
+    
+    if (deletedType) {
+        await safeAuditInsert('lead_type.delete', 'lead_type', deletedType.id, actor.userId, deletedType, null, 'deleted lead type');
+    }
+
+    return { ok: true, name };
+  }
+
   async create(payload, actor) {
     const adminClient = getSupabaseAdminClient();
     if (!isCounselor(actor) && !isCounselorHead(actor) && !isSuperAdmin(actor)) {
