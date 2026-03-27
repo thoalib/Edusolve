@@ -428,13 +428,20 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
       if (start >= end) return 'invalid';
       const [sH, sM] = start.split(':').map(Number);
 
+      let busyCount = 0;
+      let lastConflict = null;
+
       for (const td of targetDates) {
-        if (td.dateStr === todayStr && (sH * 60 + sM) <= currentMins) return 'past';
+        if (td.dateStr === todayStr && (sH * 60 + sM) <= currentMins) {
+          busyCount++;
+          lastConflict = 'past';
+          continue;
+        }
 
         // Teacher class clash
         const tClash = teacherAvail.classes.some(c => {
           if (c.session_date !== td.dateStr || !c.started_at) return false;
-          const cStart = c.started_at.slice(0, 5);
+          const cStart = getISTTimeForInput(c.started_at);
           const [ch, cm] = cStart.split(':').map(Number);
           const cDur = Number(c.duration_hours || 0);
           const ceH = ch + Math.floor(cDur) + Math.floor((cm + (cDur % 1) * 60) / 60);
@@ -442,23 +449,22 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
           const cEnd = `${String(ceH).padStart(2, '0')}:${String(ceM).padStart(2, '0')}`;
           return (start < cEnd && end > cStart);
         });
-        if (tClash) return 'teacher';
 
         // Teacher demo clash
         const dClash = teacherAvail.demos.some(d => {
-          const dDate = d.scheduled_at.split('T')[0];
+          const dDate = new Date(d.scheduled_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); 
           if (dDate !== td.dateStr) return false;
+
           const dStart = new Date(d.scheduled_at).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
           const dEnd = d.ends_at ? new Date(d.ends_at).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) :
             `${String(Number(dStart.split(':')[0]) + 1).padStart(2, '0')}:${dStart.split(':')[1]}`;
           return (start < dEnd && end > dStart);
         });
-        if (dClash) return 'teacher';
 
         // Student class clash
         const sClash = studentAvail.classes.some(c => {
           if (c.session_date !== td.dateStr || !c.started_at) return false;
-          const cStart = c.started_at.slice(0, 5);
+          const cStart = getISTTimeForInput(c.started_at);
           const [ch, cm] = cStart.split(':').map(Number);
           const cDur = Number(c.duration_hours || 0);
           const ceH = ch + Math.floor(cDur) + Math.floor((cm + (cDur % 1) * 60) / 60);
@@ -466,9 +472,18 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
           const cEnd = `${String(ceH).padStart(2, '0')}:${String(ceM).padStart(2, '0')}`;
           return (start < cEnd && end > cStart);
         });
-        if (sClash) return 'student';
+
+        if (tClash || dClash) {
+          busyCount++;
+          lastConflict = 'teacher';
+        } else if (sClash) {
+          busyCount++;
+          lastConflict = 'student';
+        }
       }
-      return false; // free
+      
+      if (busyCount === targetDates.length) return lastConflict || 'invalid';
+      return false; // let the user select it if at least one day is free
     }
 
     const checks = {};
@@ -499,10 +514,11 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
     }
 
     function checkSlot(start, end) {
-      return targetDates.every(td => {
+      if (!targetDates.length) return false;
+      return targetDates.some(td => {
         const classClash = teacherAvail.classes.some(c => {
           if (c.session_date !== td.dateStr || !c.started_at) return false;
-          const cStart = c.started_at.slice(0, 5);
+          const cStart = getISTTimeForInput(c.started_at);
           const [ch, cm] = cStart.split(':').map(Number);
           const cDur = Number(c.duration_hours || 0);
           const ceH = ch + Math.floor(cDur) + Math.floor((cm + (cDur % 1) * 60) / 60);
@@ -510,7 +526,7 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
           return (start < `${String(ceH).padStart(2, '0')}:${String(ceM).padStart(2, '0')}` && end > cStart);
         });
         const demoClash = teacherAvail.demos.some(d => {
-          const dDate = d.scheduled_at.split('T')[0];
+          const dDate = new Date(d.scheduled_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
           if (dDate !== td.dateStr) return false;
           const dStart = new Date(d.scheduled_at).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
           let dh = Number(dStart.split(':')[0]);
@@ -518,7 +534,7 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
         });
         const studClash = studentAvail.classes.some(c => {
           if (c.session_date !== td.dateStr || !c.started_at) return false;
-          const cStart = c.started_at.slice(0, 5);
+          const cStart = getISTTimeForInput(c.started_at);
           const [ch, cm] = cStart.split(':').map(Number);
           const cDur = Number(c.duration_hours || 0);
           const ceH = ch + Math.floor(cDur) + Math.floor((cm + (cDur % 1) * 60) / 60);
@@ -583,7 +599,10 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
     // Check student conflicts
     for (const cls of rescheduleStudentClasses) {
       if (cls.id === rescheduleData?.id) continue;
-      const clsStart = (cls.started_at || '').slice(0, 5);
+      // Ensure we only check conflicts for the selected date
+      if (cls.session_date !== rescheduleData.date) continue;
+
+      const clsStart = getISTTimeForInput(cls.started_at);
       if (!clsStart) continue;
       const [cH, cM] = clsStart.split(':').map(Number);
       const cStartMins = cH * 60 + cM;
@@ -594,7 +613,10 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
     // Check teacher class conflicts
     for (const cls of rescheduleTeacherClasses) {
       if (cls.id === rescheduleData?.id) continue;
-      const clsStart = (cls.started_at || '').slice(0, 5);
+      // Ensure we only check conflicts for the selected date
+      if (cls.session_date !== rescheduleData.date) continue;
+
+      const clsStart = getISTTimeForInput(cls.started_at);
       if (!clsStart) continue;
       const [cH, cM] = clsStart.split(':').map(Number);
       const cStartMins = cH * 60 + cM;
@@ -605,6 +627,10 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
     // Check teacher demo conflicts
     for (const demo of rescheduleTeacherDemos) {
       if (!demo.scheduled_at) continue;
+      // Ensure we only check conflicts for the selected date (localized)
+      const dDate = new Date(demo.scheduled_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      if (dDate !== rescheduleData.date) continue;
+
       const demoStart = new Date(demo.scheduled_at).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
       const [dH, dM] = demoStart.split(':').map(Number);
       const dStartMins = dH * 60 + dM;
@@ -782,6 +808,10 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
     }
     for (const demo of editTeacherDemos) {
       if (!demo.scheduled_at) continue;
+      // Ensure we only check conflicts for the selected date (localized)
+      const dDate = new Date(demo.scheduled_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      if (dDate !== sessionEditData.date) continue;
+
       const ds = new Date(demo.scheduled_at).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
       const [dH, dM] = ds.split(':').map(Number);
       const dStart = dH * 60 + dM, dEnd = dStart + 60;
@@ -2685,26 +2715,37 @@ export function TodayClassesPage() {
     } catch (e) { setError(e.message); }
   }
 
-  function checkOverlap(slotValue, duration, studentClasses, teacherClasses, teacherDemos, excludeId) {
+  function checkOverlap(slotValue, duration, sessionDate, studentClasses, teacherClasses, teacherDemos, excludeId) {
     if (!duration || Number(duration) <= 0) return false;
     const [sH, sM] = slotValue.split(':').map(Number);
     const newStart = sH * 60 + sM, newEnd = newStart + Number(duration) * 60;
+
     for (const cls of studentClasses) {
       if (cls.id === excludeId) continue;
-      const t = (cls.started_at || '').slice(0, 5); if (!t) continue;
+      // Ensure we only check conflicts for the selected date
+      if (cls.session_date !== sessionDate) continue;
+
+      const t = getISTTimeForInput(cls.started_at); if (!t) continue;
       const [cH, cM] = t.split(':').map(Number);
       const cS = cH * 60 + cM, cE = cS + (cls.duration_hours || 1) * 60;
       if (newStart < cE && newEnd > cS) return 'student';
     }
     for (const cls of teacherClasses) {
       if (cls.id === excludeId) continue;
-      const t = (cls.started_at || '').slice(0, 5); if (!t) continue;
+      // Ensure we only check conflicts for the selected date
+      if (cls.session_date !== sessionDate) continue;
+
+      const t = getISTTimeForInput(cls.started_at); if (!t) continue;
       const [cH, cM] = t.split(':').map(Number);
       const cS = cH * 60 + cM, cE = cS + (cls.duration_hours || 1) * 60;
       if (newStart < cE && newEnd > cS) return 'teacher';
     }
     for (const demo of teacherDemos) {
       if (!demo.scheduled_at) continue;
+      // Ensure we only check conflicts for the selected date (localized)
+      const dDate = new Date(demo.scheduled_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      if (dDate !== sessionDate) continue;
+
       const ds = new Date(demo.scheduled_at).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
       const [dH, dM] = ds.split(':').map(Number);
       const dS = dH * 60 + dM, dE = dS + 60;
@@ -2845,7 +2886,7 @@ export function TodayClassesPage() {
                     <select value={rescheduleData.time} onChange={e => setRescheduleData({ ...rescheduleData, time: e.target.value })} required disabled={rescheduleLoadingSlots}>
                       <option value="">{rescheduleLoadingSlots ? 'Checking...' : 'Select time'}</option>
                       {timeSlots.map(t => {
-                        const overlap = checkOverlap(t.value, rescheduleData.duration, rescheduleStudentClasses, rescheduleTeacherClasses, rescheduleTeacherDemos, rescheduleData.id);
+                        const overlap = checkOverlap(t.value, rescheduleData.duration, rescheduleData.date, rescheduleStudentClasses, rescheduleTeacherClasses, rescheduleTeacherDemos, rescheduleData.id);
                         const [tH, tM] = t.value.split(':').map(Number);
                         const isPast = rescheduleData.date === todayStr && (tH * 60 + tM) <= nowMins;
                         const disabled = !!overlap || isPast;
@@ -3129,7 +3170,8 @@ export function SessionsManagePage() {
     const newEnd = newStart + Number(rescheduleData.duration) * 60;
     for (const cls of rescheduleStudentClasses) {
       if (cls.id === rescheduleData.id) continue;
-      const t = (cls.started_at || '').slice(0, 5);
+      if (cls.session_date !== rescheduleData.date) continue;
+      const t = getISTTimeForInput(cls.started_at);
       if (!t) continue;
       const [cH, cM] = t.split(':').map(Number);
       const cStart = cH * 60 + cM, cEnd = cStart + (cls.duration_hours || 1) * 60;
@@ -3137,7 +3179,8 @@ export function SessionsManagePage() {
     }
     for (const cls of rescheduleTeacherClasses) {
       if (cls.id === rescheduleData.id) continue;
-      const t = (cls.started_at || '').slice(0, 5);
+      if (cls.session_date !== rescheduleData.date) continue;
+      const t = getISTTimeForInput(cls.started_at);
       if (!t) continue;
       const [cH, cM] = t.split(':').map(Number);
       const cStart = cH * 60 + cM, cEnd = cStart + (cls.duration_hours || 1) * 60;
@@ -3145,6 +3188,8 @@ export function SessionsManagePage() {
     }
     for (const demo of rescheduleTeacherDemos) {
       if (!demo.scheduled_at) continue;
+      const dDate = new Date(demo.scheduled_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      if (dDate !== rescheduleData.date) continue;
       const ds = new Date(demo.scheduled_at).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
       const [dH, dM] = ds.split(':').map(Number);
       const dStart = dH * 60 + dM, dEnd = dStart + 60;
@@ -3179,7 +3224,8 @@ export function SessionsManagePage() {
     const newEnd = newStart + Number(editData.duration) * 60;
     for (const cls of editStudentClasses) {
       if (cls.id === editData.id) continue;
-      const t = (cls.started_at || '').slice(0, 5);
+      if (cls.session_date !== editData.date) continue;
+      const t = getISTTimeForInput(cls.started_at);
       if (!t) continue;
       const [cH, cM] = t.split(':').map(Number);
       const cStart = cH * 60 + cM;
@@ -3188,7 +3234,8 @@ export function SessionsManagePage() {
     }
     for (const cls of editTeacherClasses) {
       if (cls.id === editData.id) continue;
-      const t = (cls.started_at || '').slice(0, 5);
+      if (cls.session_date !== editData.date) continue;
+      const t = getISTTimeForInput(cls.started_at);
       if (!t) continue;
       const [cH, cM] = t.split(':').map(Number);
       const cStart = cH * 60 + cM;
@@ -3197,6 +3244,8 @@ export function SessionsManagePage() {
     }
     for (const demo of editTeacherDemos) {
       if (!demo.scheduled_at) continue;
+      const dDate = new Date(demo.scheduled_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      if (dDate !== editData.date) continue;
       const ds = new Date(demo.scheduled_at).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
       const [dH, dM] = ds.split(':').map(Number);
       const dStart = dH * 60 + dM;
@@ -4070,6 +4119,11 @@ export function TopUpsPage() {
   const [receiptItem, setReceiptItem] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const studentOptions = useMemo(() => students.map(s => ({
+    value: s.id,
+    label: `${s.student_code || s.id} — ${s.student_name} (${s.remaining_hours}h)`
+  })), [students]);
+
   // Warning State
   const [warningAck, setWarningAck] = useState(false);
   const [pendingWarning, setPendingWarning] = useState(null); // { type: 'topup'|'initial', amount: 0 }
@@ -4165,7 +4219,17 @@ export function TopUpsPage() {
             </div>
           </div>
         )}
-        <form className="form-grid form-row" onSubmit={submit}><label>Student<select value={sid} onChange={e => setSid(e.target.value)} required><option value="">Select</option>{students.map(s => <option key={s.id} value={s.id}>{s.student_code || s.id} — {s.student_name} ({s.remaining_hours}h)</option>)}</select></label><label>Hours<input type="number" value={hrs} onChange={e => setHrs(e.target.value)} required /></label><label>Total Amount (₹)<input type="number" value={totalAmt} onChange={e => setTotalAmt(e.target.value)} required /></label><label>Paid Amount (₹)<input type="number" value={amt} onChange={e => setAmt(e.target.value)} required /></label><label>Finance Note<textarea value={fNote} onChange={e => setFNote(e.target.value)} rows={2} style={{ resize: 'vertical' }} /></label><label>Screenshot (Upload)<input type="file" accept="image/*" onChange={e => setScrFile(e.target.files[0])} /></label><button type="submit" disabled={submitting} style={{ alignSelf: 'flex-end', marginTop: '16px', opacity: submitting ? 0.7 : 1, cursor: submitting ? 'not-allowed' : 'pointer' }}>{submitting ? '⏳ Submitting...' : 'Submit'}</button></form>{msg ? <p>{msg}</p> : null}
+        <form className="form-grid form-row" onSubmit={submit}>
+          <SearchSelect
+            label="Student *"
+            value={sid}
+            onChange={setSid}
+            options={studentOptions}
+            placeholder="Select Student"
+          />
+          <label>Hours<input type="number" value={hrs} onChange={e => setHrs(e.target.value)} required /></label><label>Total Amount (₹)<input type="number" value={totalAmt} onChange={e => setTotalAmt(e.target.value)} required /></label><label>Paid Amount (₹)<input type="number" value={amt} onChange={e => setAmt(e.target.value)} required /></label><label>Finance Note<textarea value={fNote} onChange={e => setFNote(e.target.value)} rows={2} style={{ resize: 'vertical' }} /></label><label>Screenshot (Upload)<input type="file" accept="image/*" onChange={e => setScrFile(e.target.files[0])} /></label><button type="submit" disabled={submitting || !sid} style={{ alignSelf: 'flex-end', marginTop: '16px', opacity: (submitting || !sid) ? 0.7 : 1, cursor: (submitting || !sid) ? 'not-allowed' : 'pointer' }}>{submitting ? '⏳ Submitting...' : 'Submit'}</button>
+        </form>
+        {msg ? <p>{msg}</p> : null}
       </article>
 
       <article className="card" style={{ marginTop: '24px' }}>
