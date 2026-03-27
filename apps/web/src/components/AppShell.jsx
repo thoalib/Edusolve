@@ -249,10 +249,16 @@ export default function AppShell({ roleLabel, role, user, pages, activePath, onN
               })}
             </section>
           ))}
-
           <div style={{ marginTop: 'auto', paddingTop: '20px', borderTop: '1px solid var(--line)' }}>
             <button type="button" className="secondary" style={{ width: '100%', justifyContent: 'center' }} onClick={onLogout}>Logout</button>
           </div>
+          {/* Mobile-only blank space items after logout */}
+          {mobileMenuOpen && (
+            <div className="mobile-only-spacer" style={{ height: '100px' }}>
+              <div style={{ height: '48px', margin: '8px 0', background: 'transparent' }} />
+              <div style={{ height: '48px', margin: '8px 0', background: 'transparent' }} />
+            </div>
+          )}
         </nav>
       </aside>
 

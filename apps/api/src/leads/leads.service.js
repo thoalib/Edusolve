@@ -560,6 +560,20 @@ export class LeadsService {
         teacherUserId = profile.user_id;
       }
 
+      // Prevent duplicate demo sessions for the same lead + time
+      if (updated.demo_scheduled_at) {
+        const { data: dupCheck } = await adminClient
+          .from('demo_sessions')
+          .select('id')
+          .eq('lead_id', id)
+          .eq('scheduled_at', new Date(updated.demo_scheduled_at).toISOString())
+          .limit(1);
+        if (dupCheck && dupCheck.length > 0) {
+          // Duplicate — skip insert
+          return updated;
+        }
+      }
+
       // Calculate next demo_number
       const { data: existingDemos } = await adminClient
         .from('demo_sessions')

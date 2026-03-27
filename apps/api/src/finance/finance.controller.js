@@ -22,14 +22,25 @@ async function generateStudentCode(adminClient) {
   const monthCode = MONTH_CODES[now.getMonth()];
   const yearCode = String(now.getFullYear()).slice(-2);
 
-  // Get the current max sequential number
-  const { count: totalStudents, error } = await adminClient
+  // Use MAX of existing sequence numbers extracted from student_code to avoid duplicates
+  // student_code format: "MR026014" → trailing digits are the seq number
+  const { data: rows } = await adminClient
     .from('students')
-    .select('*', { count: 'exact', head: true });
-    
-  if (error) throw new Error(error.message);
+    .select('student_code')
+    .not('student_code', 'is', null);
 
-  const seq = (totalStudents || 0) + 1;
+  let maxSeq = 0;
+  for (const row of rows || []) {
+    const code = row.student_code || '';
+    if (code.length > 6) {
+      // Skip the first 6 chars (Month(2) + 0 + Year(2) + 0)
+      const seqPart = code.slice(6);
+      const num = parseInt(seqPart, 10);
+      if (!isNaN(num) && num > maxSeq) maxSeq = num;
+    }
+  }
+
+  const seq = maxSeq + 1;
   return `${monthCode}0${yearCode}0${seq}`;
 }
 

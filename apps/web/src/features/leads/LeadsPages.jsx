@@ -836,6 +836,18 @@ function ScheduleDemoModal({ lead, onClose, onSuccess }) {
   const [endTime, setEndTime] = useState(initialEnd);
   const [subject, setSubject] = useState(lead.subject || '');
   const [selectedTeacherId, setSelectedTeacherId] = useState('');
+  const [subjects, setSubjects] = useState(CORE_SUBJECTS);
+
+  // Fetch subjects from API
+  useEffect(() => {
+    apiFetch('/subjects')
+      .then(data => {
+        if (data.subjects?.length > 0) {
+          setSubjects(data.subjects.map(s => ({ value: s.name, label: s.name })));
+        }
+      })
+      .catch(() => {}); // fallback to CORE_SUBJECTS
+  }, []);
 
   const [saving, setSaving] = useState(false);
   const [teachers, setTeachers] = useState([]);
@@ -1017,7 +1029,7 @@ function ScheduleDemoModal({ lead, onClose, onSuccess }) {
             label="Subject (Mandatory)"
             value={subject}
             onChange={setSubject}
-            options={CORE_SUBJECTS}
+            options={subjects}
             placeholder="Search Subject..."
           />
           <SearchSelect
@@ -1959,7 +1971,7 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
               <DemoHistorySection leadId={leadId} />
             </div>
           ) : (
-            <form className="card" onSubmit={onSave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <form className="card" onSubmit={onSave} style={{ display: 'flex', flexDirection: 'column', gap: '16px', paddingBottom: '64px' }}>
               <div>
                 <h3 style={{ margin: 0 }}>Edit Profile</h3>
                 <div style={{ height: '1px', background: '#e5e7eb', marginTop: '12px' }} />
@@ -2463,7 +2475,7 @@ export function ConvertedLeadsPage() {
 
 export function DemoManagementPage({ leadId, onOpenDetails }) {
   const [activeTab, setActiveTab] = useState('demo_scheduled');
-  const { items, total, page, setPage, limit, loading, error, refresh } = useLeads(`mine&status=${activeTab}`);
+  const { items, total, page, setPage, limit, loading, error, refresh } = useLeads(`mine&status=${activeTab === 'demo_done' ? 'demo_done,joined' : activeTab}`);
   const [teachers, setTeachers] = useState([]);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState('');
@@ -2891,6 +2903,10 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
   useEffect(() => {
     if (initialLeadId && leads.length > 0) {
       setShowNewModal(true);
+      // Clean up URL so it doesn't re-open on refresh
+      const url = new URL(window.location.href);
+      url.searchParams.delete('leadId');
+      window.history.replaceState({}, '', url.pathname + url.search);
       if (onReady) onReady();
     }
   }, [initialLeadId, leads, onReady]);
