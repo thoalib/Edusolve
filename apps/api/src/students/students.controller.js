@@ -1027,8 +1027,8 @@ export async function handleStudents(req, res, url) {
       const newStartMins = sH * 60 + sM;
       const newEndMins = newStartMins + Number(duration_hours) * 60;
 
-      // Fetch existing sessions for teacher and student in the date range
-      const [teacherSessRes, studentSessRes] = await Promise.all([
+      // Fetch existing sessions and demos for teacher and student in the date range
+      const [teacherSessRes, studentSessRes, teacherDemoRes] = await Promise.all([
         adminClient
           .from('academic_sessions')
           .select('session_date, started_at, duration_hours, students(student_name)')
@@ -1042,11 +1042,18 @@ export async function handleStudents(req, res, url) {
           .eq('student_id', studentId)
           .gte('session_date', start_date)
           .lte('session_date', end_date)
-          .not('started_at', 'is', null)
+          .not('started_at', 'is', null),
+        adminClient
+          .from('demo_sessions')
+          .select('scheduled_at, ends_at, student_name')
+          .eq('teacher_id', teacher_id)
+          .gte('scheduled_at', `${start_date}T00:00:00.000Z`)
+          .lte('scheduled_at', `${end_date}T23:59:59.999Z`)
       ]);
 
       const teacherSessions = teacherSessRes.data || [];
       const studentSessions = studentSessRes.data || [];
+      const teacherDemos = teacherDemoRes.data || [];
 
       function toMins(timeStr) {
         // timeStr can be ISO like "2026-03-18T10:00:00+05:30" or "HH:MM"
@@ -1073,7 +1080,23 @@ export async function handleStudents(req, res, url) {
       const sessionRecords = [];
 
       for (const dateStr of targetDates) {
-        const teacherConflict = hasOverlap(teacherSessions, dateStr);
+        let teacherConflict = hasOverlap(teacherSessions, dateStr);
+        
+        // If no class conflict, check for demo conflict
+        if (!teacherConflict) {
+          const demoMatch = teacherDemos.find(d => {
+            const dDate = new Date(d.scheduled_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+            if (dDate !== dateStr) return false;
+            
+            const dStart = toMins(d.scheduled_at);
+            const dEnd = d.ends_at ? toMins(d.ends_at) : dStart + 60;
+            return newStartMins < dEnd && newEndMins > dStart;
+          });
+          if (demoMatch) {
+            teacherConflict = { students: { student_name: `Demo with ${demoMatch.student_name || 'Prospect'}` } };
+          }
+        }
+
         const studentConflict = !teacherConflict && hasOverlap(studentSessions, dateStr);
 
         if (teacherConflict) {
