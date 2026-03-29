@@ -13,8 +13,6 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
         city: profile?.city || '',
         place: profile?.place || '',
         qualification: profile?.qualification || '',
-        experience_level: profile?.experience_level || '',
-        experience_duration: profile?.experience_duration || '',
         subjects_taught: Array.isArray(profile?.subjects_taught) ? profile.subjects_taught : [],
         syllabus: Array.isArray(profile?.syllabus) ? profile.syllabus : [],
         languages: Array.isArray(profile?.languages) ? profile.languages : [],
@@ -35,11 +33,15 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
     const [allSubjects, setAllSubjects] = useState([]);
     const [allSyllabus, setAllSyllabus] = useState([]);
     const [allLanguages, setAllLanguages] = useState([]);
+    const [allClasses, setAllClasses] = useState([]);
+
 
     useEffect(() => {
         apiFetch('/subjects').then(r => r.ok && setAllSubjects(r.subjects.map(s => s.name)));
         apiFetch('/boards').then(r => r.ok && setAllSyllabus(r.boards.map(b => b.name)));
         apiFetch('/mediums').then(r => r.ok && setAllLanguages(r.mediums.map(m => m.name)));
+        apiFetch('/classes').then(r => r.ok && setAllClasses(r.classes.map(c => c.name)));
+
     }, []);
 
     const createSubject = async (name) => {
@@ -72,6 +74,16 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
         } catch (e) { console.error('Failed to create language', e); }
     };
 
+    const createClass = async (name) => {
+        try {
+            const res = await apiFetch('/classes', { method: 'POST', body: JSON.stringify({ name }) });
+            if (res.ok) {
+                setAllClasses(prev => [...prev, res.class.name].sort());
+                setFormData(f => ({ ...f, classes_taught: [...(f.classes_taught || []), res.class.name] }));
+            }
+        } catch (e) { console.error('Failed to create class', e); }
+    };
+
     const updateField = (key, val) => setFormData(prev => ({ ...prev, [key]: val }));
 
     const handleNext = () => {
@@ -85,7 +97,7 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
             }
         }
         if (step === 2) {
-            const required = ['qualification', 'experience_level', 'experience_duration', 'meeting_link', 'subjects_taught', 'syllabus', 'languages'];
+            const required = ['qualification', 'meeting_link', 'subjects_taught', 'syllabus', 'languages'];
             for (const f of required) {
                 const val = formData[f];
                 if (!val || (Array.isArray(val) && val.length === 0)) {
@@ -259,21 +271,7 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
                         </div>
                         <label style={labelStyle}>Qualification {requiredStar}</label>
                         <input value={formData.qualification} onChange={e => updateField('qualification', e.target.value)} style={inputStyle} />
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                            <div>
-                                <label style={labelStyle}>Experience Level {requiredStar}</label>
-                                <select value={formData.experience_level} onChange={e => updateField('experience_level', e.target.value)} style={inputStyle}>
-                                    <option value="">Select</option>
-                                    <option value="Beginner">Beginner</option>
-                                    <option value="Intermediate">Intermediate</option>
-                                    <option value="Expert">Expert</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label style={labelStyle}>Experience Duration {requiredStar}</label>
-                                <input value={formData.experience_duration} onChange={e => updateField('experience_duration', e.target.value)} style={inputStyle} placeholder="e.g. 5 years" />
-                            </div>
-                        </div>
+
                         
                         <div style={{ marginBottom: '16px' }}>
                             <label style={labelStyle}>Subjects Taught {requiredStar}</label>
@@ -314,7 +312,8 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
                             <MultiSelectDropdown 
                                 value={formData.classes_taught} 
                                 onChange={v => updateField('classes_taught', v)}
-                                options={['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th']}
+                                options={allClasses}
+                                onCreate={createClass}
                                 placeholder="Select classes..."
                             />
                         </div>

@@ -36,7 +36,7 @@ function TeacherPoolTable({ items, onOpenProfile }) {
               <td data-label="Name">{item.users?.full_name || '-'}</td>
               <td data-label="Email">{item.users?.email || '-'}</td>
               <td data-label="Coordinator">{item.coordinator?.full_name || '-'}</td>
-              <td data-label="Experience">{item.experience_level || '-'}</td>
+              <td data-label="Experience">{item.experience_remark || item.experience_level || '-'}</td>
 
               <td data-label="Preferred Time">
                 <div style={{ position: 'relative', display: 'inline-block' }}>
@@ -311,7 +311,7 @@ export function TeacherProfilePage({ teacherProfileId }) {
         <p><strong>Teacher ID:</strong> {teacher?.teacher_code || '-'}</p>
         <p><strong>Name:</strong> {teacher?.users?.full_name || '-'}</p>
         <p><strong>Email:</strong> {teacher?.users?.email || '-'}</p>
-        <p><strong>Experience:</strong> {teacher?.experience_level || '-'}</p>
+        <p><strong>Experience:</strong> {teacher?.experience_remark || teacher?.experience_level || '-'}</p>
         <p><strong>Rate:</strong> {teacher?.per_hour_rate || '-'}</p>
         <p><strong>Coordinator:</strong> {teacher?.coordinator?.full_name || '-'}</p>
       </article>

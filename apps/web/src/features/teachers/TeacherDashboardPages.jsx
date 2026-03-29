@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { apiFetch } from '../../lib/api.js';
 import { getSessionStatusStyles } from '../academic/AcademicPages.jsx';
 import { TeacherOnboardingModal } from './TeacherOnboardingModal.jsx';
@@ -191,7 +191,7 @@ export function TeacherDashboardPage() {
                         <>
                             <p style={{ fontSize: '13px' }}><strong>Code:</strong> {profile.teacher_code || '—'}</p>
                             <p style={{ fontSize: '13px' }}><strong>Name:</strong> {profile.users?.full_name || '—'}</p>
-                            <p style={{ fontSize: '13px' }}><strong>Experience:</strong> {profile.experience_level || '—'}</p>
+                            <p style={{ fontSize: '13px' }}><strong>Experience:</strong> {profile.experience_remark || profile.experience_level || '—'}</p>
                             <p style={{ fontSize: '13px' }}><strong>Availability Slots:</strong> {(profile.teacher_availability || []).length}</p>
                         </>
                     ) : <p className="text-muted" style={{ fontSize: '13px' }}>Profile not found</p>}
@@ -1289,9 +1289,7 @@ export function TeacherMyProfilePage() {
                     </div>
                     <div style={gridRow}>
                         <ReadOnlyField label="Qualification" value={profile?.qualification} />
-                        <ReadOnlyField label="Experience" value={profile?.experience_level} />
-                        <ReadOnlyField label="Exp. Duration" value={profile?.experience_duration} />
-                        <ReadOnlyField label="Rate per Hour" value={profile?.per_hour_rate ? `₹${profile.per_hour_rate}/hr` : null} />
+                        <ReadOnlyField label="Experience Remark" value={profile?.experience_remark || profile?.experience_level} />
                     </div>
 
                     {/* Meeting Link — editable by teacher */}
@@ -1581,6 +1579,7 @@ export function TeacherStudentsPage() {
     const [msg, setMsg] = useState('');
     const [editingIds, setEditingIds] = useState(new Set());
     const [expandedRow, setExpandedRow] = useState(null);
+    const [remarkStudent, setRemarkStudent] = useState(null);
 
     const toggleRow = (id) => {
         setExpandedRow(prev => prev === id ? null : id);
@@ -1634,7 +1633,7 @@ export function TeacherStudentsPage() {
 
     if (loading) return <section className="panel"><p>Loading students...</p></section>;
 
-    return (
+    return (<>
         <section className="panel">
             {msg && (
                 <div style={{
@@ -1690,6 +1689,7 @@ export function TeacherStudentsPage() {
                                 <th className="desktop-only">Subject</th>
                                 <th className="desktop-only">Meeting Link (Specific)</th>
                                 <th className="desktop-only">Action</th>
+                                <th>Remark</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1759,6 +1759,16 @@ export function TeacherStudentsPage() {
                                                     </button>
                                                 )}
                                             </td>
+                                            <td data-label="Remark" style={{ textAlign: 'center' }}>
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => { e.stopPropagation(); setRemarkStudent(a); }}
+                                                    title="Add Remark"
+                                                    style={{ padding: '6px 12px', fontSize: '13px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px', color: '#15803d', fontWeight: 500 }}
+                                                >
+                                                    📝 Remark
+                                                </button>
+                                            </td>
                                         </tr>
                                         {/* Mobile Expansion Row */}
                                         {isExpanded && (
@@ -1824,6 +1834,204 @@ export function TeacherStudentsPage() {
                 </div>
             </article>
         </section>
+        {remarkStudent && (
+            <TeacherAddRemarkModal
+                studentId={remarkStudent.student_id}
+                studentName={remarkStudent.student_name}
+                onClose={() => setRemarkStudent(null)}
+                onDone={() => { setRemarkStudent(null); setMsg('Remark added successfully.'); setTimeout(() => setMsg(''), 3000); }}
+            />
+        )}
+    </>);
+}
+
+/* ─── Teacher Remarks Modal ─── */
+function TeacherAddRemarkModal({ studentId, studentName, onClose, onDone }) {
+    const [remarks, setRemarks] = useState([]);
+    const [loadingRemarks, setLoadingRemarks] = useState(true);
+    const [showForm, setShowForm] = useState(false);
+    const [editData, setEditData] = useState(null);
+
+    const [remarkType, setRemarkType] = useState('general');
+    const [title, setTitle] = useState('General Remark');
+    const [description, setDescription] = useState('');
+    const [marks, setMarks] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+
+    const currentUser = useMemo(() => {
+        try { return JSON.parse(localStorage.getItem('ehms_auth') || '{}').user || {}; }
+        catch { return {}; }
+    }, []);
+
+    const typeOptions = [
+        { value: 'general', label: '📝 General Remark' },
+        { value: 'parents_meeting', label: '👨‍👩‍👦 Parents Meeting' },
+        { value: 'exam', label: '📊 Exam' },
+        { value: 'attendance', label: '📋 Attendance' },
+        { value: 'behaviour', label: '⭐ Behaviour' },
+        { value: 'custom', label: '💬 Custom' }
+    ];
+
+    const titleSuggestions = {
+        general: 'General Remark',
+        parents_meeting: 'Parents Meeting Done',
+        exam: 'Exam Result',
+        attendance: 'Attendance Note',
+        behaviour: 'Behaviour Observation',
+        custom: ''
+    };
+
+    const loadRemarks = useCallback(async () => {
+        setLoadingRemarks(true);
+        try {
+            const res = await apiFetch(`/students/${studentId}/remarks`);
+            setRemarks(res.items || []);
+        } catch (e) { setError(e.message); }
+        finally { setLoadingRemarks(false); }
+    }, [studentId]);
+
+    useEffect(() => { loadRemarks(); }, [loadRemarks]);
+
+    useEffect(() => {
+        if (editData) {
+            setRemarkType(editData.remark_type || 'general');
+            setTitle(editData.title || '');
+            setDescription(editData.description || '');
+            setMarks(editData.marks || '');
+            setShowForm(true);
+        }
+    }, [editData]);
+
+    useEffect(() => {
+        if (!editData && showForm) setTitle(titleSuggestions[remarkType] || '');
+    }, [remarkType, editData, showForm]);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!title.trim()) { setError('Title is required'); return; }
+        setSaving(true); setError('');
+        try {
+            const url = editData ? `/students/${studentId}/remarks/${editData.id}` : `/students/${studentId}/remarks`;
+            const method = editData ? 'PUT' : 'POST';
+            await apiFetch(url, {
+                method,
+                body: JSON.stringify({ remark_type: remarkType, title: title.trim(), description: description.trim(), marks: marks.trim() || null })
+            });
+            setShowForm(false);
+            setEditData(null);
+            loadRemarks();
+        } catch (e) { setError(e.message); }
+        finally { setSaving(false); }
+    };
+
+    const handleDelete = async (id) => {
+        if (!window.confirm('Are you sure you want to delete this remark?')) return;
+        try {
+            await apiFetch(`/students/${studentId}/remarks/${id}`, { method: 'DELETE' });
+            loadRemarks();
+        } catch (e) { alert(e.message); }
+    };
+
+    return (
+        <div className="modal-overlay" onClick={onClose}>
+            <div className="modal card" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px', width: '90vw', padding: '24px', maxHeight: '90vh', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <div>
+                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>Remarks</h3>
+                        {studentName && <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#6b7280' }}>for {studentName}</p>}
+                    </div>
+                    <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#6b7280' }}>✕</button>
+                </div>
+                {error && <div style={{ color: '#dc2626', background: '#fee2e2', padding: '10px 14px', borderRadius: '8px', marginBottom: '16px', fontSize: '13px' }}>{error}</div>}
+                
+                {!showForm ? (
+                    <>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+                            <button className="primary small" onClick={() => { setEditData(null); setShowForm(true); }}>+ Add Remark</button>
+                        </div>
+                        {loadingRemarks ? <p style={{ textAlign: 'center', padding: '20px' }}>Loading timeline...</p> : remarks.length === 0 ? (
+                            <p className="text-muted" style={{ textAlign: 'center', padding: '24px 0', fontStyle: 'italic' }}>No remarks yet.</p>
+                        ) : (
+                            <div style={{ position: 'relative', paddingLeft: '28px' }}>
+                                <div style={{ position: 'absolute', left: '10px', top: '8px', bottom: '8px', width: '2px', background: '#e5e7eb' }}></div>
+                                {remarks.map((r, i) => {
+                                    const typeConfig = {
+                                        general: { icon: '📝', color: '#6366f1', label: 'General' },
+                                        parents_meeting: { icon: '👨‍👩‍👦', color: '#10b981', label: 'Meeting' },
+                                        exam: { icon: '📊', color: '#f59e0b', label: 'Exam' },
+                                        attendance: { icon: '📋', color: '#3b82f6', label: 'Attendance' },
+                                        behaviour: { icon: '⭐', color: '#8b5cf6', label: 'Behaviour' },
+                                        custom: { icon: '💬', color: '#64748b', label: 'Custom' }
+                                    };
+                                    const cfg = typeConfig[r.remark_type] || typeConfig.general;
+                                    const creatorName = r.creator?.full_name || 'Unknown';
+                                    const canEdit = currentUser.id === r.created_by;
+
+                                    return (
+                                        <div key={r.id} style={{ position: 'relative', marginBottom: i < remarks.length - 1 ? '24px' : '0' }}>
+                                            <div style={{ position: 'absolute', left: '-24px', top: '4px', width: '20px', height: '20px', borderRadius: '50%', background: cfg.color + '20', border: `2px solid ${cfg.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', zIndex: 1 }}>
+                                                {cfg.icon}
+                                            </div>
+                                            <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', padding: '14px 16px' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <span style={{ fontWeight: 700, fontSize: '14px', color: '#111827' }}>{r.title}</span>
+                                                        <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px', background: cfg.color + '15', color: cfg.color, fontWeight: 600 }}>{cfg.label}</span>
+                                                    </div>
+                                                    <span style={{ fontSize: '12px', color: '#9ca3af', whiteSpace: 'nowrap' }}>
+                                                        {new Date(r.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' })}
+                                                    </span>
+                                                </div>
+                                                {r.description && <p style={{ margin: '0 0 6px', fontSize: '13px', color: '#374151', lineHeight: '1.5' }}>{r.description}</p>}
+                                                {r.marks && <p style={{ margin: '0 0 6px', fontSize: '13px', color: '#111827', fontWeight: 600 }}>📊 Marks: {r.marks}</p>}
+                                                
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
+                                                    <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af' }}>— by {creatorName}</p>
+                                                    {canEdit && (
+                                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                                            <button type="button" onClick={() => setEditData(r)} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '12px', cursor: 'pointer', padding: 0 }}>Edit</button>
+                                                            <button type="button" onClick={() => handleDelete(r.id)} style={{ background: 'none', border: 'none', color: '#dc2626', fontSize: '12px', cursor: 'pointer', padding: 0 }}>Delete</button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    <form onSubmit={handleSubmit}>
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>Remark Type</label>
+                            <select value={remarkType} onChange={e => setRemarkType(e.target.value)} style={{ width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }}>
+                                {typeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                        </div>
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>Title <span style={{ color: '#ef4444' }}>*</span></label>
+                            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Mid-Term Exam, Parents Meeting" style={{ width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }} required />
+                        </div>
+                        {remarkType === 'exam' && (
+                            <div style={{ marginBottom: '16px' }}>
+                                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>Marks / Grade</label>
+                                <input value={marks} onChange={e => setMarks(e.target.value)} placeholder="e.g. 85/100, A+" style={{ width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }} />
+                            </div>
+                        )}
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>Description</label>
+                            <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Add details..." rows={3} style={{ width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                            <button type="button" onClick={() => { setShowForm(false); setEditData(null); }} className="secondary">Cancel</button>
+                            <button type="submit" className="primary" disabled={saving}>{saving ? 'Saving...' : (editData ? 'Update Remark' : 'Add Remark')}</button>
+                        </div>
+                    </form>
+                )}
+            </div>
+        </div>
     );
 }
 

@@ -19,6 +19,7 @@ const meetingLinkSchema = z.object({
 
 const updateTeacherSchema = z.object({
   experience_level: z.string().max(100).nullable().optional(),
+  experience_remark: z.string().max(100).nullable().optional(),
   per_hour_rate: z.coerce.number().positive().max(10000).nullable().optional(),
   phone: phoneSchema.nullable().optional(),
   qualification: z.string().max(200).nullable().optional(),
@@ -63,6 +64,7 @@ const teacherProfileUpdateSchema = z.object({
   
   // Professional details allowed during onboarding
   experience_level: z.string().max(100).nullable().optional(),
+  experience_remark: z.string().max(100).nullable().optional(),
   per_hour_rate: z.coerce.number().positive().max(10000).nullable().optional(),
   phone: phoneSchema.nullable().optional(),
   qualification: z.string().max(200).nullable().optional(),

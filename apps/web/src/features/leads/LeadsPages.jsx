@@ -1660,6 +1660,7 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
   const [form, setForm] = useState({ student_name: '', class_level: '', subject: '', lead_type: '', status: 'new', country: '' });
   const [leadTypes, setLeadTypes] = useState([]);
   const [allSubjects, setAllSubjects] = useState([]);
+  const [allClasses, setAllClasses] = useState([]);
   const [showNoteModal, setShowNoteModal] = useState(null);
 
   async function handleAddType(name) {
@@ -1684,11 +1685,13 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
         const historyData = await apiFetch(`/leads/${leadId}/history`);
         const typesData = await apiFetch('/leads/types').catch(() => ({ types: [] }));
         const subjectsData = await apiFetch('/subjects').catch(() => ({ subjects: [] }));
+        const classesData = await apiFetch('/classes').catch(() => ({ classes: [] }));
         if (cancelled) return;
         setLead(data.lead);
         setHistory(historyData.items || []);
         setLeadTypes(typesData.types || []);
         setAllSubjects(subjectsData.subjects ? subjectsData.subjects.map(s => s.name).sort() : []);
+        setAllClasses(classesData.classes ? classesData.classes.map(c => ({ value: c.name, label: c.name })) : []);
         setForm({
           student_name: data.lead.student_name || '',
           parent_name: data.lead.parent_name || '',
@@ -1999,10 +2002,13 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
                   Contact Number
                   <PhoneInput value={form.contact_number} onChange={(val) => setForm((v) => ({ ...v, contact_number: val }))} />
                 </label>
-                <label>
-                  Class
-                  <input value={form.class_level} onChange={(e) => setForm((v) => ({ ...v, class_level: e.target.value }))} />
-                </label>
+                <SearchSelect
+                  label="Class"
+                  value={form.class_level}
+                  onChange={(val) => setForm((v) => ({ ...v, class_level: val }))}
+                  options={allClasses}
+                  placeholder="Select Class..."
+                />
                 <label>
                   Country
                   <select value={form.country} onChange={(e) => setForm((v) => ({ ...v, country: e.target.value }))}>

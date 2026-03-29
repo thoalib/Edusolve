@@ -887,7 +887,7 @@ function ViewLeadModal_OLD({ lead, onClose, onEdit }) {
                     <DetailItem label="Phone" value={lead.phone} />
                     <DetailItem label="Email" value={lead.email} />
 
-                    <DetailItem label="Experience" value={lead.experience_level} />
+                    <DetailItem label="Experience Remark" value={lead.experience_remark} />
                     <DetailItem label="Type" value={lead.experience_type} />
 
                     <div style={{ width: '100%', marginBottom: '12px' }}>
@@ -928,7 +928,7 @@ function ViewLeadModal_OLD({ lead, onClose, onEdit }) {
 /* ─── Add Teacher Lead Modal (wide, multi-column) ─── */
 function AddTeacherLeadModal({ onClose, onDone }) {
     const [form, setForm] = useState({
-        full_name: '', phone: '', email: '', subjects: [], boards: [], mediums: [], experience_level: 'fresher',
+        full_name: '', phone: '', email: '', subjects: [], boards: [], mediums: [], experience_remark: 'Fresher',
         experience_type: '', experience_duration: '', qualification: '', place: '', city: '', notes: ''
     });
     const [allSubjects, setAllSubjects] = useState([]);
@@ -981,7 +981,7 @@ function AddTeacherLeadModal({ onClose, onDone }) {
         setSaving(false);
     }
 
-    const isExperienced = form.experience_level !== 'fresher';
+    const isExperienced = form.experience_remark === 'Experienced';
     const gridRow = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' };
 
     return (
@@ -1016,11 +1016,11 @@ function AddTeacherLeadModal({ onClose, onDone }) {
                         </label>
                     </div>
 
-                    {/* Row 3: Experience Level + Type + Duration */}
+                    {/* Row 3: Experience Remark + Type + Duration */}
                     <div style={{ ...gridRow, marginTop: '14px', gridTemplateColumns: isExperienced ? '1fr 1fr 1fr' : '1fr 1fr' }}>
-                        <label>Experience Level
-                            <CustomDropdown value={form.experience_level} onChange={v => upd('experience_level', v)}
-                                options={[{ value: 'fresher', label: 'Fresher' }, { value: 'experienced', label: 'Experienced' }]} />
+                        <label>Experience Remark
+                            <CustomDropdown value={form.experience_remark} onChange={v => upd('experience_remark', v)}
+                                options={[{ value: 'Fresher', label: 'Fresher' }, { value: 'Intermediate', label: 'Intermediate' }, { value: 'Experienced', label: 'Experienced' }]} />
                         </label>
                         {isExperienced && (
                             <>
@@ -1171,6 +1171,7 @@ function EditLeadModal({ lead, onClose, onDone }) {
         boards: parseSubjects(lead.boards),
         mediums: parseSubjects(lead.mediums),
         experience_level: lead.experience_level || 'fresher',
+        experience_remark: lead.experience_remark || 'Fresher',
         experience_type: lead.experience_type || '', experience_duration: lead.experience_duration || '',
         qualification: lead.qualification || '', place: lead.place || '', city: lead.city || '', notes: lead.notes || '',
         // Additional Details
@@ -1231,7 +1232,7 @@ function EditLeadModal({ lead, onClose, onDone }) {
         setSaving(false);
     }
 
-    const isExperienced = form.experience_level !== 'fresher';
+    const isExperienced = form.experience_remark === 'Experienced';
 
     const gridRow = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' };
 
@@ -1267,11 +1268,11 @@ function EditLeadModal({ lead, onClose, onDone }) {
                         </label>
                     </div>
 
-                    {/* Row 3: Experience Level + Type + Duration */}
+                    {/* Row 3: Experience Remark + Type + Duration */}
                     <div style={{ ...gridRow, marginTop: '14px', gridTemplateColumns: isExperienced ? '1fr 1fr 1fr' : '1fr 1fr' }}>
-                        <label>Experience Level
-                            <CustomDropdown value={form.experience_level} onChange={v => upd('experience_level', v)}
-                                options={[{ value: 'fresher', label: 'Fresher' }, { value: 'experienced', label: 'Experienced' }]} />
+                        <label>Experience Remark
+                            <CustomDropdown value={form.experience_remark} onChange={v => upd('experience_remark', v)}
+                                options={[{ value: 'Fresher', label: 'Fresher' }, { value: 'Intermediate', label: 'Intermediate' }, { value: 'Experienced', label: 'Experienced' }]} />
                         </label>
                         {isExperienced && (
                             <>
@@ -1541,7 +1542,7 @@ export function TCTeacherPoolPage() {
                             </div>
                             <div>
                                 <span className="text-muted">Experience</span>
-                                <p style={{ margin: '2px 0 0', fontWeight: 500 }}>{t.experience_level || '—'}</p>
+                                <p style={{ margin: '2px 0 0', fontWeight: 500 }}>{t.experience_remark || t.experience_level || '—'}</p>
                                 <p style={{ margin: 0, fontSize: '11px', color: '#6b7280' }}>{t.qualification || ''}</p>
                             </div>
                             <div>
@@ -1940,7 +1941,7 @@ function ViewLeadModal({ lead, onClose, onEdit }) {
 
                             {/* Experience */}
                             <div style={{ ...gridRow, gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
-                                <ReadOnlyField label="Experience Level" value={lead.experience_level === 'fresher' ? 'Fresher' : 'Experienced'} />
+                                <ReadOnlyField label="Experience Remark" value={lead.experience_remark || '—'} />
                                 <ReadOnlyField label="Experience Type" value={lead.experience_type === 'school' ? 'School' : lead.experience_type === 'coaching' ? 'Coaching' : lead.experience_type} />
                                 <ReadOnlyField label="Duration" value={lead.experience_duration || null} />
                                 <ReadOnlyField label="Comm. Level" value={lead.communication_level ? <Badge color={lead.communication_level === 'Fluent' ? '#10b981' : lead.communication_level === 'Mixed' ? '#3b82f6' : lead.communication_level === 'Average' ? '#f59e0b' : '#ef4444'}>{lead.communication_level}</Badge> : '—'} />

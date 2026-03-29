@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { apiFetch } from '../../../lib/api.js';
 import { CreatableSelect } from '../../../components/ui/CreatableSelect.jsx';
+import { SearchSelect } from '../../../components/ui/SearchSelect.jsx';
 import { PhoneInput, isValidEmail } from '../../../components/PhoneInput.jsx';
 
 export function AddLeadModal({ onClose, onSuccess }) {
     const [studentName, setStudentName] = useState('');
     const [contactNumber, setContactNumber] = useState('');
     const [classLevel, setClassLevel] = useState('');
+    const [allClasses, setAllClasses] = useState([]);
     const [subject, setSubject] = useState('');
     const [leadType, setLeadType] = useState('');
     const [email, setEmail] = useState('');
@@ -71,6 +73,7 @@ export function AddLeadModal({ onClose, onSuccess }) {
     useEffect(() => {
         fetchLeadTypes();
         fetchSubjects();
+        apiFetch('/classes').then(r => r.ok && setAllClasses(r.classes.map(c => ({ value: c.name, label: c.name }))));
     }, []);
 
     async function onSubmit(e) {
@@ -122,10 +125,13 @@ export function AddLeadModal({ onClose, onSuccess }) {
                         Contact
                         <PhoneInput value={contactNumber} onChange={setContactNumber} required={true} />
                     </label>
-                    <label>
-                        Class
-                        <input value={classLevel} onChange={(e) => setClassLevel(e.target.value)} />
-                    </label>
+                    <SearchSelect
+                        label="Class Level"
+                        value={classLevel}
+                        onChange={setClassLevel}
+                        options={allClasses}
+                        placeholder="Select Class..."
+                    />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <CreatableSelect
                             label="Subject"

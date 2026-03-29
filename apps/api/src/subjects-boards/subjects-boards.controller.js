@@ -9,7 +9,7 @@ function actorFromHeaders(req) {
 }
 
 export async function handleSubjectsBoards(req, res, url) {
-    if (!url.pathname.startsWith('/subjects') && !url.pathname.startsWith('/boards') && !url.pathname.startsWith('/mediums')) return false;
+    if (!url.pathname.startsWith('/subjects') && !url.pathname.startsWith('/boards') && !url.pathname.startsWith('/mediums') && !url.pathname.startsWith('/classes') && !url.pathname.startsWith('/experience-categories')) return false;
 
     const adminClient = getSupabaseAdminClient();
     if (!adminClient) { sendJson(res, 500, { ok: false, error: 'supabase not configured' }); return true; }
@@ -157,6 +157,94 @@ export async function handleSubjectsBoards(req, res, url) {
         // DELETE /mediums/:id
         if (req.method === 'DELETE' && idMatch) {
             const { error } = await adminClient.from('mediums').delete().eq('id', idMatch[1]);
+            if (error) { sendJson(res, 500, { ok: false, error: error.message }); return true; }
+            sendJson(res, 200, { ok: true });
+            return true;
+        }
+    }
+
+    // ─── CLASSES ───
+    if (url.pathname === '/classes' || url.pathname.startsWith('/classes/')) {
+        const idMatch = url.pathname.match(/^\/classes\/([^/]+)$/);
+
+        // GET /classes
+        if (req.method === 'GET' && url.pathname === '/classes') {
+            const { data, error } = await adminClient.from('classes').select('*').order('name');
+            if (error) { sendJson(res, 500, { ok: false, error: error.message }); return true; }
+            sendJson(res, 200, { ok: true, classes: data });
+            return true;
+        }
+
+        // POST /classes
+        if (req.method === 'POST' && url.pathname === '/classes') {
+            const body = await readJson(req);
+            if (!body.name?.trim()) { sendJson(res, 400, { ok: false, error: 'name is required' }); return true; }
+            const { data, error } = await adminClient.from('classes').insert({ name: body.name.trim() }).select().single();
+            if (error) {
+                if (error.code === '23505') { sendJson(res, 409, { ok: false, error: 'Class already exists' }); return true; }
+                sendJson(res, 500, { ok: false, error: error.message }); return true;
+            }
+            sendJson(res, 201, { ok: true, class: data });
+            return true;
+        }
+
+        // PATCH /classes/:id
+        if (req.method === 'PATCH' && idMatch) {
+            const body = await readJson(req);
+            if (!body.name?.trim()) { sendJson(res, 400, { ok: false, error: 'name is required' }); return true; }
+            const { data, error } = await adminClient.from('classes').update({ name: body.name.trim() }).eq('id', idMatch[1]).select().single();
+            if (error) { sendJson(res, 500, { ok: false, error: error.message }); return true; }
+            sendJson(res, 200, { ok: true, class: data });
+            return true;
+        }
+
+        // DELETE /classes/:id
+        if (req.method === 'DELETE' && idMatch) {
+            const { error } = await adminClient.from('classes').delete().eq('id', idMatch[1]);
+            if (error) { sendJson(res, 500, { ok: false, error: error.message }); return true; }
+            sendJson(res, 200, { ok: true });
+            return true;
+        }
+    }
+
+    // ─── EXPERIENCE CATEGORIES ───
+    if (url.pathname === '/experience-categories' || url.pathname.startsWith('/experience-categories/')) {
+        const idMatch = url.pathname.match(/^\/experience-categories\/([^/]+)$/);
+
+        // GET /experience-categories
+        if (req.method === 'GET' && url.pathname === '/experience-categories') {
+            const { data, error } = await adminClient.from('experience_categories').select('*').order('name');
+            if (error) { sendJson(res, 500, { ok: false, error: error.message }); return true; }
+            sendJson(res, 200, { ok: true, categories: data });
+            return true;
+        }
+
+        // POST /experience-categories
+        if (req.method === 'POST' && url.pathname === '/experience-categories') {
+            const body = await readJson(req);
+            if (!body.name?.trim()) { sendJson(res, 400, { ok: false, error: 'name is required' }); return true; }
+            const { data, error } = await adminClient.from('experience_categories').insert({ name: body.name.trim() }).select().single();
+            if (error) {
+                if (error.code === '23505') { sendJson(res, 409, { ok: false, error: 'Category already exists' }); return true; }
+                sendJson(res, 500, { ok: false, error: error.message }); return true;
+            }
+            sendJson(res, 201, { ok: true, category: data });
+            return true;
+        }
+
+        // PATCH /experience-categories/:id
+        if (req.method === 'PATCH' && idMatch) {
+            const body = await readJson(req);
+            if (!body.name?.trim()) { sendJson(res, 400, { ok: false, error: 'name is required' }); return true; }
+            const { data, error } = await adminClient.from('experience_categories').update({ name: body.name.trim() }).eq('id', idMatch[1]).select().single();
+            if (error) { sendJson(res, 500, { ok: false, error: error.message }); return true; }
+            sendJson(res, 200, { ok: true, category: data });
+            return true;
+        }
+
+        // DELETE /experience-categories/:id
+        if (req.method === 'DELETE' && idMatch) {
+            const { error } = await adminClient.from('experience_categories').delete().eq('id', idMatch[1]);
             if (error) { sendJson(res, 500, { ok: false, error: error.message }); return true; }
             sendJson(res, 200, { ok: true });
             return true;

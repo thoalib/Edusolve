@@ -179,10 +179,13 @@ export function getRate(teacher, board, subject, level, config) {
     return FALLBACK_RATES._special[subjectKey]?.[level] || 0;
   }
 
-  // Priority 3: ICSE/IGCSE — experience independent
+  // Priority 3: ICSE/IGCSE
   if (normalizedBoard === 'icse_igcse') {
     if (config) {
-      const rate = config['icse_igcse']?.['_any']?.['_default']?.[level];
+      // Check specific experience first, then _any
+      let rate = config['icse_igcse']?.[experience]?.['_default']?.[level];
+      if (rate !== undefined) return rate;
+      rate = config['icse_igcse']?.['_any']?.['_default']?.[level];
       if (rate !== undefined) return rate;
     }
     return FALLBACK_RATES.icse_igcse._any[level] || 0;
@@ -190,7 +193,17 @@ export function getRate(teacher, board, subject, level, config) {
 
   // Priority 4: State/CBSE by experience category
   if (config) {
-    const rate = config['state_cbse']?.[experience]?.['_default']?.[level];
+    let rate = config['state_cbse']?.[experience]?.['_default']?.[level];
+    if (rate !== undefined) return rate;
+    
+    // Fallback to any experience or any board
+    rate = config['state_cbse']?.['_any']?.['_default']?.[level];
+    if (rate !== undefined) return rate;
+
+    rate = config['_any']?.[experience]?.['_default']?.[level];
+    if (rate !== undefined) return rate;
+
+    rate = config['_any']?.['_any']?.['_default']?.[level];
     if (rate !== undefined) return rate;
   }
   return FALLBACK_RATES.state_cbse[experience]?.[level] || FALLBACK_RATES.state_cbse.fresher[level] || 0;
