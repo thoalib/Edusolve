@@ -243,6 +243,7 @@ export function IncomeManagementPage() {
   const [accounts, setAccounts] = useState([]);
   const [parties, setParties] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -257,29 +258,61 @@ export function IncomeManagementPage() {
   }
   useEffect(() => { load(); }, []);
 
-  const total = items.reduce((s, r) => s + Number(r.amount || 0), 0);
+  async function handleDelete(id) {
+    if (!confirm('Are you sure you want to delete this income entry?')) return;
+    try {
+      await apiFetch(`/finance/income/${id}`, { method: 'DELETE' });
+      load();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  const [page, setPage] = useState(1);
+  const [accountIdFilter, setAccountIdFilter] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const PAGE_SIZE = 50;
+
+  useEffect(() => { setPage(1); }, [searchQuery, accountIdFilter, startDate, endDate]);
 
   const filteredItems = useMemo(() => {
-    if (!searchQuery.trim()) return items;
-    const q = searchQuery.toLowerCase();
-    return items.filter(i => (
-      (i.description || '').toLowerCase().includes(q) ||
-      (i.finance_accounts?.name || '').toLowerCase().includes(q) ||
-      (i.finance_parties?.name || '').toLowerCase().includes(q) ||
-      (i.students?.student_name || '').toLowerCase().includes(q) ||
-      (i.users?.full_name || '').toLowerCase().includes(q) ||
-      (i.employees?.full_name || '').toLowerCase().includes(q)
-    ));
-  }, [items, searchQuery]);
+    let result = items;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(i => (
+        (i.description || '').toLowerCase().includes(q) ||
+        (i.finance_accounts?.name || '').toLowerCase().includes(q) ||
+        (i.finance_parties?.name || '').toLowerCase().includes(q) ||
+        (i.students?.student_name || '').toLowerCase().includes(q) ||
+        (i.users?.full_name || '').toLowerCase().includes(q) ||
+        (i.employees?.full_name || '').toLowerCase().includes(q)
+      ));
+    }
+    if (accountIdFilter) result = result.filter(i => i.account_id === accountIdFilter);
+    if (startDate) result = result.filter(i => i.entry_date >= startDate);
+    if (endDate) result = result.filter(i => i.entry_date <= endDate);
+    return result;
+  }, [items, searchQuery, accountIdFilter, startDate, endDate]);
+
+  const filteredTotal = filteredItems.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
+  const paginatedItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <section className="panel">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-        <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '16px', overflowX: 'auto', whiteSpace: 'nowrap', paddingBottom: '4px' }}>
+        <div style={{ flexShrink: 0 }}>
           <h2 style={{ margin: 0, fontSize: '20px' }}>Income</h2>
-          <p className="text-muted" style={{ margin: '2px 0 0', fontSize: '13px' }}>Total: ₹{total.toLocaleString()}</p>
+          <p className="text-muted" style={{ margin: '2px 0 0', fontSize: '13px' }}>Total: ₹{filteredTotal.toLocaleString()}</p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <select value={accountIdFilter} onChange={e => setAccountIdFilter(e.target.value)} style={{ padding: '7px 14px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px' }}>
+            <option value="">All Accounts</option>
+            {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} title="Start Date" style={{ padding: '7px 14px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px' }} />
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} title="End Date" style={{ padding: '7px 14px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px' }} />
           <input type="text" placeholder="🔍 Search income..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
             style={{ padding: '7px 14px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', minWidth: '180px' }} />
           <button className="primary" onClick={() => setShowAdd(true)}>+ Add Income</button>
@@ -289,24 +322,44 @@ export function IncomeManagementPage() {
         <article className="card" style={{ padding: '16px' }}>
           <div className="table-wrap mobile-friendly-table">
             <table>
-              <thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Party</th><th>Amount</th></tr></thead>
+              <thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Party</th><th>Amount</th><th style={{ width: 100 }}>Actions</th></tr></thead>
               <tbody>
-                {filteredItems.map(i => (
+                {paginatedItems.map(i => (
                   <tr key={i.id}>
                     <td data-label="Date">{i.entry_date}</td>
                     <td data-label="Description">{i.description || '—'}</td>
                     <td data-label="Account">{i.finance_accounts?.name || '—'}</td>
                     <td data-label="Party">{i.finance_parties?.name || i.students?.student_name || i.users?.full_name || i.employees?.full_name || '—'}</td>
                     <td data-label="Amount" style={{ fontWeight: 600, color: '#15803d' }}>₹{Number(i.amount).toLocaleString()}</td>
+                    <td data-label="Actions" style={{ display: 'flex', gap: '8px' }}>
+                      <button className="small secondary" onClick={() => setEditingItem(i)} style={{ padding: '4px 8px', fontSize: '11px' }}>Edit</button>
+                      <button className="small text-danger" onClick={() => handleDelete(i.id)} style={{ padding: '4px 8px', fontSize: '11px', background: 'transparent', border: '1px solid #fee2e2' }}>Delete</button>
+                    </td>
                   </tr>
                 ))}
-                {!items.length ? <tr><td colSpan="5" style={{ textAlign: 'center' }}>No income entries</td></tr> : null}
+                {!filteredItems.length ? <tr><td colSpan="6" style={{ textAlign: 'center' }}>No income entries found</td></tr> : null}
+                {filteredItems.length > 0 && totalPages > 1 && (
+                  <tr>
+                    <td colSpan="6" style={{ padding: '16px 0 0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                        <button className="small secondary" onClick={() => setPage(1)} disabled={page === 1}>«</button>
+                        <button className="small secondary" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹ Prev</button>
+                        <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                          Page {page} of {totalPages} ({(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredItems.length)} of {filteredItems.length})
+                        </span>
+                        <button className="small secondary" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next ›</button>
+                        <button className="small secondary" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </article>
       )}
       {showAdd ? <AddEntryModal type="income" accounts={accounts} onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); load(); }} /> : null}
+      {editingItem ? <AddEntryModal type="income" accounts={accounts} editItem={editingItem} onClose={() => setEditingItem(null)} onDone={() => { setEditingItem(null); load(); }} /> : null}
     </section>
   );
 }
@@ -318,6 +371,7 @@ export function ExpenseManagementPage() {
   const [parties, setParties] = useState([]);
   const [categories, setCategories] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
   const [showCategories, setShowCategories] = useState(false);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -335,32 +389,70 @@ export function ExpenseManagementPage() {
   }
   useEffect(() => { load(); }, []);
 
-  const total = items.reduce((s, r) => s + Number(r.amount || 0), 0);
+  async function handleDelete(id) {
+    if (!confirm('Are you sure you want to delete this expense entry?')) return;
+    try {
+      await apiFetch(`/finance/expenses/${id}`, { method: 'DELETE' });
+      load();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
 
   const categoryNames = categories.length > 0 ? categories.map(c => c.name) : ['salary', 'rent', 'marketing', 'software', 'travel', 'office supplies', 'utilities', 'maintenance', 'other'];
 
+  const [page, setPage] = useState(1);
+  const [accountIdFilter, setAccountIdFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const PAGE_SIZE = 50;
+
+  useEffect(() => { setPage(1); }, [searchQuery, accountIdFilter, categoryFilter, startDate, endDate]);
+
   const filteredItems = useMemo(() => {
-    if (!searchQuery.trim()) return items;
-    const q = searchQuery.toLowerCase();
-    return items.filter(i => (
-      (i.description || '').toLowerCase().includes(q) ||
-      (i.category || '').toLowerCase().includes(q) ||
-      (i.finance_accounts?.name || '').toLowerCase().includes(q) ||
-      (i.finance_parties?.name || '').toLowerCase().includes(q) ||
-      (i.students?.student_name || '').toLowerCase().includes(q) ||
-      (i.users?.full_name || '').toLowerCase().includes(q) ||
-      (i.employees?.full_name || '').toLowerCase().includes(q)
-    ));
-  }, [items, searchQuery]);
+    let result = items;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(i => (
+        (i.description || '').toLowerCase().includes(q) ||
+        (i.category || '').toLowerCase().includes(q) ||
+        (i.finance_accounts?.name || '').toLowerCase().includes(q) ||
+        (i.finance_parties?.name || '').toLowerCase().includes(q) ||
+        (i.students?.student_name || '').toLowerCase().includes(q) ||
+        (i.users?.full_name || '').toLowerCase().includes(q) ||
+        (i.employees?.full_name || '').toLowerCase().includes(q)
+      ));
+    }
+    if (accountIdFilter) result = result.filter(i => i.account_id === accountIdFilter);
+    if (categoryFilter) result = result.filter(i => i.category === categoryFilter);
+    if (startDate) result = result.filter(i => i.expense_date >= startDate);
+    if (endDate) result = result.filter(i => i.expense_date <= endDate);
+    return result;
+  }, [items, searchQuery, accountIdFilter, categoryFilter, startDate, endDate]);
+
+  const filteredTotal = filteredItems.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
+  const paginatedItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <section className="panel">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-        <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '16px', overflowX: 'auto', whiteSpace: 'nowrap', paddingBottom: '4px' }}>
+        <div style={{ flexShrink: 0 }}>
           <h2 style={{ margin: 0, fontSize: '20px' }}>Expenses</h2>
-          <p className="text-muted" style={{ margin: '2px 0 0', fontSize: '13px' }}>Total: ₹{total.toLocaleString()}</p>
+          <p className="text-muted" style={{ margin: '2px 0 0', fontSize: '13px' }}>Total: ₹{filteredTotal.toLocaleString()}</p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <select value={accountIdFilter} onChange={e => setAccountIdFilter(e.target.value)} style={{ padding: '7px 14px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px' }}>
+            <option value="">All Accounts</option>
+            {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+          <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} style={{ padding: '7px 14px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', textTransform: 'capitalize' }}>
+            <option value="">All Categories</option>
+            {categoryNames.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} title="Start Date" style={{ padding: '7px 14px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px' }} />
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} title="End Date" style={{ padding: '7px 14px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px' }} />
           <input type="text" placeholder="🔍 Search expenses..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
             style={{ padding: '7px 14px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', minWidth: '180px' }} />
           <button className="primary" onClick={() => setShowAdd(true)}>+ Add Expense</button>
@@ -370,9 +462,9 @@ export function ExpenseManagementPage() {
         <article className="card" style={{ padding: '16px' }}>
           <div className="table-wrap mobile-friendly-table">
             <table>
-              <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Account</th><th>Party</th><th>Amount</th></tr></thead>
+              <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Account</th><th>Party</th><th>Amount</th><th style={{ width: 100 }}>Actions</th></tr></thead>
               <tbody>
-                {filteredItems.map(i => (
+                {paginatedItems.map(i => (
                   <tr key={i.id}>
                     <td data-label="Date">{i.expense_date}</td>
                     <td data-label="Category"><span style={{ textTransform: 'capitalize' }}>{i.category}</span></td>
@@ -380,15 +472,35 @@ export function ExpenseManagementPage() {
                     <td data-label="Account">{i.finance_accounts?.name || '—'}</td>
                     <td data-label="Party">{i.finance_parties?.name || i.students?.student_name || i.users?.full_name || i.employees?.full_name || '—'}</td>
                     <td data-label="Amount" style={{ fontWeight: 600, color: '#dc2626' }}>₹{Number(i.amount).toLocaleString()}</td>
+                    <td data-label="Actions" style={{ display: 'flex', gap: '8px' }}>
+                      <button className="small secondary" onClick={() => setEditingItem(i)} style={{ padding: '4px 8px', fontSize: '11px' }}>Edit</button>
+                      <button className="small text-danger" onClick={() => handleDelete(i.id)} style={{ padding: '4px 8px', fontSize: '11px', background: 'transparent', border: '1px solid #fee2e2' }}>Delete</button>
+                    </td>
                   </tr>
                 ))}
-                {!items.length ? <tr><td colSpan="6" style={{ textAlign: 'center' }}>No expenses</td></tr> : null}
+                {!filteredItems.length ? <tr><td colSpan="7" style={{ textAlign: 'center' }}>No expenses found</td></tr> : null}
+                {filteredItems.length > 0 && totalPages > 1 && (
+                  <tr>
+                    <td colSpan="7" style={{ padding: '16px 0 0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                        <button className="small secondary" onClick={() => setPage(1)} disabled={page === 1}>«</button>
+                        <button className="small secondary" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹ Prev</button>
+                        <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                          Page {page} of {totalPages} ({(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredItems.length)} of {filteredItems.length})
+                        </span>
+                        <button className="small secondary" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next ›</button>
+                        <button className="small secondary" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </article>
       )}
       {showAdd ? <AddExpenseModal accounts={accounts} categories={categoryNames} onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); load(); }} /> : null}
+      {editingItem ? <AddExpenseModal accounts={accounts} categories={categoryNames} editItem={editingItem} onClose={() => setEditingItem(null)} onDone={() => { setEditingItem(null); load(); }} /> : null}
     </section>
   );
 }
@@ -399,6 +511,7 @@ export function AccountsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
+  const [historyAccount, setHistoryAccount] = useState(null);
   const [loading, setLoading] = useState(true);
 
   async function load() {
@@ -409,6 +522,10 @@ export function AccountsPage() {
 
   const totalBalance = items.reduce((s, r) => s + Number(r.balance || 0), 0);
   const computedBalance = items.reduce((s, r) => s + Number(r.computed_balance || 0), 0);
+
+  if (historyAccount) {
+    return <AccountHistoryPage account={historyAccount} onBack={() => { setHistoryAccount(null); load(); }} />;
+  }
 
   return (
     <section className="panel">
@@ -448,6 +565,14 @@ export function AccountsPage() {
                         <path d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z" />
                       </svg>
                       Edit
+                    </button>
+                    <button onClick={() => setHistoryAccount(acc)} title="View History"
+                      style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', color: '#1d4ed8', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style={{ width: '13px', height: '13px' }}>
+                        <path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z" />
+                        <path fillRule="evenodd" d="M3 8h14v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8zm5 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clipRule="evenodd" />
+                      </svg>
+                      History
                     </button>
                   </div>
                 </div>
@@ -490,11 +615,101 @@ export function AccountsPage() {
   );
 }
 
+/* ═══════ ACCOUNT HISTORY PAGE ═══════ */
+function AccountHistoryPage({ account, onBack }) {
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
+
+  useEffect(() => {
+    apiFetch(`/finance/accounts/${account.id}/history`).then(d => {
+      setHistory(d.history || []);
+      setLoading(false);
+    }).catch(e => alert(e.message));
+  }, [account.id]);
+
+  const totalPages = Math.max(1, Math.ceil(history.length / PAGE_SIZE));
+  const paginatedHistory = history.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  return (
+    <section className="panel" style={{ animation: 'fade-in 0.2s ease-out' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button className="secondary" onClick={onBack} style={{ padding: '6px 12px' }}>
+            ← Back
+          </button>
+          <h2 style={{ margin: 0, fontSize: '20px' }}>{account.name} — Transaction History</h2>
+        </div>
+      </div>
+
+      {loading ? <p>Loading history...</p> : (
+        <article className="card" style={{ padding: '16px' }}>
+          <div className="table-wrap mobile-friendly-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Type</th>
+                  <th>Description</th>
+                  <th>Party / Entity</th>
+                  <th style={{ textAlign: 'right' }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedHistory.map((row, i) => {
+                  const isInc = row.__type === 'income';
+                  const partyName = row.finance_parties?.name || row.students?.student_name || row.employees?.full_name || '—';
+                  return (
+                    <tr key={`${row.id}-${i}`}>
+                      <td data-label="Date" style={{ fontSize: '13px' }}>{row.date}</td>
+                      <td data-label="Type">
+                        <span style={{ 
+                          padding: '3px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 600,
+                          background: isInc ? '#dcfce7' : '#fee2e2', color: isInc ? '#166534' : '#991b1b'
+                        }}>
+                          {isInc ? 'Income' : 'Expense'}
+                        </span>
+                      </td>
+                      <td data-label="Description" style={{ fontSize: '13px' }}>{row.description || (isInc ? 'Payment Received' : 'Expense')}</td>
+                      <td data-label="Party" style={{ fontSize: '13px' }}>{partyName}</td>
+                      <td data-label="Amount" style={{ textAlign: 'right', fontWeight: 600, color: isInc ? '#15803d' : '#dc2626' }}>
+                        {isInc ? '+' : '-'}₹{Number(row.amount).toLocaleString('en-IN')}
+                      </td>
+                    </tr>
+                  )
+                })}
+                {!history.length && (
+                   <tr><td colSpan={5} style={{ textAlign: 'center', padding: '16px' }}>No transactions recorded yet.</td></tr>
+                )}
+                {history.length > 0 && totalPages > 1 && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: '16px 0 0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                        <button className="small secondary" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹ Prev</button>
+                        <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                          Page {page} of {totalPages}
+                        </span>
+                        <button className="small secondary" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next ›</button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      )}
+    </section>
+  );
+}
+
 /* ═══════ EDIT ACCOUNT MODAL ═══════ */
 function EditAccountModal({ account, onClose, onDone }) {
   const [name, setName] = useState(account.name);
   const [type, setType] = useState(account.type);
   const [balance, setBalance] = useState(String(account.balance));
+  const [openingBalance, setOpeningBalance] = useState(String(account.opening_balance || account.balance));
   const [description, setDescription] = useState(account.description || '');
   const [isMain, setIsMain] = useState(account.is_main);
   const [saving, setSaving] = useState(false);
@@ -514,6 +729,7 @@ function EditAccountModal({ account, onClose, onDone }) {
           name,
           type,
           balance: Number(balance),
+          opening_balance: Number(openingBalance),
           description: description || null,
           is_main: isMain,
         })
@@ -526,87 +742,46 @@ function EditAccountModal({ account, onClose, onDone }) {
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal card" onClick={e => e.stopPropagation()}
-        style={{ maxWidth: '420px', width: '95%', padding: '28px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h3 style={{ margin: 0, fontSize: '18px' }}>Edit Account</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '22px', cursor: 'pointer', color: '#6b7280' }}>×</button>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '5px' }}>Account Name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '5px' }}>Account Type</label>
-            <select
-              value={type}
-              onChange={e => setType(e.target.value)}
-              style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', backgroundColor: 'white' }}
-            >
-              <option value="cash">Cash</option>
+    <div className="modal-overlay">
+      <div className="modal card" style={{ maxWidth: '420px' }}>
+        <h3>Edit Account</h3>
+        <form className="form-grid" onSubmit={e => { e.preventDefault(); handleSave(); }}>
+          <label>Name *<input value={name} onChange={e => setName(e.target.value)} required /></label>
+          <label>Type
+            <select value={type} onChange={e => setType(e.target.value)}>
               <option value="bank">Bank</option>
-              <option value="credit">Credit Card</option>
-              <option value="ewallet">E-Wallet</option>
+              <option value="cash">Cash</option>
+              <option value="upi">UPI</option>
+              <option value="wallet">Wallet</option>
               <option value="other">Other</option>
             </select>
-          </div>
-          <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '5px' }}>Current Balance</label>
-            <input
-              type="number"
-              value={balance}
-              onChange={e => setBalance(e.target.value)}
-              style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '5px' }}>Description (Optional)</label>
-            <textarea
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              rows="3"
-              style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }}
-            ></textarea>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <input
-              type="checkbox"
-              id="isMainAccount"
-              checked={isMain}
-              onChange={e => setIsMain(e.target.checked)}
-              style={{ width: '16px', height: '16px' }}
-            />
-            <label htmlFor="isMainAccount" style={{ fontSize: '13px', fontWeight: 600 }}>Set as Main Account</label>
-          </div>
+          </label>
+          <label>Opening Balance<input type="number" value={openingBalance} onChange={e => setOpeningBalance(e.target.value)} /></label>
+          <label>Current Balance<input type="number" value={balance} onChange={e => setBalance(e.target.value)} required /></label>
+          <label>Description<input value={description} onChange={e => setDescription(e.target.value)} /></label>
+          <label style={{ flexDirection: 'row', gap: '8px', alignItems: 'center' }}>
+            <input type="checkbox" checked={isMain} onChange={e => setIsMain(e.target.checked)} style={{ width: 'auto' }} />
+            Main Company Account
+          </label>
 
-          {error && <p style={{ color: '#dc2626', fontSize: '13px', margin: '0' }}>{error}</p>}
-
-          <button
-            className="primary"
-            onClick={handleSave}
-            disabled={saving}
-            style={{ width: '100%', padding: '10px 15px', fontSize: '14px', fontWeight: 600, borderRadius: '8px', cursor: saving ? 'not-allowed' : 'pointer' }}
-          >
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
+          {error ? <p className="error">{error}</p> : null}
+          <div className="actions">
+            <button type="button" className="secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="primary" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>
+          </div>
+        </form>
       </div>
     </div>
   );
 }
 
-/* ═══════ LEDGER MODAL ═══════ */
-function LedgerModal({ type, party, onClose }) {
+
+/* ═══════ LEDGER PAGE ═══════ */
+function LedgerPage({ type, party, onBack }) {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
 
   useEffect(() => {
     apiFetch(`/finance/ledgers/${type}/${party.id}`).then(d => {
@@ -636,10 +811,15 @@ function LedgerModal({ type, party, onClose }) {
   });
   let runningBalance = 0;
   const rows = sorted.map(row => {
-    if (row.__type === 'income') runningBalance -= Number(row.amount);
-    else if (row.__type === 'receivable') runningBalance += Number(row.amount);
-    else if (row.__type === 'payable') runningBalance += Number(row.amount);
-    else if (row.__type === 'expense') runningBalance -= Number(row.amount);
+    if (type === 'others') {
+      if (row.__type === 'expense') runningBalance += Number(row.amount);
+      else if (row.__type === 'income') runningBalance -= Number(row.amount);
+    } else {
+      if (row.__type === 'income') runningBalance -= Number(row.amount);
+      else if (row.__type === 'receivable') runningBalance += Number(row.amount);
+      else if (row.__type === 'payable') runningBalance += Number(row.amount);
+      else if (row.__type === 'expense') runningBalance -= Number(row.amount);
+    }
     return { ...row, runningBalance };
   }).reverse();
 
@@ -650,11 +830,16 @@ function LedgerModal({ type, party, onClose }) {
     expense: { bg: '#fee2e2', color: '#991b1b', label: 'Paid Out' },
   };
 
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const paginatedRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   return (
-    <div className="modal-overlay"><div className="modal card" style={{ maxWidth: '700px', width: '95%', padding: '24px' }}>
+    <section className="panel" style={{ animation: 'fade-in 0.2s ease-out' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-        <h3 style={{ margin: 0, fontSize: '18px' }}>{party.name || party.full_name || party.student_name} — Ledger</h3>
-        <button className="text-danger" onClick={onClose} style={{ fontSize: '24px', padding: 0, background: 'none', border: 'none', cursor: 'pointer' }}>×</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button className="secondary" onClick={onBack} style={{ padding: '6px 12px' }}>← Back</button>
+          <h2 style={{ margin: 0, fontSize: '20px' }}>{party.name || party.full_name || party.student_name} — Ledger</h2>
+        </div>
       </div>
 
       {/* AR Summary (students) */}
@@ -694,11 +879,12 @@ function LedgerModal({ type, party, onClose }) {
       )}
 
       {loading ? <p>Loading ledger...</p> : (
-        <div className="table-wrap mobile-friendly-table" style={{ maxHeight: '380px', overflowY: 'auto' }}>
-          <table>
-            <thead><tr><th>Date</th><th>Type</th><th>Description</th><th style={{ textAlign: 'right' }}>Amount</th><th style={{ textAlign: 'right' }}>Balance</th></tr></thead>
-            <tbody>
-              {rows.map((r, i) => {
+        <article className="card" style={{ padding: '16px' }}>
+          <div className="table-wrap mobile-friendly-table">
+            <table>
+              <thead><tr><th>Date</th><th>Type</th><th>Description</th><th style={{ textAlign: 'right' }}>Amount</th><th style={{ textAlign: 'right' }}>Balance</th></tr></thead>
+              <tbody>
+                {paginatedRows.map((r, i) => {
                 const s = typeStyle[r.__type] || { bg: '#f3f4f6', color: '#6b7280', label: r.__type };
                 const amtColor = r.__type === 'income' ? '#15803d' : (r.__type === 'receivable' || r.__type === 'payable') ? '#92400e' : '#dc2626';
                 const prefix = r.__type === 'income' ? '+' : (r.__type === 'receivable' || r.__type === 'payable') ? '+' : '-';
@@ -718,12 +904,26 @@ function LedgerModal({ type, party, onClose }) {
                   </tr>
                 );
               })}
-              {!rows.length ? <tr><td colSpan="5" style={{ textAlign: 'center' }}>No ledger entries found.</td></tr> : null}
-            </tbody>
-          </table>
-        </div>
+                {!rows.length ? <tr><td colSpan="5" style={{ textAlign: 'center' }}>No ledger entries found.</td></tr> : null}
+                {rows.length > 0 && totalPages > 1 && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: '16px 0 0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                        <button className="small secondary" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹ Prev</button>
+                        <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                          Page {page} of {totalPages}
+                        </span>
+                        <button className="small secondary" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next ›</button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </article>
       )}
-    </div></div>
+    </section>
   );
 }
 
@@ -846,6 +1046,7 @@ export function PartiesPage() {
   const [activeTab, setActiveTab] = useState('students');
   const [items, setItems] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [editParty, setEditParty] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedParty, setSelectedParty] = useState(null);
   const [showCategories, setShowCategories] = useState(false);
@@ -868,6 +1069,10 @@ export function PartiesPage() {
   useEffect(() => { load(); }, [activeTab]);
   // Reset to page 1 on tab or search change
   useEffect(() => { setPartiesPage(1); }, [activeTab, searchQuery]);
+
+  if (selectedParty) {
+    return <LedgerPage type={activeTab} party={selectedParty} onBack={() => { setSelectedParty(null); load(); }} />;
+  }
 
   return (
     <section className="panel">
@@ -903,7 +1108,7 @@ export function PartiesPage() {
             <thead>
               <tr>
                 <th>Name</th>
-                <th>ID</th>
+                {activeTab !== 'others' && <th>{activeTab === 'teachers' ? 'Teacher Code' : 'ID'}</th>}
                 {activeTab === 'others' && <th>Type</th>}
                 {activeTab === 'students' ? (
                   <>
@@ -945,7 +1150,11 @@ export function PartiesPage() {
                   {paginatedItems.map(p => (
                     <tr key={p.id}>
                       <td data-label="Name" style={{ fontWeight: 600 }}>{p.name || p.full_name || p.student_name}</td>
-                      <td data-label="ID" style={{ fontSize: '12px', color: '#6b7280' }}>{p.student_code || p.id?.slice(0, 8) || '—'}</td>
+                      {activeTab !== 'others' && (
+                        <td data-label={activeTab === 'teachers' ? "Teacher Code" : "ID"} style={{ fontSize: '12px', color: '#6b7280' }}>
+                          {activeTab === 'teachers' ? (p.teacher_code || '—') : (p.student_code || p.id?.slice(0, 8) || '—')}
+                        </td>
+                      )}
                       {activeTab === 'others' && <td data-label="Type" style={{ textTransform: 'capitalize' }}>{p.type}</td>}
                       {activeTab === 'students' ? (
                         <>
@@ -971,7 +1180,12 @@ export function PartiesPage() {
                         </>
                       )}
                       <td data-label="Action" style={{ textAlign: 'center' }}>
-                        <button className="small secondary" onClick={() => setSelectedParty(p)}>View Ledger</button>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                          {activeTab === 'others' && (
+                            <button className="small secondary" onClick={() => setEditParty(p)} style={{ color: '#2563eb', borderColor: '#bfdbfe', background: '#eff6ff' }}>Edit</button>
+                          )}
+                          <button className="small secondary" onClick={() => setSelectedParty(p)}>View Ledger</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1009,8 +1223,8 @@ export function PartiesPage() {
         </div>
       )}
       {showAdd && activeTab === 'others' ? <AddPartyModal onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); load(); }} /> : null}
+      {editParty && activeTab === 'others' ? <AddPartyModal editData={editParty} onClose={() => setEditParty(null)} onDone={() => { setEditParty(null); load(); }} /> : null}
       {showCategories ? <CategoriesModal type="expense" onClose={() => setShowCategories(false)} onUpdate={() => { }} /> : null}
-      {selectedParty ? <LedgerModal type={activeTab} party={selectedParty} onClose={() => setSelectedParty(null)} /> : null}
     </section>
   );
 }
@@ -1026,6 +1240,8 @@ export function PayrollRequestsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [payslipRequest, setPayslipRequest] = useState(null);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
 
   async function loadData() {
     try {
@@ -1064,13 +1280,26 @@ export function PayrollRequestsPage() {
     setPaying(false);
   }
 
+  useEffect(() => { setPage(1); }, [searchQuery, typeFilter]);
+
+  const filteredRequests = requests.filter(req => {
+    if (typeFilter !== 'all' && req.target_type !== typeFilter) return false;
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    const name = req.target_type === 'teacher' ? (req.teacher_profiles?.users?.full_name || '') : (req.employees?.full_name || '');
+    return name.toLowerCase().includes(q) || (req.hr_note || '').toLowerCase().includes(q) || (req.id || '').toLowerCase().includes(q);
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filteredRequests.length / PAGE_SIZE));
+  const paginatedRequests = filteredRequests.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   const MONTHS = { 1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun', 7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec' };
   const statusColors = { pending: '#f59e0b', paid: '#10b981' };
 
   return (
     <section className="panel">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-        <h2 style={{ margin: 0, fontSize: '20px' }}>HR Payroll Requests</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '16px', overflowX: 'auto', whiteSpace: 'nowrap', paddingBottom: '4px' }}>
+        <h2 style={{ margin: 0, fontSize: '20px', flexShrink: 0 }}>HR Payroll Requests</h2>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
             style={{ padding: '7px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', background: '#fff' }}>
@@ -1102,13 +1331,7 @@ export function PayrollRequestsPage() {
             </tr>
           </thead>
           <tbody>
-            {requests.filter(req => {
-              if (typeFilter !== 'all' && req.target_type !== typeFilter) return false;
-              if (!searchQuery.trim()) return true;
-              const q = searchQuery.toLowerCase();
-              const name = req.target_type === 'teacher' ? (req.teacher_profiles?.users?.full_name || '') : (req.employees?.full_name || '');
-              return name.toLowerCase().includes(q) || (req.hr_note || '').toLowerCase().includes(q) || (req.id || '').toLowerCase().includes(q);
-            }).map(req => {
+            {paginatedRequests.map(req => {
               const name = req.target_type === 'teacher' ? (req.teacher_profiles?.users?.full_name || 'Unknown Teacher') : (req.employees?.full_name || 'Unknown Employee');
               const typeLabel = req.target_type === 'teacher' ? 'Teacher' : 'Staff';
               const calcAmount = req.breakdown?.base_calculated || 0;
@@ -1141,7 +1364,22 @@ export function PayrollRequestsPage() {
                 </tr>
               )
             })}
-            {!requests.length && !loading && <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>No payroll requests found.</td></tr>}
+            {!filteredRequests.length && !loading && <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>No payroll requests found.</td></tr>}
+            {filteredRequests.length > 0 && totalPages > 1 && (
+              <tr>
+                <td colSpan="10" style={{ padding: '16px 0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                    <button className="small secondary" onClick={() => setPage(1)} disabled={page === 1}>«</button>
+                    <button className="small secondary" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹ Prev</button>
+                    <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                      Page {page} of {totalPages} ({(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredRequests.length)} of {filteredRequests.length})
+                    </span>
+                    <button className="small secondary" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next ›</button>
+                    <button className="small secondary" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</button>
+                  </div>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -1177,13 +1415,20 @@ export function PayrollRequestsPage() {
 /* ═══════ REQUESTS VERIFICATION PAGE ═══════ */
 export function RequestsVerificationPage() {
   const [requests, setRequests] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
 
   async function load() {
-    try { const d = await apiFetch('/finance/requests'); setRequests(d.items || []); } catch (e) { }
+    try { 
+      const d = await apiFetch('/finance/requests'); 
+      setRequests(d.items || []); 
+    } catch (e) { }
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
+
+  const totalPages = Math.max(1, Math.ceil(requests.length / PAGE_SIZE));
+  const paginatedRequests = requests.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const statusColors = { pending: '#f59e0b', approved: '#10b981', rejected: '#ef4444', resolved: '#4338ca' };
 
@@ -1192,7 +1437,7 @@ export function RequestsVerificationPage() {
       <h2 style={{ margin: '0 0 16px', fontSize: '20px' }}>All Requests</h2>
       {loading ? <p>Loading...</p> : (
         <div className="today-leads-grid">
-          {requests.map(r => (
+          {paginatedRequests.map(r => (
             <div key={r.id} className="card" style={{
               padding: '16px', borderLeft: `4px solid ${statusColors[r.status] || '#6b7280'}`
             }}>
@@ -1207,7 +1452,18 @@ export function RequestsVerificationPage() {
               </div>
             </div>
           ))}
-          {!requests.length ? <div className="card" style={{ padding: '40px', textAlign: 'center' }}><p className="text-muted">No requests</p></div> : null}
+          {!requests.length && !loading ? <div className="card" style={{ padding: '40px', textAlign: 'center' }}><p className="text-muted">No requests</p></div> : null}
+          {requests.length > 0 && totalPages > 1 && (
+            <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '16px' }}>
+              <button className="small secondary" onClick={() => setPage(1)} disabled={page === 1}>«</button>
+              <button className="small secondary" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹ Prev</button>
+              <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                Page {page} of {totalPages}
+              </span>
+              <button className="small secondary" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next ›</button>
+              <button className="small secondary" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</button>
+            </div>
+          )}
         </div>
       )}
     </section>
@@ -1313,29 +1569,34 @@ export function FinanceReportsPage() {
 
   return (
     <section className="panel">
-      {/* Date Filters */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', marginBottom: '20px', background: 'white', padding: '16px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-        <select value={dateFilter} onChange={e => setDateFilter(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px', background: '#f9fafb', minWidth: '150px' }}>
-          <option value="this_month">This Month</option>
-          <option value="last_week">Last Week</option>
-          <option value="last_month">Last Month</option>
-          <option value="month_select">Select Month</option>
-          <option value="custom">Custom Range</option>
-        </select>
+      {/* Header & Date Filters */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '16px', overflowX: 'auto', whiteSpace: 'nowrap', paddingBottom: '4px' }}>
+        <h2 style={{ margin: 0, fontSize: '20px', flexShrink: 0 }}>Financial Reports</h2>
         
-        {dateFilter === 'month_select' && (
-          <input type="month" value={customMonth} onChange={e => setCustomMonth(e.target.value)}
-            style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px' }} />
-        )}
-        {dateFilter === 'custom' && (
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <input type="date" value={dateRange.start} onChange={e => setDateRange({ ...dateRange, start: e.target.value })}
-              style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px' }} />
-            <span style={{ color: '#6b7280' }}>to</span>
-            <input type="date" value={dateRange.end} onChange={e => setDateRange({ ...dateRange, end: e.target.value })}
-              style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px' }} />
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <select value={dateFilter} onChange={e => setDateFilter(e.target.value)} 
+            style={{ padding: '7px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', background: '#fff', minWidth: '140px' }}>
+            <option value="this_month">This Month</option>
+            <option value="last_week">Last Week</option>
+            <option value="last_month">Last Month</option>
+            <option value="month_select">Select Month</option>
+            <option value="custom">Custom Range</option>
+          </select>
+          
+          {dateFilter === 'month_select' && (
+            <input type="month" value={customMonth} onChange={e => setCustomMonth(e.target.value)}
+              style={{ padding: '7px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }} />
+          )}
+          {dateFilter === 'custom' && (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input type="date" value={dateRange.start} onChange={e => setDateRange({ ...dateRange, start: e.target.value })}
+                style={{ padding: '7px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }} />
+              <span style={{ color: '#6b7280', fontSize: '12px' }}>to</span>
+              <input type="date" value={dateRange.end} onChange={e => setDateRange({ ...dateRange, end: e.target.value })}
+                style={{ padding: '7px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }} />
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="grid-three" style={{ marginBottom: '16px' }}>
@@ -1409,6 +1670,8 @@ export function PaymentVerificationPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [receiptItem, setReceiptItem] = useState(null);
   const [receiptType, setReceiptType] = useState('payment');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
 
   async function load() {
     setLoading(true); setError('');
@@ -1426,6 +1689,28 @@ export function PaymentVerificationPage() {
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
+  useEffect(() => { setPage(1); }, [activeTab, searchQuery]);
+
+  const filteredItems = useMemo(() => {
+    let items = [];
+    if (activeTab === 'payments') items = payments;
+    else if (activeTab === 'topups') items = topups;
+    else if (activeTab === 'installments') items = installments;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      items = items.filter(i => {
+        const lead = i.leads || i.students || {};
+        const name = lead.lead_name || lead.student_name || i.teacher_name || '';
+        const phone = lead.phone_number || lead.whatsapp_number || '';
+        return name.toLowerCase().includes(q) || phone.includes(q) || (i.id || '').toLowerCase().includes(q);
+      });
+    }
+    return items;
+  }, [activeTab, payments, topups, installments, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
+  const paginatedItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   async function verifyPayment(id, approved) {
     try {
@@ -1455,17 +1740,17 @@ export function PaymentVerificationPage() {
 
   return (
     <section className="panel">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-        <h2 style={{ margin: 0, fontSize: '20px' }}>Payment Verification</h2>
-        <input type="text" placeholder="🔍 Search by name or phone..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-          style={{ padding: '7px 14px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', minWidth: '200px' }} />
-      </div>
-      {error ? <p className="error">{error}</p> : null}
-
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-        {tabs.map(t => (
-          <button key={t.key} className={activeTab === t.key ? 'primary' : 'secondary'} style={{ fontSize: '13px' }} onClick={() => setActiveTab(t.key)}>{t.label}</button>
-        ))}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '16px', overflowX: 'auto', whiteSpace: 'nowrap', paddingBottom: '4px' }}>
+        <h2 style={{ margin: 0, fontSize: '20px', flexShrink: 0 }}>Payment Verification</h2>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {tabs.map(t => (
+              <button key={t.key} className={activeTab === t.key ? 'primary small' : 'secondary small'} style={{ fontSize: '13px', whiteSpace: 'nowrap' }} onClick={() => setActiveTab(t.key)}>{t.label}</button>
+            ))}
+          </div>
+          <input type="text" placeholder="🔍 Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+            style={{ padding: '7px 14px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', minWidth: '180px' }} />
+        </div>
       </div>
 
       {loading ? <p>Loading...</p> : null}
@@ -1476,52 +1761,58 @@ export function PaymentVerificationPage() {
           <div className="table-wrap mobile-friendly-table">
             <table>
               <thead><tr>
-                <th>Requested By</th>
+                <th>Date</th>
                 <th>Lead</th>
-                <th>Phone</th>
-                <th>Total Amt</th>
+                <th>Amount</th>
                 <th>Hours</th>
-                <th>Paid Amt</th>
-                <th>Finance Note</th>
-                <th>Screenshot</th>
                 <th>Status</th>
-                <th>Actions</th>
+                <th>Action</th>
               </tr></thead>
               <tbody>
-                {payments.filter(item => {
-                  if (!searchQuery.trim()) return true;
-                  const q = searchQuery.toLowerCase();
-                  return (item.users?.full_name || item.requested_by || '').toLowerCase().includes(q) ||
-                    (item.leads?.student_name || '').toLowerCase().includes(q) ||
-                    (item.leads?.contact_number || '').toLowerCase().includes(q);
-                }).map(item => (
-                  <tr key={item.id}>
-                    <td data-label="Requested By">{item.users?.full_name || item.requested_by || '—'}</td>
-                    <td data-label="Lead" style={{ fontWeight: 500 }}>{item.leads?.student_name || item.lead_id}</td>
-                    <td data-label="Phone">{item.leads?.contact_number || '—'}</td>
-                    <td data-label="Total Amt" style={{ fontWeight: 600 }}>{item.total_amount ? `₹${Number(item.total_amount).toLocaleString('en-IN')}` : '—'}</td>
-                    <td data-label="Hours">{item.hours || '—'}</td>
-                    <td data-label="Paid Amt" style={{ fontWeight: 600, color: '#15803d' }}>₹{Number(item.amount).toLocaleString('en-IN')}</td>
-                    <td data-label="Finance Note" style={{ fontSize: '12px', color: '#6b7280', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.finance_note || '—'}</td>
-                    <td data-label="Screenshot">
-                      {item.screenshot_url ? <a href={item.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca' }}>View</a> : '—'}
-                    </td>
-                    <td data-label="Status">
-                      <span style={{ padding: '3px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: 700, background: `${statusColors[item.status]}18`, color: statusColors[item.status] }}>{item.status}</span>
-                    </td>
-                    <td data-label="Actions" className="actions">
-                      {item.status === 'pending' ? (
-                        <button className="small primary" onClick={() => setSelectedPayment(item)}>🔍 Review</button>
-                      ) : item.status === 'verified' ? (
-                        <button onClick={() => { setReceiptItem(item); setReceiptType('payment'); }} style={{ fontSize: '11px', padding: '3px 10px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600 }}>🧾 Receipt</button>
-                      ) : '—'}
+                {paginatedItems.map(p => {
+                  const name = p.leads?.student_name || 'Unknown';
+                  const amount = Number(p.amount) || 0;
+                  return (
+                    <tr key={p.id} style={{ background: selectedPayment?.id === p.id ? '#f0f4ff' : '' }}>
+                      <td data-label="Date">{p.created_at?.slice(0, 10)}</td>
+                      <td data-label="Lead">
+                        <div style={{ fontWeight: 600 }}>{name}</div>
+                        <div style={{ fontSize: '11px', color: '#6b7280' }}>{p.leads?.contact_number}</div>
+                      </td>
+                      <td data-label="Amount" style={{ fontWeight: 700 }}>₹{amount.toLocaleString()}</td>
+                      <td data-label="Hours">{p.hours || '—'} hrs</td>
+                      <td data-label="Status">
+                        <span style={{ padding: '3px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600, background: `${statusColors[p.status]}18`, color: statusColors[p.status] }}>{p.status}</span>
+                      </td>
+                      <td data-label="Action">
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button className={p.status === 'pending' ? "small primary" : "small secondary"} onClick={() => setSelectedPayment(p)}>
+                            {p.status === 'pending' ? 'Review' : 'View'}
+                          </button>
+                          {p.status === 'verified' && <button className="small secondary" onClick={() => { setReceiptItem(p); setReceiptType('payment'); }}>Receipt</button>}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!filteredItems.length ? <tr><td colSpan="6" style={{ textAlign: 'center' }}>No payments found</td></tr> : null}
+                {filteredItems.length > 0 && totalPages > 1 && (
+                  <tr>
+                    <td colSpan="6" style={{ padding: '16px 0 0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                        <button className="small secondary" onClick={() => setPage(1)} disabled={page === 1}>«</button>
+                        <button className="small secondary" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹ Prev</button>
+                        <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                          Page {page} of {totalPages} ({(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredItems.length)} of {filteredItems.length})
+                        </span>
+                        <button className="small secondary" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next ›</button>
+                        <button className="small secondary" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</button>
+                      </div>
                     </td>
                   </tr>
-                ))}
-                {!payments.length ? <tr><td colSpan="9" style={{ textAlign: 'center' }}>No payment requests</td></tr> : null}
+                )}
               </tbody>
             </table>
-
           </div>
         </article>
       ) : null}
@@ -1531,38 +1822,50 @@ export function PaymentVerificationPage() {
         <article className="card" style={{ padding: '16px' }}>
           <div className="table-wrap mobile-friendly-table">
             <table>
-              <thead><tr><th>Requested By</th><th>Student</th><th>Hrs</th><th>Total ₹</th><th>Paid ₹</th><th>Note</th><th>Screenshot</th><th>Status</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Date</th><th>Student</th><th>Hrs</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
               <tbody>
-                {topups.filter(item => {
-                  if (!searchQuery.trim()) return true;
-                  const q = searchQuery.toLowerCase();
-                  return (item.users?.full_name || item.requested_by || '').toLowerCase().includes(q) ||
-                    (item.students?.student_name || '').toLowerCase().includes(q) ||
-                    (item.students?.student_code || '').toLowerCase().includes(q);
-                }).map(item => (
-                  <tr key={item.id}>
-                    <td data-label="Requested By">{item.users?.full_name || item.requested_by || '—'}</td>
-                    <td data-label="Student">{item.students?.student_name || '—'} <span className="text-muted" style={{ fontSize: '11px' }}>({item.students?.student_code || ''})</span></td>
-                    <td data-label="Hrs">{item.hours_added}h</td>
-                    <td data-label="Total ₹" style={{ fontWeight: 600 }}>{item.total_amount ? `₹${Number(item.total_amount).toLocaleString('en-IN')}` : '—'}</td>
-                    <td data-label="Paid ₹" style={{ fontWeight: 600, color: '#15803d' }}>₹{Number(item.amount).toLocaleString('en-IN')}</td>
-                    <td data-label="Note" style={{ fontSize: '12px', color: '#6b7280', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.finance_note || '—'}</td>
-                    <td data-label="Screenshot">
-                      {item.screenshot_url ? <a href={item.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca' }}>View</a> : '—'}
-                    </td>
-                    <td data-label="Status">
-                      <span style={{ padding: '3px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: 700, background: `${statusColors[item.status]}18`, color: statusColors[item.status] }}>{item.status}</span>
-                    </td>
-                    <td data-label="Actions" className="actions">
-                      {item.status === 'pending_finance' ? (
-                        <button className="small primary" onClick={() => setSelectedTopup(item)}>🔍 Review</button>
-                      ) : item.status === 'verified' ? (
-                        <button onClick={() => { setReceiptItem(item); setReceiptType('topup'); }} style={{ fontSize: '11px', padding: '3px 10px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600 }}>🧾 Receipt</button>
-                      ) : '—'}
+                {paginatedItems.map(t => {
+                  const name = t.students?.student_name || 'Unknown';
+                  const amount = Number(t.amount) || 0;
+                  return (
+                    <tr key={t.id} style={{ background: selectedTopup?.id === t.id ? '#f0f4ff' : '' }}>
+                      <td data-label="Date">{t.created_at?.slice(0, 10)}</td>
+                      <td data-label="Student">
+                        <div style={{ fontWeight: 600 }}>{name}</div>
+                        <div style={{ fontSize: '11px', color: '#6b7280' }}>{t.students?.whatsapp_number}</div>
+                      </td>
+                      <td data-label="Hours">{t.hours_added} hrs</td>
+                      <td data-label="Amount" style={{ fontWeight: 700 }}>₹{amount.toLocaleString()}</td>
+                      <td data-label="Status">
+                        <span style={{ padding: '3px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600, background: `${statusColors[t.status]}18`, color: statusColors[t.status] }}>{t.status}</span>
+                      </td>
+                      <td data-label="Action">
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button className={t.status === 'pending_finance' ? "small primary" : "small secondary"} onClick={() => setSelectedTopup(t)}>
+                            {t.status === 'pending_finance' ? 'Review' : 'View'}
+                          </button>
+                          {t.status === 'verified' && <button className="small secondary" onClick={() => { setReceiptItem(t); setReceiptType('topup'); }}>Receipt</button>}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!filteredItems.length ? <tr><td colSpan="6" style={{ textAlign: 'center' }}>No top-ups found</td></tr> : null}
+                {filteredItems.length > 0 && totalPages > 1 && (
+                  <tr>
+                    <td colSpan="6" style={{ padding: '16px 0 0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                        <button className="small secondary" onClick={() => setPage(1)} disabled={page === 1}>«</button>
+                        <button className="small secondary" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹ Prev</button>
+                        <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                          Page {page} of {totalPages} ({(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredItems.length)} of {filteredItems.length})
+                        </span>
+                        <button className="small secondary" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next ›</button>
+                        <button className="small secondary" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</button>
+                      </div>
                     </td>
                   </tr>
-                ))}
-                {!topups.length ? <tr><td colSpan="8" style={{ textAlign: 'center' }}>No top-up requests</td></tr> : null}
+                )}
               </tbody>
             </table>
           </div>
@@ -1575,52 +1878,53 @@ export function PaymentVerificationPage() {
           <div className="table-wrap mobile-friendly-table">
             <table>
               <thead><tr>
-                <th>Submitted By</th>
-                <th>Student</th>
-                <th>Type</th>
+                <th>Date</th>
+                <th>Party</th>
                 <th>Amount</th>
                 <th>Note</th>
-                <th>Screenshot</th>
                 <th>Status</th>
-                <th>Actions</th>
+                <th>Action</th>
               </tr></thead>
               <tbody>
-                {installments.filter(item => {
-                  if (!searchQuery.trim()) return true;
-                  const q = searchQuery.toLowerCase();
-                  return (item.users?.full_name || '').toLowerCase().includes(q) ||
-                    (item.parent?.leads?.student_name || item.parent?.students?.student_name || '').toLowerCase().includes(q);
-                }).map(item => (
-                  <tr key={item.id}>
-                    <td data-label="Submitted By">{item.users?.full_name || '—'}</td>
-                    <td data-label="Student" style={{ fontWeight: 500 }}>
-                      {item.parent?.leads?.student_name || item.parent?.students?.student_name || '—'}
-                    </td>
-                    <td data-label="Type">
-                      <span style={{ padding: '2px 8px', background: '#eff6ff', color: '#1d4ed8', borderRadius: '12px', fontSize: '11px', fontWeight: 600 }}>
-                        {item.reference_type === 'payment_request' ? 'Onboarding' : 'Top-Up'}
-                      </span>
-                    </td>
-                    <td data-label="Amount" style={{ fontWeight: 700, color: '#15803d' }}>₹{Number(item.amount).toLocaleString('en-IN')}</td>
-                    <td data-label="Note" style={{ fontSize: '12px', color: '#6b7280', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.finance_note || '—'}</td>
-                    <td data-label="Screenshot">
-                      {item.screenshot_url ? <a href={item.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca' }}>View</a> : '—'}
-                    </td>
-                    <td data-label="Status">
-                      {(() => {
-                        const sm = { pending: { bg: '#fef3c7', color: '#92400e' }, verified: { bg: '#dcfce7', color: '#15803d' }, rejected: { bg: '#fee2e2', color: '#dc2626' } };
-                        const s = sm[item.status] || { bg: '#f3f4f6', color: '#6b7280' };
-                        return <span style={{ padding: '3px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: 700, background: s.bg, color: s.color }}>{item.status}</span>;
-                      })()}
-                    </td>
-                    <td data-label="Actions" className="actions">
-                      {item.status === 'pending' ? (
-                        <button className="small primary" onClick={() => setSelectedInstallment(item)}>🔍 Review</button>
-                      ) : '—'}
+                {paginatedItems.map(inst => {
+                  const name = inst.parent?.leads?.student_name || inst.parent?.students?.student_name || 'Unknown';
+                  const amount = Number(inst.amount) || 0;
+                  return (
+                    <tr key={inst.id} style={{ background: selectedInstallment?.id === inst.id ? '#f0f4ff' : '' }}>
+                      <td data-label="Date">{inst.created_at?.slice(0, 10)}</td>
+                      <td data-label="Party">
+                        <div style={{ fontWeight: 600 }}>{name}</div>
+                        <div style={{ fontSize: '11px', color: '#6b7280' }}>{inst.users?.full_name}</div>
+                      </td>
+                      <td data-label="Amount" style={{ fontWeight: 700 }}>₹{amount.toLocaleString()}</td>
+                      <td data-label="Note" style={{ fontSize: '13px' }}>{inst.finance_note || '—'}</td>
+                      <td data-label="Status">
+                        <span style={{ padding: '3px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600, background: `${statusColors[inst.status]}18`, color: statusColors[inst.status] }}>{inst.status}</span>
+                      </td>
+                      <td data-label="Action">
+                        <button className={inst.status === 'pending' ? "small primary" : "small secondary"} onClick={() => setSelectedInstallment(inst)}>
+                          {inst.status === 'pending' ? 'Review' : 'View'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!filteredItems.length ? <tr><td colSpan="6" style={{ textAlign: 'center' }}>No installments found</td></tr> : null}
+                {filteredItems.length > 0 && totalPages > 1 && (
+                  <tr>
+                    <td colSpan="6" style={{ padding: '16px 0 0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                        <button className="small secondary" onClick={() => setPage(1)} disabled={page === 1}>«</button>
+                        <button className="small secondary" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹ Prev</button>
+                        <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                          Page {page} of {totalPages} ({(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredItems.length)} of {filteredItems.length})
+                        </span>
+                        <button className="small secondary" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next ›</button>
+                        <button className="small secondary" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</button>
+                      </div>
                     </td>
                   </tr>
-                ))}
-                {!installments.length ? <tr><td colSpan="8" style={{ textAlign: 'center', color: '#6b7280', padding: '24px' }}>No installment records found.</td></tr> : null}
+                )}
               </tbody>
             </table>
           </div>
@@ -1716,8 +2020,12 @@ function InstallmentVerifyModal({ item, accounts, onClose, onDone }) {
 
         <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
           <button onClick={onClose} className="secondary" disabled={saving}>Cancel</button>
-          <button onClick={() => handle(false)} className="secondary" style={{ color: '#dc2626', borderColor: '#dc2626' }} disabled={saving}>✕ Reject</button>
-          <button onClick={() => handle(true)} className="primary" disabled={saving}>{saving ? 'Processing...' : '✅ Verify'}</button>
+          {item.status === 'pending' && (
+            <>
+              <button onClick={() => handle(false)} className="secondary" style={{ color: '#dc2626', borderColor: '#dc2626' }} disabled={saving}>✕ Reject</button>
+              <button onClick={() => handle(true)} className="primary" disabled={saving}>{saving ? 'Processing...' : '✅ Verify'}</button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -1802,12 +2110,16 @@ function PaymentVerifyModal({ payment, accounts, onClose, onDone }) {
 
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button className="secondary" onClick={onClose} disabled={saving} style={{ fontSize: '13px' }}>Cancel</button>
-          <button className="danger" onClick={() => handle(false)} disabled={saving} style={{ fontSize: '13px' }}>
-            {saving ? '…' : '✕ Reject'}
-          </button>
-          <button className="primary" onClick={() => handle(true)} disabled={saving} style={{ fontSize: '13px', background: '#15803d' }}>
-            {saving ? 'Processing…' : '✅ Verify & Convert to Student'}
-          </button>
+          {payment.status === 'pending' && (
+            <>
+              <button className="danger" onClick={() => handle(false)} disabled={saving} style={{ fontSize: '13px' }}>
+                {saving ? '…' : '✕ Reject'}
+              </button>
+              <button className="primary" onClick={() => handle(true)} disabled={saving} style={{ fontSize: '13px', background: '#15803d' }}>
+                {saving ? 'Processing…' : '✅ Verify & Convert to Student'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -1892,12 +2204,16 @@ function TopupVerifyModal({ topup, accounts, onClose, onDone }) {
 
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button className="secondary" onClick={onClose} disabled={saving} style={{ fontSize: '13px' }}>Cancel</button>
-          <button className="danger" onClick={() => handle(false)} disabled={saving} style={{ fontSize: '13px' }}>
-            {saving ? '…' : '✕ Reject'}
-          </button>
-          <button className="primary" onClick={() => handle(true)} disabled={saving} style={{ fontSize: '13px', background: '#15803d' }}>
-            {saving ? 'Processing…' : '✅ Verify & Credit Hours'}
-          </button>
+          {topup.status === 'pending_finance' && (
+            <>
+              <button className="danger" onClick={() => handle(false)} disabled={saving} style={{ fontSize: '13px' }}>
+                {saving ? '…' : '✕ Reject'}
+              </button>
+              <button className="primary" onClick={() => handle(true)} disabled={saving} style={{ fontSize: '13px', background: '#15803d' }}>
+                {saving ? 'Processing…' : '✅ Verify & Credit Hours'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -1906,10 +2222,24 @@ function TopupVerifyModal({ topup, accounts, onClose, onDone }) {
 
 /* ═══════ MODALS ═══════ */
 
-function AddEntryModal({ type, accounts, onClose, onDone }) {
-  const [form, setForm] = useState({ amount: '', description: '', entry_date: new Date().toISOString().slice(0, 10), account_id: '' });
-  const [partyType, setPartyType] = useState('');
-  const [partyId, setPartyId] = useState('');
+function AddEntryModal({ type, accounts, editItem, onClose, onDone }) {
+  const [form, setForm] = useState(() => {
+    if (editItem) return { amount: String(editItem.amount || ''), description: editItem.description || '', entry_date: editItem.entry_date || editItem.expense_date || new Date().toISOString().slice(0, 10), account_id: editItem.account_id || '' };
+    return { amount: '', description: '', entry_date: new Date().toISOString().slice(0, 10), account_id: '' };
+  });
+  const [partyType, setPartyType] = useState(() => {
+    if (editItem) {
+      if (editItem.student_id) return 'students';
+      if (editItem.teacher_id) return 'teachers';
+      if (editItem.employee_id) return 'employees';
+      if (editItem.party_id) return 'others';
+    }
+    return '';
+  });
+  const [partyId, setPartyId] = useState(() => {
+    if (editItem) return editItem.student_id || editItem.teacher_id || editItem.employee_id || editItem.party_id || '';
+    return '';
+  });
   const [partiesList, setPartiesList] = useState([]);
   const [err, setErr] = useState('');
 
@@ -1929,13 +2259,15 @@ function AddEntryModal({ type, accounts, onClose, onDone }) {
       else if (partyType === 'employees') payload.employee_id = partyId || null;
       else if (partyType === 'others') payload.party_id = partyId || null;
 
-      await apiFetch(`/finance/${type}`, { method: 'POST', body: JSON.stringify(payload) });
+      const method = editItem ? 'PATCH' : 'POST';
+      const url = editItem ? `/finance/${type}/${editItem.id}` : `/finance/${type}`;
+      await apiFetch(url, { method, body: JSON.stringify(payload) });
       onDone();
     } catch (e) { setErr(e.message); }
   }
   return (
     <div className="modal-overlay"><div className="modal card" style={{ maxWidth: '450px' }}>
-      <h3>Add {type === 'income' ? 'Income' : 'Expense'}</h3>
+      <h3>{editItem ? 'Edit' : 'Add'} {type === 'income' ? 'Income' : 'Expense'}</h3>
       <form className="form-grid" onSubmit={submit}>
         <label>Amount *<input type="number" value={form.amount} onChange={e => upd('amount', e.target.value)} required /></label>
         <label>Date<input type="date" value={form.entry_date} onChange={e => upd('entry_date', e.target.value)} /></label>
@@ -1961,16 +2293,33 @@ function AddEntryModal({ type, accounts, onClose, onDone }) {
         )}
 
         {err ? <p className="error">{err}</p> : null}
-        <div className="actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button type="submit">Add</button></div>
+        <div className="actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button type="submit">{editItem ? 'Save' : 'Add'}</button></div>
       </form>
     </div></div>
   );
 }
 
-function AddExpenseModal({ accounts, categories, onClose, onDone }) {
-  const [form, setForm] = useState({ amount: '', description: '', expense_date: new Date().toISOString().slice(0, 10), account_id: '' });
-  const [partyType, setPartyType] = useState('');
-  const [partyId, setPartyId] = useState('');
+function AddExpenseModal({ accounts, categories, editItem, onClose, onDone }) {
+  const [form, setForm] = useState(() => {
+    if (editItem) return { amount: String(editItem.amount || ''), description: editItem.description || '', expense_date: editItem.expense_date || new Date().toISOString().slice(0, 10), account_id: editItem.account_id || '' };
+    return { amount: '', description: '', expense_date: new Date().toISOString().slice(0, 10), account_id: '' };
+  });
+  const [partyType, setPartyType] = useState(() => {
+    // If the category matches a partyType
+    if (editItem) {
+      if (editItem.category && ['students', 'teachers', 'employees', 'others'].includes(editItem.category)) return editItem.category;
+      if (editItem.student_id) return 'students';
+      if (editItem.teacher_id) return 'teachers';
+      if (editItem.employee_id) return 'employees';
+      if (editItem.party_id) return 'others';
+      return editItem.category || '';
+    }
+    return '';
+  });
+  const [partyId, setPartyId] = useState(() => {
+    if (editItem) return editItem.student_id || editItem.teacher_id || editItem.employee_id || editItem.party_id || '';
+    return '';
+  });
   const [partiesList, setPartiesList] = useState([]);
   const [err, setErr] = useState('');
 
@@ -1988,15 +2337,17 @@ function AddExpenseModal({ accounts, categories, onClose, onDone }) {
       if (partyType === 'students') payload.student_id = partyId || null;
       else if (partyType === 'teachers') payload.teacher_id = partyId || null;
       else if (partyType === 'employees') payload.employee_id = partyId || null;
-      else if (partyType === 'others') payload.party_id = partyId || null;
+      else if (['others'].includes(partyType) || (!['students', 'teachers', 'employees'].includes(partyType) && partyType)) payload.party_id = partyId || null;
 
-      await apiFetch('/finance/expenses', { method: 'POST', body: JSON.stringify(payload) });
+      const method = editItem ? 'PATCH' : 'POST';
+      const url = editItem ? `/finance/expenses/${editItem.id}` : `/finance/expenses`;
+      await apiFetch(url, { method, body: JSON.stringify(payload) });
       onDone();
     } catch (e) { setErr(e.message); }
   }
   return (
     <div className="modal-overlay"><div className="modal card" style={{ maxWidth: '450px' }}>
-      <h3>Add Expense</h3>
+      <h3>{editItem ? 'Edit' : 'Add'} Expense</h3>
       <form className="form-grid" onSubmit={submit}>
         <label>Amount *<input type="number" value={form.amount} onChange={e => upd('amount', e.target.value)} required /></label>
         <label>Date<input type="date" value={form.expense_date} onChange={e => upd('expense_date', e.target.value)} /></label>
@@ -2022,7 +2373,7 @@ function AddExpenseModal({ accounts, categories, onClose, onDone }) {
         )}
 
         {err ? <p className="error">{err}</p> : null}
-        <div className="actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button type="submit">Add</button></div>
+        <div className="actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button type="submit">{editItem ? 'Save' : 'Add'}</button></div>
       </form>
     </div></div>
   );
@@ -2052,7 +2403,7 @@ function AddAccountModal({ onClose, onDone }) {
         await apiFetch('/finance/categories', { method: 'POST', body: JSON.stringify({ name: finalCategory, type: 'account' }) }).catch(() => { });
       }
 
-      await apiFetch('/finance/accounts', { method: 'POST', body: JSON.stringify({ ...form, category: finalCategory || null, balance: Number(form.balance || 0) }) });
+      await apiFetch('/finance/accounts', { method: 'POST', body: JSON.stringify({ ...form, category: finalCategory || null, balance: Number(form.balance || 0), opening_balance: Number(form.balance || 0) }) });
       onDone();
     } catch (e) { setErr(e.message); }
   }
@@ -2094,8 +2445,16 @@ function AddAccountModal({ onClose, onDone }) {
   );
 }
 
-function AddPartyModal({ onClose, onDone }) {
-  const [form, setForm] = useState({ name: '', type: 'vendor', customType: '', phone: '', email: '', address: '', notes: '' });
+function AddPartyModal({ editData, onClose, onDone }) {
+  const [form, setForm] = useState({ 
+    name: editData?.name || '', 
+    type: editData?.type || 'vendor', 
+    customType: '', 
+    phone: editData?.phone || '', 
+    email: editData?.email || '', 
+    address: editData?.address || '', 
+    notes: editData?.notes || '' 
+  });
   const [err, setErr] = useState('');
   const [categories, setCategories] = useState([]);
 
@@ -2118,7 +2477,11 @@ function AddPartyModal({ onClose, onDone }) {
         await apiFetch('/finance/categories', { method: 'POST', body: JSON.stringify({ name: finalType, type: 'expense' }) }).catch(() => { });
       }
 
-      await apiFetch('/finance/parties', { method: 'POST', body: JSON.stringify({ ...form, type: finalType }) });
+      if (editData) {
+        await apiFetch(`/finance/parties/${editData.id}`, { method: 'PUT', body: JSON.stringify({ ...form, type: finalType }) });
+      } else {
+        await apiFetch('/finance/parties', { method: 'POST', body: JSON.stringify({ ...form, type: finalType }) });
+      }
       onDone();
     } catch (e) { setErr(e.message); }
   }
@@ -2128,7 +2491,7 @@ function AddPartyModal({ onClose, onDone }) {
 
   return (
     <div className="modal-overlay"><div className="modal card" style={{ maxWidth: '450px' }}>
-      <h3>Add Party</h3>
+      <h3>{editData ? 'Edit Party' : 'Add Party'}</h3>
       <form className="form-grid" onSubmit={submit}>
         <label>Name *<input value={form.name} onChange={e => upd('name', e.target.value)} required /></label>
 
@@ -2150,7 +2513,7 @@ function AddPartyModal({ onClose, onDone }) {
         <label>Address<input value={form.address} onChange={e => upd('address', e.target.value)} /></label>
         <label>Notes<textarea value={form.notes} onChange={e => upd('notes', e.target.value)} rows={2} /></label>
         {err ? <p className="error">{err}</p> : null}
-        <div className="actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button type="submit">Create</button></div>
+        <div className="actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button type="submit">{editData ? 'Update' : 'Create'}</button></div>
       </form>
     </div></div>
   );
@@ -2294,12 +2657,12 @@ export function StudentHoursPage() {
 
   return (
     <section className="panel">
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
+      {/* Header & Filters */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '16px', overflowX: 'auto', whiteSpace: 'nowrap', paddingBottom: '4px' }}>
+        <div style={{ flexShrink: 0 }}>
           <h2 style={{ margin: 0, fontSize: '20px' }}>Student Hours</h2>
-          <p className="text-muted" style={{ margin: '4px 0 0', fontSize: '13px' }}>
-            {students.length} students · {totalHoursAll.toLocaleString()} total hrs · {totalRemaining.toLocaleString()} remaining
+          <p className="text-muted" style={{ margin: '0', fontSize: '12px' }}>
+            {students.length} students · {totalHoursAll.toLocaleString()} hrs
           </p>
         </div>
         <input

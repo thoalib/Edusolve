@@ -94,7 +94,7 @@ function isSessionOverdue(s) {
 
 /* ═══════ AC Dashboard ═══════ */
 export function AcademicCoordinatorDashboardPage({ targetUserId }) {
-  const [s, setS] = useState({ students: 0, today: 0, queue: 0, topups: 0 });
+  const [s, setS] = useState({ students: 0, active: 0, vacation: 0, inactive: 0, today: 0, queue: 0, topups: 0 });
   const [weekSessions, setWeekSessions] = useState([]);
   const [overdueCount, setOverdueCount] = useState(0);
   const [error, setError] = useState('');
@@ -113,7 +113,17 @@ export function AcademicCoordinatorDashboardPage({ targetUserId }) {
           apiFetch(`/students/sessions/week?offset=0${uQAnd}`),
           apiFetch(`/sessions/all?status=scheduled${uQAnd}`)
         ]);
-        setS({ students: (a.items || []).length, today: (b.items || []).length, queue: (c.items || []).length, topups: (d.items || []).length });
+        const allStudents = a.items || [];
+        const active = allStudents.filter(s => s.status === 'active').length;
+        const vacation = allStudents.filter(s => s.status === 'vacation').length;
+        const inactive = allStudents.filter(s => s.status === 'inactive').length;
+        setS({ 
+          students: allStudents.length, 
+          active, vacation, inactive,
+          today: (b.items || []).length, 
+          queue: (c.items || []).length, 
+          topups: (d.items || []).length 
+        });
         setWeekSessions(w.items || []);
         setOverdueCount((allSched.items || []).filter(isSessionOverdue).length);
       } catch (e) { setError(e.message); }
@@ -161,7 +171,15 @@ export function AcademicCoordinatorDashboardPage({ targetUserId }) {
     <section className="panel">
       {error ? <p className="error">{error}</p> : null}
       <div className="grid-four">
-        <article className="card stat-card"><p className="eyebrow">Total Students</p><h3>{s.students}</h3></article>
+        <article className="card stat-card">
+          <p className="eyebrow">Total Students</p>
+          <h3>{s.students}</h3>
+          <div style={{ display: 'flex', gap: '6px', fontSize: '10px', fontWeight: 600, marginTop: '8px', flexWrap: 'wrap' }}>
+            <span style={{ background: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: '4px' }}>Active: {s.active}</span>
+            <span style={{ background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: '4px' }}>Vacation: {s.vacation}</span>
+            <span style={{ background: '#fee2e2', color: '#991b1b', padding: '2px 6px', borderRadius: '4px' }}>Inactive: {s.inactive}</span>
+          </div>
+        </article>
         <article className="card stat-card"><p className="eyebrow">Sessions Today</p><h3>{s.today}</h3></article>
         <article className="card stat-card"><p className="eyebrow">Verification Queue</p><h3>{s.queue}</h3></article>
         <article className="card stat-card warning"><p className="eyebrow">Pending Top-Ups</p><h3>{s.topups}</h3></article>
@@ -1303,7 +1321,17 @@ function StudentDetailPage({ studentId, onBack }) {
   const [editSaving, setEditSaving] = useState(false);
   const [boardsList, setBoardsList] = useState([]);
   const [mediumsList, setMediumsList] = useState([]);
+  const [classesList, setClassesList] = useState([]);
   const [logPage, setLogPage] = useState(1);
+  const [remarks, setRemarks] = useState([]);
+  const [showAddRemark, setShowAddRemark] = useState(false);
+  const [editingRemark, setEditingRemark] = useState(null);
+  
+  const currentUser = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem('ehms_auth') || '{}').user || {};
+    } catch { return {}; }
+  }, []);
 
   const dayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const timeOptions = useMemo(() => {
@@ -1342,6 +1370,10 @@ function StudentDetailPage({ studentId, onBack }) {
       setBoardsList(bRes.boards || []);
       const mRes = await apiFetch('/mediums');
       setMediumsList(mRes.mediums || []);
+      const cRes = await apiFetch('/classes');
+      setClassesList(cRes.classes || []);
+      const remarksRes = await apiFetch(`/students/${studentId}/remarks`);
+      setRemarks(remarksRes.items || []);
     } catch (e) { setError(e.message); }
   }, [studentId]);
   useEffect(() => { load(); }, [load]);
@@ -1370,6 +1402,14 @@ function StudentDetailPage({ studentId, onBack }) {
   async function sendMessage(e) {
     e.preventDefault(); if (!msgText.trim()) return;
     try { await apiFetch(`/students/${studentId}/messages/send-reminder`, { method: 'POST', body: JSON.stringify({ message: msgText, type: 'general' }) }); setMsgText(''); await load(); } catch (e) { setError(e.message); }
+  }
+
+  async function deleteRemark(id) {
+    if (!window.confirm('Are you sure you want to delete this remark?')) return;
+    try {
+      await apiFetch(`/students/${studentId}/remarks/${id}`, { method: 'DELETE' });
+      await load();
+    } catch (e) { alert(e.message); }
   }
 
   const parsePhone = (raw) => {
@@ -1451,6 +1491,7 @@ function StudentDetailPage({ studentId, onBack }) {
     { id: 'profile', label: 'Profile' },
     { id: 'classes', label: `Classes (${sessions.length})` },
     { id: 'session_logs', label: 'Session Logs' },
+    { id: 'remarks', label: `Remarks (${remarks.length})` },
     { id: 'lead_data', label: 'Lead Data' }
   ];
 
@@ -1624,7 +1665,10 @@ function StudentDetailPage({ studentId, onBack }) {
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
                     <label>Class / Level
-                      <input value={editForm.class_level} onChange={e => setEditForm({ ...editForm, class_level: e.target.value })} />
+                      <select value={editForm.class_level} onChange={e => setEditForm({ ...editForm, class_level: e.target.value })}>
+                        <option value="">Select Class</option>
+                        {classesList.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                      </select>
                     </label>
                     <label>Board
                       <select value={editForm.board} onChange={e => setEditForm({ ...editForm, board: e.target.value })}>
@@ -1803,7 +1847,168 @@ function StudentDetailPage({ studentId, onBack }) {
           </div>
         </article>
       </div> : null}
+
+      {tab === 'remarks' ? <div>
+        <article className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h3 style={{ margin: 0 }}>Remarks Timeline</h3>
+            <button type="button" className="primary small" onClick={() => setShowAddRemark(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>+ Add Remark</button>
+          </div>
+          {remarks.length === 0 ? (
+            <p className="text-muted" style={{ textAlign: 'center', padding: '24px 0', fontStyle: 'italic' }}>No remarks yet. Add the first remark for this student.</p>
+          ) : (
+            <div style={{ position: 'relative', paddingLeft: '28px' }}>
+              <div style={{ position: 'absolute', left: '10px', top: '8px', bottom: '8px', width: '2px', background: '#e5e7eb' }}></div>
+              {remarks.map((r, i) => {
+                const typeConfig = {
+                  general: { icon: '📝', color: '#6366f1', label: 'General' },
+                  parents_meeting: { icon: '👨‍👩‍👦', color: '#10b981', label: 'Parents Meeting' },
+                  exam: { icon: '📊', color: '#f59e0b', label: 'Exam' },
+                  attendance: { icon: '📋', color: '#3b82f6', label: 'Attendance' },
+                  behaviour: { icon: '⭐', color: '#8b5cf6', label: 'Behaviour' },
+                  custom: { icon: '💬', color: '#64748b', label: 'Custom' }
+                };
+                const cfg = typeConfig[r.remark_type] || typeConfig.general;
+                const creatorName = r.creator?.full_name || 'Unknown';
+                const creatorRole = r.creator?.role || '';
+                const roleLabels = { teacher: 'Teacher', academic_coordinator: 'Coordinator', super_admin: 'Admin', counselor: 'Counselor', finance: 'Finance' };
+                const roleLabel = roleLabels[creatorRole] || creatorRole;
+                const canEdit = currentUser.role === 'academic_coordinator' || currentUser.role === 'super_admin' || currentUser.id === r.created_by;
+                return (
+                  <div key={r.id} style={{ position: 'relative', marginBottom: i < remarks.length - 1 ? '24px' : '0' }}>
+                    <div style={{ position: 'absolute', left: '-24px', top: '4px', width: '20px', height: '20px', borderRadius: '50%', background: cfg.color + '20', border: `2px solid ${cfg.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', zIndex: 1 }}>
+                      {cfg.icon}
+                    </div>
+                    <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', padding: '14px 16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 700, fontSize: '14px', color: '#111827' }}>{r.title}</span>
+                          <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px', background: cfg.color + '15', color: cfg.color, fontWeight: 600 }}>{cfg.label}</span>
+                        </div>
+                        <span style={{ fontSize: '12px', color: '#9ca3af', whiteSpace: 'nowrap' }}>
+                          {new Date(r.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}
+                          {', '}
+                          {new Date(r.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      {r.description && <p style={{ margin: '0 0 6px', fontSize: '13px', color: '#374151', lineHeight: '1.5' }}>{r.description}</p>}
+                      {r.marks && <p style={{ margin: '0 0 6px', fontSize: '13px', color: '#111827', fontWeight: 600 }}>📊 Marks: {r.marks}</p>}
+                      
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
+                          <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af' }}>— by {creatorName}{roleLabel ? ` (${roleLabel})` : ''}</p>
+                          {canEdit && (
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button type="button" onClick={() => setEditingRemark(r)} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '12px', cursor: 'pointer', padding: 0 }}>Edit</button>
+                              <button type="button" onClick={() => deleteRemark(r.id)} style={{ background: 'none', border: 'none', color: '#dc2626', fontSize: '12px', cursor: 'pointer', padding: 0 }}>Delete</button>
+                            </div>
+                          )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </article>
+        {showAddRemark && <AddRemarkModal studentId={studentId} onClose={() => setShowAddRemark(false)} onDone={() => { setShowAddRemark(false); load(); }} />}
+        {editingRemark && <AddRemarkModal studentId={studentId} editData={editingRemark} onClose={() => setEditingRemark(null)} onDone={() => { setEditingRemark(null); load(); }} />}
+      </div> : null}
     </section>
+  );
+}
+
+/* ─── Add Remark Modal ─── */
+function AddRemarkModal({ studentId, editData, onClose, onDone }) {
+  const [remarkType, setRemarkType] = useState('general');
+  const [title, setTitle] = useState('General Remark');
+  const [description, setDescription] = useState('');
+  const [marks, setMarks] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const typeOptions = [
+    { value: 'general', label: '📝 General Remark' },
+    { value: 'parents_meeting', label: '👨‍👩‍👦 Parents Meeting' },
+    { value: 'exam', label: '📊 Exam' },
+    { value: 'attendance', label: '📋 Attendance' },
+    { value: 'behaviour', label: '⭐ Behaviour' },
+    { value: 'custom', label: '💬 Custom' }
+  ];
+
+  const titleSuggestions = {
+    general: 'General Remark',
+    parents_meeting: 'Parents Meeting Done',
+    exam: 'Exam Result',
+    attendance: 'Attendance Note',
+    behaviour: 'Behaviour Observation',
+    custom: ''
+  };
+
+  useEffect(() => {
+    if (editData) {
+        setRemarkType(editData.remark_type || 'general');
+        setTitle(editData.title || '');
+        setDescription(editData.description || '');
+        setMarks(editData.marks || '');
+    }
+  }, [editData]);
+
+  useEffect(() => {
+    if (!editData) setTitle(titleSuggestions[remarkType] || '');
+  }, [remarkType, editData]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!title.trim()) { setError('Title is required'); return; }
+    setSaving(true); setError('');
+    try {
+      const url = editData ? `/students/${studentId}/remarks/${editData.id}` : `/students/${studentId}/remarks`;
+      const method = editData ? 'PUT' : 'POST';
+      await apiFetch(url, {
+        method: method,
+        body: JSON.stringify({ remark_type: remarkType, title: title.trim(), description: description.trim(), marks: marks.trim() || null })
+      });
+      onDone();
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal card" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px', width: '90vw', padding: '24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>{editData ? 'Edit Remark' : 'Add Remark'}</h3>
+          <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#6b7280' }}>✕</button>
+        </div>
+        {error && <div style={{ color: '#dc2626', background: '#fee2e2', padding: '10px 14px', borderRadius: '8px', marginBottom: '16px', fontSize: '13px' }}>{error}</div>}
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>Remark Type</label>
+            <select value={remarkType} onChange={e => setRemarkType(e.target.value)} style={{ width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }}>
+              {typeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>Title <span style={{ color: '#ef4444' }}>*</span></label>
+            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Mid-Term Exam, Parents Meeting" style={{ width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }} required />
+          </div>
+          {remarkType === 'exam' && (
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>Marks / Grade</label>
+              <input value={marks} onChange={e => setMarks(e.target.value)} placeholder="e.g. 85/100, A+" style={{ width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }} />
+            </div>
+          )}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>Description</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Add details..." rows={3} style={{ width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+            <button type="button" onClick={onClose} className="secondary">Cancel</button>
+            <button type="submit" className="primary" disabled={saving}>{saving ? 'Saving...' : 'Add Remark'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -1825,9 +2030,13 @@ function StudentOnboardingForm({ onDone }) {
   const [msg, setMsg] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // New fields for Onboarding Payments
   const [screenshotFile, setScreenshotFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [classesList, setClassesList] = useState([]);
+
+  useEffect(() => {
+    apiFetch('/classes').then(r => r.ok && setClassesList(r.classes || []));
+  }, []);
 
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
 
@@ -1916,7 +2125,10 @@ function StudentOnboardingForm({ onDone }) {
               </div>
             </label>
             <label>Class / Level
-              <input value={f.class_level} onChange={e => set('class_level', e.target.value)} style={{ marginTop: '4px' }} />
+              <select value={f.class_level} onChange={e => set('class_level', e.target.value)} style={{ marginTop: '4px' }}>
+                <option value="">Select Class</option>
+                {classesList.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+              </select>
             </label>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
@@ -2149,7 +2361,14 @@ export function StudentsHubPage({ role }) {
   return (
     <section className="panel">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0 }}>Students</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <h2 style={{ margin: 0 }}>Students</h2>
+          <div style={{ display: 'flex', gap: '6px', fontSize: '11px', fontWeight: 600 }}>
+            <span style={{ background: '#dcfce7', color: '#166534', padding: '3px 8px', borderRadius: '12px' }}>Active: {students.filter(s => s.status === 'active').length}</span>
+            <span style={{ background: '#fef3c7', color: '#92400e', padding: '3px 8px', borderRadius: '12px' }}>Vacation: {students.filter(s => s.status === 'vacation').length}</span>
+            <span style={{ background: '#fee2e2', color: '#991b1b', padding: '3px 8px', borderRadius: '12px' }}>Inactive: {students.filter(s => s.status === 'inactive').length}</span>
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           {isAC && (
             <>
@@ -4390,6 +4609,7 @@ export function TeacherPoolPage() {
   const [showSlotsFor, setShowSlotsFor] = useState(null);
   const [fSearch, setFSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [allExperienceCategories, setAllExperienceCategories] = useState([]);
 
   // Reset page when filters or view changes
   useEffect(() => { setPage(1); }, [fSearch, fExp, fLang, fSubj, fSyllabus, fClass, fStartTime, fEndTime, view]);
@@ -4433,6 +4653,9 @@ export function TeacherPoolPage() {
       }
     })();
   }, [weekStartMap, weekEndMap]);
+  useEffect(() => {
+    apiFetch('/experience-categories').then(r => r.ok && setAllExperienceCategories(r.categories.map(c => c.name)));
+  }, []);
   useEffect(() => { function close(e) { if (!e.target.closest('.filter-panel') && !e.target.closest('.filter-toggle-btn')) setFiltersOpen(false); } if (filtersOpen) document.addEventListener('click', close); return () => document.removeEventListener('click', close); }, [filtersOpen]);
 
   const allLangs = useMemo(() => { const s = new Set(); teachers.forEach(t => (t.languages || []).forEach(l => s.add(l))); return [...s].sort(); }, [teachers]);
@@ -4545,7 +4768,7 @@ export function TeacherPoolPage() {
           </button>
           {filtersOpen ? <div className="filter-panel" onClick={e => e.stopPropagation()}>
             <div className="filter-panel-grid">
-              <SearchSelect label="Experience" value={fExp} onChange={setFExp} options={[{ value: 'fresher', label: 'Fresher' }, { value: 'experienced', label: 'Experienced' }]} placeholder="Any" />
+              <SearchSelect label="Experience Level (Internal)" value={fExp} onChange={setFExp} options={allExperienceCategories.map(c => ({ value: c, label: c }))} placeholder="Any" />
               <SearchSelect label="Language" value={fLang} onChange={setFLang} options={allLangs.map(l => ({ value: l, label: l }))} placeholder="Any" />
               <SearchSelect label="Subject" value={fSubj} onChange={setFSubj} options={allSubjs.map(l => ({ value: l, label: l }))} placeholder="Any" />
               <SearchSelect label="Syllabus" value={fSyllabus} onChange={setFSyllabus} options={allSyllabus.map(l => ({ value: l, label: l }))} placeholder="Any" />
@@ -4850,6 +5073,19 @@ export function AutomationPage() {
   const [campaignHistory, setCampaignHistory] = useState([]);
   const [campaignMedia, setCampaignMedia] = useState(null); // { file, previewUrl, mimetype }
 
+  const fetchCampaignHistory = useCallback(async () => {
+    try {
+      const data = await apiFetch('/waappa/campaigns');
+      if (data.ok) setCampaignHistory(data.items || []);
+    } catch (e) {
+      console.warn('Failed to fetch campaign history:', e.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'campaigns') fetchCampaignHistory();
+  }, [tab, fetchCampaignHistory]);
+
   // Data Loading
   const [allStudents, setAllStudents] = useState([]);
   const [allTeachers, setAllTeachers] = useState([]);
@@ -5123,6 +5359,9 @@ export function AutomationPage() {
   async function sendCampaign() {
     if (!cMsg.trim() || !recipients.length) return;
 
+    const auth = JSON.parse(localStorage.getItem('ehms_auth') || '{}');
+    const academic_coordinator_id = auth?.user?.id;
+
     const selectedContacts = filteredRecipients.filter(r => recipients.includes(r.id));
     setSending(true);
     setBulkStatus('');
@@ -5150,13 +5389,14 @@ export function AutomationPage() {
         body: JSON.stringify({
           recipients: selectedContacts.map(r => ({ name: r.name, phone: r.phone, chatId: r.chatId, type: r.type })),
           message: cMsg,
+          academic_coordinator_id,
           ...(uploadedMedia ? { mediaUrl: uploadedMedia.url, mimetype: uploadedMedia.mimetype } : {}),
           sentAt: new Date().toISOString()
         })
       });
       if (result.ok) {
         setBulkStatus(`✅ Sent to n8n for ${selectedContacts.length} recipients`);
-        setCampaignHistory(prev => [{ id: Date.now(), sentAt: new Date().toLocaleString(), message: cMsg.slice(0, 80), count: selectedContacts.length, hasMedia: !!uploadedMedia }, ...prev]);
+        fetchCampaignHistory();
         setCMsg('');
         setCampaignMedia(null);
         setRecipients([]);
@@ -5457,6 +5697,14 @@ export function AutomationPage() {
                 style={{ flex: 1, padding: 16, border: 'none', resize: 'none', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.6, outline: 'none' }}
               />
 
+              {/* Connectivity Warning */}
+              {waSession?.status !== 'WORKING' && (
+                <div style={{ margin: '0 16px 10px', fontSize: 12, color: '#e53935', background: '#fdecea', padding: '8px 12px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8, border: '1px solid #f5c2c7' }}>
+                  <span>⚠️ <strong>WhatsApp Disconnected:</strong> You must connect your session in the Account tab before sending.</span>
+                  <button type="button" onClick={() => setTab('account')} style={{ background: 'none', border: 'none', color: '#842029', textDecoration: 'underline', padding: 0, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Go to Account</button>
+                </div>
+              )}
+
               {/* Media Preview */}
               {campaignMedia && (
                 <div style={{ margin: '0 16px 12px', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#e3f2fd', borderRadius: 8 }}>
@@ -5480,8 +5728,8 @@ export function AutomationPage() {
                   title="Attach media">📎</button>
                 <span style={{ fontSize: 12, color: '#999', flex: 1 }}>{cMsg.length} chars</span>
                 <button type="button" onClick={sendCampaign}
-                  disabled={sending || !recipients.length || !cMsg.trim()}
-                  style={{ padding: '9px 24px', borderRadius: 24, border: 'none', background: (!recipients.length || !cMsg.trim() || sending) ? '#ccc' : 'linear-gradient(135deg, #25D366, #128C7E)', color: '#fff', fontWeight: 700, fontSize: 14, cursor: sending ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
+                  disabled={sending || !recipients.length || !cMsg.trim() || waSession?.status !== 'WORKING'}
+                  style={{ padding: '9px 24px', borderRadius: 24, border: 'none', background: (!recipients.length || !cMsg.trim() || sending || waSession?.status !== 'WORKING') ? '#ccc' : 'linear-gradient(135deg, #25D366, #128C7E)', color: '#fff', fontWeight: 700, fontSize: 14, cursor: (sending || waSession?.status !== 'WORKING') ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
                   {sending ? <span style={{ animation: 'spin 0.8s linear infinite', display: 'inline-block' }}>⟳</span> : `🚀 Send to ${recipients.length} recipients`}
                 </button>
               </div>
@@ -5497,12 +5745,16 @@ export function AutomationPage() {
               <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e0e0e0', padding: 14, flex: 1, overflowY: 'auto' }}>
                 <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>🕐 History</div>
                 {campaignHistory.length === 0 ? (
-                  <div style={{ color: '#bbb', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>No campaigns this session</div>
+                  <div style={{ color: '#bbb', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>No campaigns found</div>
                 ) : campaignHistory.map(h => (
                   <div key={h.id} style={{ padding: '8px 0', borderBottom: '1px solid #f5f5f5' }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#333', marginBottom: 2 }}>📢 {h.count} recipients {h.hasMedia ? '· 📎' : ''}</div>
-                    <div style={{ fontSize: 11, color: '#666', marginBottom: 2 }}>{h.message}{h.message.length >= 80 ? '...' : ''}</div>
-                    <div style={{ fontSize: 10, color: '#aaa' }}>{h.sentAt}</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#333', marginBottom: 2 }}>📢 {h.total_count} recipients {h.media_url ? '· 📎' : ''}</div>
+                    <div style={{ fontSize: 11, color: '#666', marginBottom: 4, display: 'flex', gap: 10 }}>
+                      <span style={{ color: '#2ecc71', fontWeight: 600 }}>✓ {h.sent_count}</span>
+                      <span style={{ color: '#e74c3c', fontWeight: 600 }}>✗ {h.fail_count}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#666', marginBottom: 2, lineBreak: 'anywhere' }}>{h.message?.slice(0, 100)}{h.message?.length > 100 ? '...' : ''}</div>
+                    <div style={{ fontSize: 10, color: '#aaa' }}>{new Date(h.created_at).toLocaleString('en-IN')}</div>
                   </div>
                 ))}
               </div>
@@ -5821,8 +6073,9 @@ export function ViewTeacherModal({ teacher, onClose }) {
             <ReadOnlyField label="Classes Taking" value={classesTaught.length ? classesTaught.map((c, i) => <Badge key={i} color="#ea580c">{c}</Badge>) : null} full />
           </div>
 
-          <div style={{ ...gridRow, gridTemplateColumns: '1fr 1fr 1fr' }}>
-            <ReadOnlyField label="Experience" value={teacher.experience_level} />
+          <div style={{ ...gridRow, gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
+            <ReadOnlyField label="Experience Level (Internal)" value={teacher.experience_level} />
+            <ReadOnlyField label="Experience Remark" value={teacher.experience_remark} />
             <ReadOnlyField label="Exp. Duration" value={teacher.experience_duration} />
             <ReadOnlyField label="Rate/hr" value={teacher.per_hour_rate ? `₹${teacher.per_hour_rate}` : '—'} />
           </div>
@@ -5880,6 +6133,7 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
   const [allSubjects, setAllSubjects] = useState([]);
   const [allBoards, setAllBoards] = useState([]);
   const [allMediums, setAllMediums] = useState([]);
+  const [allClasses, setAllClasses] = useState([]);
 
   const [formData, setFormData] = useState({
     full_name: teacher.users?.full_name || '',
@@ -5904,6 +6158,7 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
     per_hour_rate: teacher.per_hour_rate || '',
     communication_level: teacher.communication_level || '',
     classes_taught: parseSubjects(teacher.classes_taught),
+    experience_remark: teacher.experience_remark || '',
 
     // Bank
     account_holder_name: teacher.account_holder_name || '',
@@ -5914,10 +6169,14 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
     gpay_number: teacher.gpay_number || ''
   });
 
+  const [allExperienceCategories, setAllExperienceCategories] = useState([]);
+
   useEffect(() => {
     apiFetch('/subjects').then(r => r.ok && setAllSubjects(r.subjects.map(s => s.name)));
     apiFetch('/boards').then(r => r.ok && setAllBoards(r.boards.map(b => b.name)));
     apiFetch('/mediums').then(r => r.ok && setAllMediums(r.mediums.map(m => m.name)));
+    apiFetch('/classes').then(r => r.ok && setAllClasses(r.classes.map(c => c.name)));
+    apiFetch('/experience-categories').then(r => r.ok && setAllExperienceCategories(r.categories.map(c => c.name)));
   }, []);
 
   const createSubject = async (name) => {
@@ -5941,6 +6200,14 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
     if (res.ok) {
       setAllMediums(prev => [...prev, res.medium.name].sort());
       setFormData(f => ({ ...f, languages: [...f.languages, res.medium.name] }));
+    }
+  };
+
+  const createClass = async (name) => {
+    const res = await apiFetch('/classes', { method: 'POST', body: { name } });
+    if (res.ok) {
+      setAllClasses(prev => [...prev, res.class.name].sort());
+      setFormData(f => ({ ...f, classes_taught: [...f.classes_taught, res.class.name] }));
     }
   };
 
@@ -6041,15 +6308,24 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
                   placeholder="Select level"
                 />
               </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>Experience Remark</label>
+                <CustomDropdown
+                  value={formData.experience_remark}
+                  onChange={v => updateField('experience_remark', v)}
+                  options={[{ value: 'Fresher', label: 'Fresher' }, { value: 'Intermediate', label: 'Intermediate' }, { value: 'Experienced', label: 'Experienced' }]}
+                  placeholder="Select remark"
+                />
+              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '16px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>Experience Level</label>
+                <label style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>Experience Level (Internal)</label>
                 <CustomDropdown
                   value={formData.experience_level}
                   onChange={v => updateField('experience_level', v)}
-                  options={[{ value: 'fresher', label: 'Fresher' }, { value: 'experienced', label: 'Experienced' }]}
+                  options={allExperienceCategories.map(c => ({ value: c, label: c }))}
                   placeholder="Select level"
                 />
               </div>
@@ -6100,7 +6376,8 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
               <MultiSelectDropdown
                 value={formData.classes_taught}
                 onChange={v => updateField('classes_taught', v)}
-                options={['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th']}
+                options={allClasses}
+                onCreate={createClass}
                 placeholder="Select classes..."
               />
             </div>

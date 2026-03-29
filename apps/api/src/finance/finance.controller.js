@@ -462,7 +462,7 @@ export async function handleFinance(req, res, url) {
         });
         const enriched = accounts.map(a => ({
           ...a,
-          computed_balance: (incomeByAccount[a.id] || 0) - (expenseByAccount[a.id] || 0)
+          computed_balance: Number(a.opening_balance || 0) + (incomeByAccount[a.id] || 0) - (expenseByAccount[a.id] || 0)
         }));
         sendJson(res, 200, { ok: true, items: enriched });
       } else {
@@ -475,7 +475,8 @@ export async function handleFinance(req, res, url) {
       if (!payload.name) { sendJson(res, 400, { ok: false, error: 'name required' }); return true; }
       const { data, error } = await adminClient.from('finance_accounts').insert({
         name: payload.name, type: payload.type || 'bank', is_main: payload.is_main || false,
-        balance: payload.balance || 0, description: payload.description || null, category: payload.category || null, created_by: actor.userId
+        balance: payload.balance || 0, opening_balance: payload.opening_balance || payload.balance || 0,
+        description: payload.description || null, category: payload.category || null, created_by: actor.userId
       }).select('*').single();
       if (error) throw new Error(error.message);
       sendJson(res, 201, { ok: true, account: data });
@@ -489,10 +490,31 @@ export async function handleFinance(req, res, url) {
       if (payload.type !== undefined) update.type = payload.type;
       if (payload.is_main !== undefined) update.is_main = payload.is_main;
       if (payload.balance !== undefined) update.balance = Number(payload.balance);
+      if (payload.opening_balance !== undefined) update.opening_balance = Number(payload.opening_balance);
       if (payload.description !== undefined) update.description = payload.description || null;
       const { data, error } = await adminClient.from('finance_accounts').update(update).eq('id', accountId).select('*').single();
       if (error) throw new Error(error.message);
       sendJson(res, 200, { ok: true, account: data });
+      return true;
+    }
+
+    if (req.method === 'GET' && parts.length === 4 && parts[1] === 'accounts' && parts[3] === 'history') {
+      const accountId = parts[2];
+      const [incomeRes, expenseRes] = await Promise.all([
+        adminClient.from('ledger_entries')
+          .select('*, finance_parties(name), students(student_name), employees(full_name)')
+          .eq('entry_type', 'income').eq('account_id', accountId).order('entry_date', { ascending: false }),
+        adminClient.from('expenses')
+          .select('*, finance_parties(name), students(student_name), employees(full_name)')
+          .eq('account_id', accountId).order('expense_date', { ascending: false })
+      ]);
+
+      const history = [
+        ...(incomeRes.data || []).map(i => ({ ...i, __type: 'income', date: i.entry_date })),
+        ...(expenseRes.data || []).map(e => ({ ...e, __type: 'expense', date: e.expense_date }))
+      ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      sendJson(res, 200, { ok: true, history });
       return true;
     }
 
@@ -512,6 +534,19 @@ export async function handleFinance(req, res, url) {
       }).select('*').single();
       if (error) throw new Error(error.message);
       sendJson(res, 201, { ok: true, party: data });
+      return true;
+    }
+    if (req.method === 'PUT' && parts.length === 3 && parts[1] === 'parties') {
+      const partyId = parts[2];
+      const payload = await readJson(req);
+      if (!payload.name) { sendJson(res, 400, { ok: false, error: 'name required' }); return true; }
+      const { data, error } = await adminClient.from('finance_parties').update({
+        name: payload.name, type: payload.type || 'vendor', phone: payload.phone || null,
+        email: payload.email || null, address: payload.address || null, notes: payload.notes || null,
+        updated_at: new Date().toISOString()
+      }).eq('id', partyId).select('*').single();
+      if (error) throw new Error(error.message);
+      sendJson(res, 200, { ok: true, party: data });
       return true;
     }
 
@@ -556,7 +591,7 @@ export async function handleFinance(req, res, url) {
             total_receivable: receivable,
             total_payable: payable,
             total_expense: expense,
-            balance: income - expense,
+            balance: expense - income,                // for parties: net = what we spent - what they gave back
             outstanding: receivable - income,        // for students: still owed to us
             balance_owed: payable - expense           // for employees/teachers: we still owe them
           };
@@ -749,6 +784,50 @@ export async function handleFinance(req, res, url) {
       sendJson(res, 201, { ok: true, entry: data });
       return true;
     }
+    if (req.method === 'PATCH' && parts.length === 3 && parts[1] === 'income') {
+      const id = parts[2];
+      const payload = await readJson(req);
+      const { data: entry } = await adminClient.from('ledger_entries').select('*').eq('id', id).single();
+      if (!entry) { sendJson(res, 404, { ok: false, error: 'Not found' }); return true; }
+
+      // Reverse old amount
+      if (entry.account_id) {
+        const { data: acc } = await adminClient.from('finance_accounts').select('balance').eq('id', entry.account_id).single();
+        if (acc) await adminClient.from('finance_accounts').update({ balance: Number(acc.balance) - Number(entry.amount), updated_at: nowIso() }).eq('id', entry.account_id);
+      }
+
+      const updateData = {
+        amount: payload.amount !== undefined ? payload.amount : entry.amount,
+        description: payload.description !== undefined ? payload.description : entry.description,
+        account_id: payload.account_id !== undefined ? payload.account_id : entry.account_id,
+        party_id: payload.party_id !== undefined ? payload.party_id : entry.party_id,
+        entry_date: payload.entry_date !== undefined ? payload.entry_date : entry.entry_date,
+        updated_at: nowIso()
+      };
+
+      // Apply new amount
+      if (updateData.account_id) {
+        const { data: acc } = await adminClient.from('finance_accounts').select('balance').eq('id', updateData.account_id).single();
+        if (acc) await adminClient.from('finance_accounts').update({ balance: Number(acc.balance) + Number(updateData.amount), updated_at: nowIso() }).eq('id', updateData.account_id);
+      }
+
+      const { data: updated } = await adminClient.from('ledger_entries').update(updateData).eq('id', id).select('*').single();
+      sendJson(res, 200, { ok: true, entry: updated });
+      return true;
+    }
+    if (req.method === 'DELETE' && parts.length === 3 && parts[1] === 'income') {
+      const id = parts[2];
+      const { data: entry } = await adminClient.from('ledger_entries').select('*').eq('id', id).single();
+      if (!entry) { sendJson(res, 404, { ok: false, error: 'Not found' }); return true; }
+      
+      if (entry.account_id) {
+        const { data: acc } = await adminClient.from('finance_accounts').select('balance').eq('id', entry.account_id).single();
+        if (acc) await adminClient.from('finance_accounts').update({ balance: Number(acc.balance) - Number(entry.amount), updated_at: nowIso() }).eq('id', entry.account_id);
+      }
+      await adminClient.from('ledger_entries').delete().eq('id', id);
+      sendJson(res, 200, { ok: true });
+      return true;
+    }
 
     // ═══════ EXPENSES ═══════
     if (req.method === 'GET' && url.pathname === '/finance/expenses') {
@@ -781,6 +860,51 @@ export async function handleFinance(req, res, url) {
         } catch (_) { }
       }
       sendJson(res, 201, { ok: true, expense: data });
+      return true;
+    }
+    if (req.method === 'PATCH' && parts.length === 3 && parts[1] === 'expenses') {
+      const id = parts[2];
+      const payload = await readJson(req);
+      const { data: exp } = await adminClient.from('expenses').select('*').eq('id', id).single();
+      if (!exp) { sendJson(res, 404, { ok: false, error: 'Not found' }); return true; }
+
+      // Reverse old amount
+      if (exp.account_id) {
+        const { data: acc } = await adminClient.from('finance_accounts').select('balance').eq('id', exp.account_id).single();
+        if (acc) await adminClient.from('finance_accounts').update({ balance: Number(acc.balance) + Number(exp.amount), updated_at: nowIso() }).eq('id', exp.account_id);
+      }
+
+      const updateData = {
+        amount: payload.amount !== undefined ? payload.amount : exp.amount,
+        category: payload.category !== undefined ? payload.category : exp.category,
+        description: payload.description !== undefined ? payload.description : exp.description,
+        account_id: payload.account_id !== undefined ? payload.account_id : exp.account_id,
+        party_id: payload.party_id !== undefined ? payload.party_id : exp.party_id,
+        expense_date: payload.expense_date !== undefined ? payload.expense_date : exp.expense_date,
+        updated_at: nowIso()
+      };
+
+      // Apply new amount
+      if (updateData.account_id) {
+        const { data: acc } = await adminClient.from('finance_accounts').select('balance').eq('id', updateData.account_id).single();
+        if (acc) await adminClient.from('finance_accounts').update({ balance: Number(acc.balance) - Number(updateData.amount), updated_at: nowIso() }).eq('id', updateData.account_id);
+      }
+
+      const { data: updated } = await adminClient.from('expenses').update(updateData).eq('id', id).select('*').single();
+      sendJson(res, 200, { ok: true, expense: updated });
+      return true;
+    }
+    if (req.method === 'DELETE' && parts.length === 3 && parts[1] === 'expenses') {
+      const id = parts[2];
+      const { data: exp } = await adminClient.from('expenses').select('*').eq('id', id).single();
+      if (!exp) { sendJson(res, 404, { ok: false, error: 'Not found' }); return true; }
+      
+      if (exp.account_id) {
+        const { data: acc } = await adminClient.from('finance_accounts').select('balance').eq('id', exp.account_id).single();
+        if (acc) await adminClient.from('finance_accounts').update({ balance: Number(acc.balance) + Number(exp.amount), updated_at: nowIso() }).eq('id', exp.account_id);
+      }
+      await adminClient.from('expenses').delete().eq('id', id);
+      sendJson(res, 200, { ok: true });
       return true;
     }
 

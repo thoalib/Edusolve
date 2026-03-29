@@ -1613,6 +1613,122 @@ export async function handleStudents(req, res, url) {
       return true;
     }
 
+    // ─── GET /students/:id/remarks ─────────────────────────
+    if (req.method === 'GET' && parts.length === 3 && parts[0] === 'students' && parts[2] === 'remarks') {
+      if (!['academic_coordinator', 'teacher', 'finance', 'super_admin', 'counselor'].includes(actor.role)) {
+        sendJson(res, 403, { ok: false, error: 'not allowed to view remarks' });
+        return true;
+      }
+      const studentId = parts[1];
+      const { data, error } = await adminClient
+        .from('student_remarks')
+        .select('*, creator:created_by(id, full_name)')
+        .eq('student_id', studentId)
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(error.message);
+      sendJson(res, 200, { ok: true, items: data || [] });
+      return true;
+    }
+
+    // ─── POST /students/:id/remarks ────────────────────────
+    if (req.method === 'POST' && parts.length === 3 && parts[0] === 'students' && parts[2] === 'remarks') {
+      if (!['academic_coordinator', 'teacher', 'finance', 'super_admin', 'counselor'].includes(actor.role)) {
+        sendJson(res, 403, { ok: false, error: 'not allowed to add remarks' });
+        return true;
+      }
+      const studentId = parts[1];
+      const payload = await readJson(req);
+
+      if (!payload.title || !payload.title.trim()) {
+        sendJson(res, 400, { ok: false, error: 'title is required' });
+        return true;
+      }
+
+      const remarkTypes = ['general', 'parents_meeting', 'exam', 'attendance', 'behaviour', 'custom'];
+      const remarkType = remarkTypes.includes(payload.remark_type) ? payload.remark_type : 'general';
+
+      const { data, error } = await adminClient
+        .from('student_remarks')
+        .insert({
+          student_id: studentId,
+          remark_type: remarkType,
+          title: payload.title.trim(),
+          description: payload.description?.trim() || null,
+          marks: payload.marks?.trim() || null,
+          created_by: actor.userId,
+          created_at: nowIso()
+        })
+        .select('*, creator:created_by(id, full_name)')
+        .single();
+
+      if (error) throw new Error(error.message);
+      sendJson(res, 201, { ok: true, remark: data });
+      return true;
+    }
+
+    // ─── PUT /students/:id/remarks/:remark_id ────────────────
+    if (req.method === 'PUT' && parts.length === 4 && parts[0] === 'students' && parts[2] === 'remarks') {
+      const studentId = parts[1];
+      const remarkId = parts[3];
+      const payload = await readJson(req);
+
+      if (!payload.title || !payload.title.trim()) {
+        sendJson(res, 400, { ok: false, error: 'title is required' });
+        return true;
+      }
+
+      // Check ownership or admin
+      const { data: extRemark, error: extErr } = await adminClient.from('student_remarks').select('created_by').eq('id', remarkId).single();
+      if (extErr || !extRemark) {
+        sendJson(res, 404, { ok: false, error: 'remark not found' });
+        return true;
+      }
+      if (!['academic_coordinator', 'super_admin'].includes(actor.role) && extRemark.created_by !== actor.userId) {
+        sendJson(res, 403, { ok: false, error: 'you can only edit your own remarks' });
+        return true;
+      }
+
+      const remarkTypes = ['general', 'parents_meeting', 'exam', 'attendance', 'behaviour', 'custom'];
+      const remarkType = remarkTypes.includes(payload.remark_type) ? payload.remark_type : 'general';
+
+      const { data, error } = await adminClient
+        .from('student_remarks')
+        .update({
+          remark_type: remarkType,
+          title: payload.title.trim(),
+          description: payload.description?.trim() || null,
+          marks: payload.marks?.trim() || null
+        })
+        .eq('id', remarkId)
+        .select('*, creator:created_by(id, full_name)')
+        .single();
+
+      if (error) throw new Error(error.message);
+      sendJson(res, 200, { ok: true, remark: data });
+      return true;
+    }
+
+    // ─── DELETE /students/:id/remarks/:remark_id ─────────────
+    if (req.method === 'DELETE' && parts.length === 4 && parts[0] === 'students' && parts[2] === 'remarks') {
+      const remarkId = parts[3];
+      
+      const { data: extRemark, error: extErr } = await adminClient.from('student_remarks').select('created_by').eq('id', remarkId).single();
+      if (extErr || !extRemark) {
+        sendJson(res, 404, { ok: false, error: 'remark not found' });
+        return true;
+      }
+      if (!['academic_coordinator', 'super_admin'].includes(actor.role) && extRemark.created_by !== actor.userId) {
+        sendJson(res, 403, { ok: false, error: 'you can only delete your own remarks' });
+        return true;
+      }
+
+      const { error } = await adminClient.from('student_remarks').delete().eq('id', remarkId);
+      if (error) throw new Error(error.message);
+
+      sendJson(res, 200, { ok: true, deleted: true });
+      return true;
+    }
+
     sendJson(res, 404, { ok: false, error: 'route not found' });
 
     return true;

@@ -1805,7 +1805,12 @@ export function SalaryCalculatorPage() {
                 </>
             )}
 
-            {activeTab === 'master_rates' && <SalaryMasterRatesConfig />}
+            {activeTab === 'master_rates' && (
+                <>
+                    <SalaryMasterRatesConfig />
+                    <ExperienceCategoriesConfig />
+                </>
+            )}
 
             {
                 activeTab === 'teachers' && (
@@ -2291,6 +2296,8 @@ function SalaryMasterRatesConfig() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
+    const [categories, setCategories] = useState([]);
+
     useEffect(() => {
         apiFetch('/hr/salary-rate-config')
             .then(res => {
@@ -2298,6 +2305,10 @@ function SalaryMasterRatesConfig() {
             })
             .catch(() => { })
             .finally(() => setLoading(false));
+
+        apiFetch('/experience-categories')
+            .then(res => setCategories(res.categories || []))
+            .catch(() => { });
     }, []);
 
     function handleRateChange(idx, newRate) {
@@ -2385,10 +2396,8 @@ function SalaryMasterRatesConfig() {
                                     <td>
                                         {isEditing ? (
                                             <select value={c.experience_category} onChange={e => { const v = [...configs]; v[idx].experience_category = e.target.value; setConfigs(v); }} style={selectStyle}>
-                                                <option value="fresher">Fresher</option>
-                                                <option value="experienced">Experienced</option>
-                                                <option value="experienced_high">Experienced (High)</option>
                                                 <option value="_any">Any Experience</option>
+                                                {categories.map(cat => <option key={cat.id} value={cat.name}>{cat.name}</option>)}
                                             </select>
                                         ) : (
                                             <span style={{ textTransform: 'capitalize' }}>{c.experience_category.replace(/_/g, ' ')}</span>
@@ -2616,6 +2625,101 @@ function RequestDetailsModal({ request, onClose }) {
                         </div>
                     )}
                 </div>
+            </div>
+        </div>
+    );
+}
+
+function ExperienceCategoriesConfig() {
+    const [categories, setCategories] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [newCategory, setNewCategory] = useState('');
+    const [adding, setAdding] = useState(false);
+
+    useEffect(() => {
+        loadCategories();
+    }, []);
+
+    function loadCategories() {
+        setLoading(true);
+        apiFetch('/experience-categories')
+            .then(res => setCategories(res.categories || []))
+            .catch(() => { })
+            .finally(() => setLoading(false));
+    }
+
+    async function handleAdd(e) {
+        e.preventDefault();
+        if (!newCategory.trim()) return;
+        setAdding(true);
+        try {
+            await apiFetch('/experience-categories', {
+                method: 'POST',
+                body: JSON.stringify({ name: newCategory.trim() })
+            });
+            setNewCategory('');
+            loadCategories();
+        } catch (err) {
+            alert(err.message);
+        }
+        setAdding(false);
+    }
+
+    async function handleDelete(id) {
+        if (!confirm('Are you sure you want to delete this category?')) return;
+        try {
+            await apiFetch(`/experience-categories/${id}`, { method: 'DELETE' });
+            loadCategories();
+        } catch (err) {
+            alert(err.message);
+        }
+    }
+
+    if (loading && categories.length === 0) return <p style={{ padding: 24, textAlign: 'center' }}>Loading Categories...</p>;
+
+    return (
+        <div className="card" style={{ marginBottom: 24 }}>
+            <div style={{ padding: 16, borderBottom: '1px solid var(--line)' }}>
+                <h3 style={{ margin: 0, fontSize: 16, color: '#10233f' }}>Experience Categories</h3>
+                <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>Manage the global list of teacher experience categories used across the system.</p>
+            </div>
+            
+            <form onSubmit={handleAdd} style={{ padding: 16, display: 'flex', gap: 12, borderBottom: '1px solid var(--line)' }}>
+                <input 
+                    type="text" 
+                    value={newCategory} 
+                    onChange={e => setNewCategory(e.target.value)} 
+                    placeholder="New Category Name (e.g. Expert)" 
+                    style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--line)', flex: 1 }}
+                    maxLength={50}
+                />
+                <button type="submit" className="primary" disabled={adding || !newCategory.trim()}>
+                    {adding ? 'Adding...' : '+ Add Category'}
+                </button>
+            </form>
+
+            <div className="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Category Name</th>
+                            <th style={{ width: 100 }}>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {categories.map((c) => (
+                            <tr key={c.id}>
+                                <td>{c.name}</td>
+                                <td>
+                                    <button onClick={() => handleDelete(c.id)} className="secondary small" style={{ color: '#ef4444', padding: '4px 8px', border: 'none', background: 'none' }}>Delete</button>
+                                </td>
+                            </tr>
+                        ))}
+                        {categories.length === 0 && (
+                            <tr><td colSpan={2} style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>No categories configured.</td></tr>
+                        )}
+                    </tbody>
+                </table>
             </div>
         </div>
     );

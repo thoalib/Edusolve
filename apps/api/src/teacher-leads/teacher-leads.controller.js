@@ -193,7 +193,8 @@ export async function handleTeacherLeads(req, res, url) {
                     subjects: Array.isArray(payload.subjects) ? JSON.stringify(payload.subjects) : '[]',
                     boards: Array.isArray(payload.boards) ? JSON.stringify(payload.boards) : '[]',
                     mediums: Array.isArray(payload.mediums) ? JSON.stringify(payload.mediums) : '[]',
-                    experience_level: payload.experience_level || 'fresher',
+                    experience_remark: payload.experience_remark || 'Fresher',
+                    experience_level: payload.experience_level || null,
                     experience_type: payload.experience_type || null,
                     experience_duration: payload.experience_duration || null,
                     qualification: payload.qualification || null,
@@ -268,6 +269,7 @@ export async function handleTeacherLeads(req, res, url) {
             if (payload.rejection_reason !== undefined) updates.rejection_reason = payload.rejection_reason;
             if (payload.communication_level !== undefined) updates.communication_level = payload.communication_level;
             if (payload.current_note !== undefined) updates.current_note = payload.current_note;
+            if (payload.experience_remark !== undefined) updates.experience_remark = payload.experience_remark;
             if (payload.status) updates.status = payload.status;
             // Admin-only: reassign TC
             if (payload.coordinator_id !== undefined && actor.role === 'super_admin') updates.coordinator_id = payload.coordinator_id;
@@ -390,7 +392,8 @@ export async function handleTeacherLeads(req, res, url) {
             const payloadInsert = {
                 user_id: newUserId,
                 teacher_code: teacherCode,
-                experience_level: lead.experience_level || null,
+                experience_level: 'Fresher',
+                experience_remark: lead.experience_remark || 'Fresher',
                 per_hour_rate: payload.per_hour_rate ?? null,
                 is_in_pool: true,
                 phone: lead.phone || null,

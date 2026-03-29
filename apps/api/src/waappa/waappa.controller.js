@@ -63,8 +63,11 @@ export class WaappaController {
         if (url.pathname === '/waappa/messages/upload' && req.method === 'POST') {
             return this.uploadMedia(req, res);
         }
+        if (url.pathname === '/waappa/campaigns' && req.method === 'GET') {
+            return this.getCampaigns(req, res, user);
+        }
         if (url.pathname === '/waappa/campaigns/send' && req.method === 'POST') {
-            return this.sendCampaign(req, res);
+            return this.sendCampaign(req, res, user);
         }
         if (url.pathname.match(/^\/waappa\/messages\/([^\/]+)\/media$/) && req.method === 'GET') {
             const parts = url.pathname.split('/');
@@ -77,28 +80,70 @@ export class WaappaController {
 
     // --- Campaign Methods ---
 
-    async sendCampaign(req, res) {
+    async sendCampaign(req, res, user) {
         try {
             const n8nUrl = process.env.N8N_CAMPAIGN_WEBHOOK_URL;
             if (!n8nUrl) {
-                res.writeHead(503, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: 'N8N_CAMPAIGN_WEBHOOK_URL not set in server env' }));
-                return true;
+                return sendJson(res, 503, { error: 'N8N_CAMPAIGN_WEBHOOK_URL not set in server env' });
             }
             const body = await readJson(req);
+            const { recipients, message, mediaUrl, mimetype, academic_coordinator_id } = body;
+
+            // 1. Save to DB
+            const { data: campaign, error: dbErr } = await supabase.from('whatsapp_campaigns').insert({
+                academic_coordinator_id: academic_coordinator_id || user.id,
+                message,
+                media_url: mediaUrl,
+                mimetype,
+                recipients, // User requirement: recipients name and phone number in table
+                total_count: Array.isArray(recipients) ? recipients.length : 0,
+                sent_count: 0,
+                fail_count: 0
+            }).select().single();
+
+            if (dbErr) throw dbErr;
+
+            // 2. Forward to n8n (Minimal payload as per requirement)
+            const payload = {
+                campaign_id: campaign.id,
+                academic_coordinator_id: campaign.academic_coordinator_id,
+                message: campaign.message,
+                mediaUrl: campaign.media_url,
+                mimetype: campaign.mimetype,
+                sentAt: campaign.created_at
+            };
+
             const webhookRes = await fetch(n8nUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
+                body: JSON.stringify(payload)
             });
             const text = await webhookRes.text();
-            res.writeHead(webhookRes.ok ? 200 : 502, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: webhookRes.ok, status: webhookRes.status, response: text }));
+            return sendJson(res, webhookRes.ok ? 200 : 502, { 
+                ok: webhookRes.ok, 
+                campaign_id: campaign.id, 
+                status: webhookRes.status, 
+                response: text 
+            });
         } catch (e) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: false, error: e.message }));
+            console.error('[sendCampaign]', e.message);
+            return sendJson(res, 500, { error: e.message });
         }
-        return true;
+    }
+
+    async getCampaigns(req, res, user) {
+        try {
+            let query = supabase.from('whatsapp_campaigns').select('*');
+            if (user.role !== 'super_admin') {
+                query = query.eq('academic_coordinator_id', user.id);
+            }
+            const { data, error } = await query.order('created_at', { ascending: false });
+            if (error) throw error;
+            return sendJson(res, 200, { ok: true, items: data || [] });
+        } catch (e) {
+            console.error('[getCampaigns]', e.message);
+            return sendJson(res, 500, { error: e.message });
+        }
     }
 
     // --- Session Methods ---

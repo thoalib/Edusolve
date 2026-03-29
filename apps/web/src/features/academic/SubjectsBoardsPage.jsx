@@ -23,22 +23,26 @@ export function SubjectsBoardsPage() {
     const [subjects, setSubjects] = useState([]);
     const [boards, setBoards] = useState([]);
     const [mediums, setMediums] = useState([]);
+    const [classes, setClasses] = useState([]);
     const [newSubject, setNewSubject] = useState('');
     const [newBoard, setNewBoard] = useState('');
     const [newMedium, setNewMedium] = useState('');
+    const [newClass, setNewClass] = useState('');
     const [editingSubject, setEditingSubject] = useState(null);
     const [editingBoard, setEditingBoard] = useState(null);
     const [editingMedium, setEditingMedium] = useState(null);
+    const [editingClass, setEditingClass] = useState(null);
     const [editName, setEditName] = useState('');
     const [loading, setLoading] = useState(true);
 
     const load = async () => {
-        const [sRes, bRes, mRes] = await Promise.all([
-            apiFetch('/subjects'), apiFetch('/boards'), apiFetch('/mediums')
+        const [sRes, bRes, mRes, cRes] = await Promise.all([
+            apiFetch('/subjects'), apiFetch('/boards'), apiFetch('/mediums'), apiFetch('/classes')
         ]);
         if (sRes.ok) setSubjects(sRes.subjects);
         if (bRes.ok) setBoards(bRes.boards);
         if (mRes.ok) setMediums(mRes.mediums);
+        if (cRes.ok) setClasses(cRes.classes);
         setLoading(false);
     };
     useEffect(() => { load(); }, []);
@@ -97,6 +101,24 @@ export function SubjectsBoardsPage() {
         load();
     };
 
+    /* ── Class CRUD ── */
+    const addClass = async () => {
+        if (!newClass.trim()) return;
+        const res = await apiFetch('/classes', { method: 'POST', body: JSON.stringify({ name: newClass.trim() }) });
+        if (res.ok) { setNewClass(''); load(); }
+        else alert(res.error || 'Failed');
+    };
+    const updateClass = async (id) => {
+        if (!editName.trim()) return;
+        await apiFetch(`/classes/${id}`, { method: 'PATCH', body: JSON.stringify({ name: editName.trim() }) });
+        setEditingClass(null); load();
+    };
+    const deleteClass = async (id) => {
+        if (!confirm('Delete this class?')) return;
+        await apiFetch(`/classes/${id}`, { method: 'DELETE' });
+        load();
+    };
+
     if (loading) return <div className="page-content"><p>Loading…</p></div>;
 
     const panelStyle = { flex: 1, minWidth: 300 };
@@ -112,11 +134,12 @@ export function SubjectsBoardsPage() {
     const renderList = (items, type) => {
         const isSubject = type === 'subject';
         const isBoard = type === 'board';
-        const editing = isSubject ? editingSubject : isBoard ? editingBoard : editingMedium;
+        const isMedium = type === 'medium';
+        const editing = isSubject ? editingSubject : isBoard ? editingBoard : isMedium ? editingMedium : editingClass;
 
-        const updateFn = (id) => isSubject ? updateSubject(id) : isBoard ? updateBoard(id) : updateMedium(id);
-        const deleteFn = (id) => isSubject ? deleteSubject(id) : isBoard ? deleteBoard(id) : deleteMedium(id);
-        const setEditingFn = (id) => isSubject ? setEditingSubject(id) : isBoard ? setEditingBoard(id) : setEditingMedium(id);
+        const updateFn = (id) => isSubject ? updateSubject(id) : isBoard ? updateBoard(id) : isMedium ? updateMedium(id) : updateClass(id);
+        const deleteFn = (id) => isSubject ? deleteSubject(id) : isBoard ? deleteBoard(id) : isMedium ? deleteMedium(id) : deleteClass(id);
+        const setEditingFn = (id) => isSubject ? setEditingSubject(id) : isBoard ? setEditingBoard(id) : isMedium ? setEditingMedium(id) : setEditingClass(id);
 
         return items.map(item => (
             <div key={item.id} style={itemStyle}>
@@ -155,7 +178,7 @@ export function SubjectsBoardsPage() {
     return (
         <div className="page-content">
             <div className="panel-head">
-                <h2>Subjects & Boards & Mediums</h2>
+                <h2>Academic Master Data</h2>
             </div>
 
             <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginTop: '16px' }}>
@@ -216,6 +239,26 @@ export function SubjectsBoardsPage() {
                     <div style={{ maxHeight: 400, overflowY: 'auto' }}>
                         {renderList(mediums, 'medium')}
                         {!mediums.length && <p style={{ padding: '14px', color: 'var(--muted)', fontSize: '13px' }}>No mediums yet</p>}
+                    </div>
+                </div>
+
+                {/* ── Classes Panel ── */}
+                <div className="card" style={panelStyle}>
+                    <h3 style={{ margin: '0 0 4px', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Icon d={ICONS.gradCap} size={18} /> Classes
+                        <span style={{ fontSize: '12px', color: 'var(--muted)', fontWeight: 400 }}>({classes.length})</span>
+                    </h3>
+                    <div style={addRow}>
+                        <input value={newClass} onChange={e => setNewClass(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') addClass(); }}
+                            placeholder="New class name (e.g. 10th)…" style={{ flex: 1 }} />
+                        <button onClick={addClass} style={{ padding: '8px 16px', fontSize: '14px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <Icon d={ICONS.plus} size={16} /> Add
+                        </button>
+                    </div>
+                    <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+                        {renderList(classes, 'class')}
+                        {!classes.length && <p style={{ padding: '14px', color: 'var(--muted)', fontSize: '13px' }}>No classes yet</p>}
                     </div>
                 </div>
             </div>
