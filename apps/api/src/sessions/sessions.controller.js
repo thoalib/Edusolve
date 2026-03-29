@@ -1,4 +1,5 @@
 import { getSupabaseAdminClient } from '../config/supabase.js';
+import { notifySessionRescheduled, notifyRescheduleAccepted } from '../common/n8n-webhook.js';
 import { readJson, sendJson } from '../common/http.js';
 
 const nowIso = () => new Date().toISOString();
@@ -223,6 +224,13 @@ export async function handleSessions(req, res, url) {
         return true;
       }
 
+      // Fetch old session BEFORE update (for webhook old/new comparison)
+      const { data: oldSession } = await adminClient
+        .from('academic_sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .maybeSingle();
+
       const { data, error } = await adminClient
         .from('academic_sessions')
         .update({
@@ -238,6 +246,20 @@ export async function handleSessions(req, res, url) {
         .select('*');
 
       if (error) throw new Error(error.message);
+
+      // ── n8n Webhook: notify reschedule with old + new details (fire-and-forget) ──
+      if (oldSession) {
+        notifySessionRescheduled(oldSession, {
+          session_date,
+          started_at: started_at.includes('T') ? started_at : `${session_date}T${started_at}:00+05:30`,
+          duration_hours: Number(duration_hours),
+          subject: payload.subject,
+          teacher_id: payload.teacher_id
+        }, {
+          rescheduledBy: actor.userId
+        }).catch(err => console.error('[n8n-webhook] reschedule notify error:', err.message));
+      }
+
       sendJson(res, 200, { ok: true, session: data });
       return true;
     }
@@ -373,6 +395,11 @@ export async function handleSessions(req, res, url) {
           }
 
           await adminClient.from('academic_sessions').update(updates).eq('id', sessionId);
+
+          // ── n8n Webhook: notify reschedule accepted with old + new (fire-and-forget) ──
+          notifyRescheduleAccepted(session, existing, {
+            approvedBy: actor.userId
+          }).catch(err => console.error('[n8n-webhook] reschedule accepted notify error:', err.message));
         }
         // If rejected, no change to session
       }

@@ -18,6 +18,7 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
         subjects_taught: Array.isArray(profile?.subjects_taught) ? profile.subjects_taught : [],
         syllabus: Array.isArray(profile?.syllabus) ? profile.syllabus : [],
         languages: Array.isArray(profile?.languages) ? profile.languages : [],
+        classes_taught: Array.isArray(profile?.classes_taught) ? profile.classes_taught : [],
         meeting_link: profile?.meeting_link || '',
         account_holder_name: profile?.account_holder_name || '',
         account_number: profile?.account_number || '',
@@ -120,6 +121,9 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
             }
             if (typeof finalData.languages === 'string') {
                 finalData.languages = finalData.languages.split(',').map(s => s.trim()).filter(Boolean);
+            }
+            if (typeof finalData.classes_taught === 'string') {
+                finalData.classes_taught = finalData.classes_taught.split(',').map(s => s.trim()).filter(Boolean);
             }
 
             // Clean phone numbers (remove non-digits except +)
@@ -303,6 +307,16 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
                                     placeholder="Select languages..."
                                 />
                             </div>
+                        </div>
+
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={labelStyle}>Classes Taking</label>
+                            <MultiSelectDropdown 
+                                value={formData.classes_taught} 
+                                onChange={v => updateField('classes_taught', v)}
+                                options={['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th']}
+                                placeholder="Select classes..."
+                            />
                         </div>
 
                         <label style={labelStyle}>Meeting Link (Google Meet/Zoom) {requiredStar}</label>

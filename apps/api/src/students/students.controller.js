@@ -1,4 +1,5 @@
 import { getSupabaseAdminClient } from '../config/supabase.js';
+import { notifyBulkScheduledToday, notifySessionRescheduled } from '../common/n8n-webhook.js';
 import { readJson, sendJson } from '../common/http.js';
 import { WaappaService } from '../waappa/waappa.service.js';
 import { z } from 'zod';
@@ -22,6 +23,7 @@ const updateStudentSchema = z.object({
   parent_phone: phoneSchema.optional(),
   messaging_number: z.enum(['contact', 'alternative', 'parent']).optional(),
   class_level: z.string().max(100).optional(),
+  country: z.string().max(100).optional(),
   package_name: z.string().max(100).optional(),
   board: z.string().max(100).optional(),
   medium: z.string().max(50).optional(),
@@ -244,6 +246,7 @@ export async function handleStudents(req, res, url) {
         student_name: payload.student_name,
         parent_name: payload.parent_name || null,
         country_code: payload.country_code || null,
+        country: payload.country || null,
         contact_number: payload.contact_number || null,
         class_level: payload.class_level || null,
         package_name: payload.package_name || null,
@@ -1147,6 +1150,14 @@ export async function handleStudents(req, res, url) {
           }, { onConflict: 'student_id,teacher_id,subject', ignoreDuplicates: true });
       }
 
+      // ── n8n Webhook: notify if any sessions are for today (fire-and-forget) ──
+      notifyBulkScheduledToday(data, {
+        studentId,
+        teacherId: teacher_id,
+        subject: subject || null,
+        scheduledBy: actor.userId
+      }).catch(err => console.error('[n8n-webhook] bulk notify error:', err.message));
+
       sendJson(res, 201, { ok: true, count: data.length });
       return true;
     }
@@ -1161,6 +1172,13 @@ export async function handleStudents(req, res, url) {
       const rawBody = await readJson(req);
       const updateFields = validatePayload(res, rescheduleSessionSchema, rawBody);
       if (!updateFields) return true;
+
+      // Fetch old session BEFORE update (for webhook old/new comparison)
+      const { data: oldSession } = await adminClient
+        .from('academic_sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .maybeSingle();
 
       if (updateFields.session_date && updateFields.started_at && !updateFields.started_at.includes('T')) {
         updateFields.started_at = `${updateFields.session_date}T${updateFields.started_at}:00+05:30`;
@@ -1180,6 +1198,14 @@ export async function handleStudents(req, res, url) {
         .select('*')
         .single();
       if (error) throw new Error(error.message);
+
+      // ── n8n Webhook: notify reschedule with old + new details (fire-and-forget) ──
+      if (oldSession) {
+        notifySessionRescheduled(oldSession, updateFields, {
+          rescheduledBy: actor.userId
+        }).catch(err => console.error('[n8n-webhook] reschedule notify error:', err.message));
+      }
+
       sendJson(res, 200, { ok: true, session: data });
       return true;
     }

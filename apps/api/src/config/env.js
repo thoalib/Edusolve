@@ -6,7 +6,8 @@ export const env = {
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   allowDevRoleLogin: process.env.ALLOW_DEV_ROLE_LOGIN === 'true',
   waappaBaseUrl: process.env.WAAPPA_BASE_URL || 'https://main.waappa.com',
-  waappaMasterKey: process.env.WAAPPA_MASTER_KEY || ''
+  waappaMasterKey: process.env.WAAPPA_MASTER_KEY || '',
+  n8nSessionWebhookUrl: process.env.N8N_SESSION_WEBHOOK_URL || ''
 };
 
 export function hasSupabaseAuthConfig() {

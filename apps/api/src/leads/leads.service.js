@@ -466,6 +466,7 @@ export class LeadsService {
         counselor_id: counselorId,
         contact_number: payload.contact_number || null,
         email: payload.email || null,
+        country: payload.country || null,
         status: 'new',
         owner_stage: 'counselor'
       })
@@ -491,7 +492,7 @@ export class LeadsService {
       return { error: 'lead update is not allowed for this role' };
     }
 
-    const editable = ['student_name', 'parent_name', 'class_level', 'subject', 'lead_type', 'contact_number', 'email', 'status', 'demo_scheduled_at', 'demo_ends_at', 'demo_teacher_id', 'drop_reason', 'current_note'];
+    const editable = ['student_name', 'parent_name', 'class_level', 'subject', 'lead_type', 'contact_number', 'country', 'email', 'status', 'demo_scheduled_at', 'demo_ends_at', 'demo_teacher_id', 'drop_reason', 'current_note'];
 
     if (!adminClient) {
       const lead = memoryLeads.find((item) => item.id === id && !item.deleted_at);
@@ -1178,6 +1179,7 @@ export class LeadsService {
           student_code: studentCode,
           parent_name: lead.parent_name || null,
           country_code: lead.country_code || null,
+          country: lead.country || null,
           contact_number: lead.contact_number || null,
           class_level: lead.class_level || null,
           subject: lead.subject || null,
