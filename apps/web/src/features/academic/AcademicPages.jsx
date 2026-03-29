@@ -1402,6 +1402,7 @@ function StudentDetailPage({ studentId, onBack }) {
       medium: student.medium || '',
       package_name: student.package_name || '',
       messaging_number: student.messaging_number || 'contact',
+      country: student.country || 'India',
       status: student.status || 'active'
     });
     setShowEdit(true);
@@ -1486,6 +1487,7 @@ function StudentDetailPage({ studentId, onBack }) {
             <div><span className="eyebrow">Alternative No.</span><p>{displayPhone(student.alternative_number)}</p></div>
             <div><span className="eyebrow">Parent Phone</span><p>{displayPhone(student.parent_phone)}</p></div>
             <div><span className="eyebrow">Messaging No.</span><p>{messagingLabel[student.messaging_number] || 'Contact Number'}</p></div>
+            <div><span className="eyebrow">Country</span><p>{student.country || student.leads?.country || '—'}</p></div>
             <div><span className="eyebrow">Package</span><p>{student.package_name || student.leads?.package_name || '—'}</p></div>
             <div><span className="eyebrow">Source</span><p>{student.counselor_id ? (student.leads?.source || 'Lead') : 'Manual'}</p></div>
             <div><span className="eyebrow">Joined</span><p>{student.joined_at ? new Date(student.joined_at).toLocaleDateString('en-IN') : '—'}</p></div>
@@ -1646,6 +1648,23 @@ function StudentDetailPage({ studentId, onBack }) {
                         <option value="parent">Parent Phone</option>
                       </select>
                     </label>
+                    <label>Country
+                      <select value={editForm.country} onChange={e => setEditForm({ ...editForm, country: e.target.value })}>
+                        <option value="India">India</option>
+                        <option value="United Arab Emirates">United Arab Emirates</option>
+                        <option value="Saudi Arabia">Saudi Arabia</option>
+                        <option value="Qatar">Qatar</option>
+                        <option value="Oman">Oman</option>
+                        <option value="Kuwait">Kuwait</option>
+                        <option value="Bahrain">Bahrain</option>
+                        <option value="United States">United States</option>
+                        <option value="United Kingdom">United Kingdom</option>
+                        <option value="Australia">Australia</option>
+                        <option value="Singapore">Singapore</option>
+                        <option value="Malaysia">Malaysia</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </label>
                     <label>Status
                       <select value={editForm.status} onChange={e => setEditForm({ ...editForm, status: e.target.value })}>
                         <option value="active">Active</option>
@@ -1798,7 +1817,9 @@ function StudentOnboardingForm({ onDone }) {
     class_level: '',
     status: 'active',
     onboarding_fee: '',
-    onboarding_paid: ''
+    onboarding_fee: '',
+    onboarding_paid: '',
+    country: 'India'
   });
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
@@ -1899,6 +1920,23 @@ function StudentOnboardingForm({ onDone }) {
             </label>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
+            <label>Country
+              <select value={f.country} onChange={e => set('country', e.target.value)}>
+                <option value="India">India</option>
+                <option value="United Arab Emirates">United Arab Emirates</option>
+                <option value="Saudi Arabia">Saudi Arabia</option>
+                <option value="Qatar">Qatar</option>
+                <option value="Oman">Oman</option>
+                <option value="Kuwait">Kuwait</option>
+                <option value="Bahrain">Bahrain</option>
+                <option value="United States">United States</option>
+                <option value="United Kingdom">United Kingdom</option>
+                <option value="Australia">Australia</option>
+                <option value="Singapore">Singapore</option>
+                <option value="Malaysia">Malaysia</option>
+                <option value="Other">Other</option>
+              </select>
+            </label>
             <label>Status
               <select value={f.status} onChange={e => set('status', e.target.value)}>
                 <option value="active">Active</option>
@@ -4344,6 +4382,7 @@ export function TeacherPoolPage() {
   const [fLang, setFLang] = useState('');
   const [fSubj, setFSubj] = useState('');
   const [fSyllabus, setFSyllabus] = useState('');
+  const [fClass, setFClass] = useState('');
   const [fStartTime, setFStartTime] = useState('');
   const [fEndTime, setFEndTime] = useState('');
   const [selectedMapDay, setSelectedMapDay] = useState(new Date().getDay()); // Default to today
@@ -4353,7 +4392,7 @@ export function TeacherPoolPage() {
   const [page, setPage] = useState(1);
 
   // Reset page when filters or view changes
-  useEffect(() => { setPage(1); }, [fSearch, fExp, fLang, fSubj, fSyllabus, fStartTime, fEndTime, view]);
+  useEffect(() => { setPage(1); }, [fSearch, fExp, fLang, fSubj, fSyllabus, fClass, fStartTime, fEndTime, view]);
 
   const [weekOffsetMap, setWeekOffsetMap] = useState(0);
   const [weekStartMap, setWeekStartMap] = useState('');
@@ -4399,8 +4438,13 @@ export function TeacherPoolPage() {
   const allLangs = useMemo(() => { const s = new Set(); teachers.forEach(t => (t.languages || []).forEach(l => s.add(l))); return [...s].sort(); }, [teachers]);
   const allSubjs = useMemo(() => { const s = new Set(); teachers.forEach(t => (t.subjects_taught || []).forEach(l => s.add(l))); return [...s].sort(); }, [teachers]);
   const allSyllabus = useMemo(() => { const s = new Set(); teachers.forEach(t => (t.syllabus || []).forEach(l => s.add(l))); return [...s].sort(); }, [teachers]);
+  const allClasses = useMemo(() => {
+    const classOrder = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th'];
+    const s = new Set(); teachers.forEach(t => (t.classes_taught || []).forEach(c => s.add(c)));
+    return classOrder.filter(c => s.has(c));
+  }, [teachers]);
 
-  const activeFilterCount = [fExp, fLang, fSubj, fSyllabus, fStartTime, fEndTime].filter(Boolean).length;
+  const activeFilterCount = [fExp, fLang, fSubj, fSyllabus, fClass, fStartTime, fEndTime].filter(Boolean).length;
 
   const filtered = useMemo(() => {
     let items = teachers;
@@ -4415,6 +4459,7 @@ export function TeacherPoolPage() {
     if (fLang) items = items.filter(t => (t.languages || []).includes(fLang));
     if (fSubj) items = items.filter(t => (t.subjects_taught || []).includes(fSubj));
     if (fSyllabus) items = items.filter(t => (t.syllabus || []).includes(fSyllabus));
+    if (fClass) items = items.filter(t => (t.classes_taught || []).includes(fClass));
     if (fStartTime || fEndTime) {
       items = items.filter(t => {
         if (!t.teacher_availability || t.teacher_availability.length === 0) return false;
@@ -4439,9 +4484,9 @@ export function TeacherPoolPage() {
       });
     }
     return items;
-  }, [teachers, fSearch, fExp, fLang, fSubj, fSyllabus, fStartTime, fEndTime]);
+  }, [teachers, fSearch, fExp, fLang, fSubj, fSyllabus, fClass, fStartTime, fEndTime]);
 
-  function clearFilters() { setFSearch(''); setFExp(''); setFLang(''); setFSubj(''); setFSyllabus(''); setFStartTime(''); setFEndTime(''); }
+  function clearFilters() { setFSearch(''); setFExp(''); setFLang(''); setFSubj(''); setFSyllabus(''); setFClass(''); setFStartTime(''); setFEndTime(''); }
 
   const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const mapDateLabels = useMemo(() => {
@@ -4504,6 +4549,7 @@ export function TeacherPoolPage() {
               <SearchSelect label="Language" value={fLang} onChange={setFLang} options={allLangs.map(l => ({ value: l, label: l }))} placeholder="Any" />
               <SearchSelect label="Subject" value={fSubj} onChange={setFSubj} options={allSubjs.map(l => ({ value: l, label: l }))} placeholder="Any" />
               <SearchSelect label="Syllabus" value={fSyllabus} onChange={setFSyllabus} options={allSyllabus.map(l => ({ value: l, label: l }))} placeholder="Any" />
+              <SearchSelect label="Class" value={fClass} onChange={setFClass} options={allClasses.map(c => ({ value: c, label: c }))} placeholder="Any" />
               <SearchSelect label="From Time" value={fStartTime} onChange={setFStartTime} options={timeOptions} placeholder="Any" />
               <SearchSelect label="To Time" value={fEndTime} onChange={setFEndTime} options={timeOptions} placeholder="Any" />
             </div>
@@ -5684,6 +5730,7 @@ export function ViewTeacherModal({ teacher, onClose }) {
   const subjects = parseSubjects(teacher.subjects_taught);
   const languages = parseSubjects(teacher.languages);
   const syllabus = parseSubjects(teacher.syllabus);
+  const classesTaught = parseSubjects(teacher.classes_taught);
 
   const gridRow = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' };
 
@@ -5770,6 +5817,9 @@ export function ViewTeacherModal({ teacher, onClose }) {
             <ReadOnlyField label="Languages" value={languages.length ? languages.map((b, i) => <Badge key={i} color="#8b5cf6">{b}</Badge>) : null} />
             <ReadOnlyField label="Syllabus" value={syllabus.length ? syllabus.map((m, i) => <Badge key={i} color="#15803d">{m}</Badge>) : null} />
           </div>
+          <div style={gridRow}>
+            <ReadOnlyField label="Classes Taking" value={classesTaught.length ? classesTaught.map((c, i) => <Badge key={i} color="#ea580c">{c}</Badge>) : null} full />
+          </div>
 
           <div style={{ ...gridRow, gridTemplateColumns: '1fr 1fr 1fr' }}>
             <ReadOnlyField label="Experience" value={teacher.experience_level} />
@@ -5853,6 +5903,7 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
     experience_duration: teacher.experience_duration || '',
     per_hour_rate: teacher.per_hour_rate || '',
     communication_level: teacher.communication_level || '',
+    classes_taught: parseSubjects(teacher.classes_taught),
 
     // Bank
     account_holder_name: teacher.account_holder_name || '',
@@ -5920,6 +5971,7 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
       payload.subjects_taught = Array.isArray(payload.subjects_taught) ? payload.subjects_taught : [];
       payload.syllabus = Array.isArray(payload.syllabus) ? payload.syllabus : [];
       payload.languages = Array.isArray(payload.languages) ? payload.languages : [];
+      payload.classes_taught = Array.isArray(payload.classes_taught) ? payload.classes_taught : [];
 
       // Convert empty strings to null for date and other nullable fields
       const nullableFields = ['dob', 'pincode', 'address', 'city', 'place', 'gender', 'phone', 'gpay_number', 'qualification', 'experience_duration', 'experience_type', 'communication_level', 'account_holder_name', 'account_number', 'ifsc_code', 'upi_id', 'gpay_holder_name'];
@@ -6041,6 +6093,16 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
                   placeholder="Select boards..."
                 />
               </div>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>Classes Taking</label>
+              <MultiSelectDropdown
+                value={formData.classes_taught}
+                onChange={v => updateField('classes_taught', v)}
+                options={['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th']}
+                placeholder="Select classes..."
+              />
             </div>
 
             {/* Bank Details */}

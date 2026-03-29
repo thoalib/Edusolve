@@ -10,6 +10,7 @@ export function AddLeadModal({ onClose, onSuccess }) {
     const [subject, setSubject] = useState('');
     const [leadType, setLeadType] = useState('');
     const [email, setEmail] = useState('');
+    const [country, setCountry] = useState('India');
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
     const [leadTypes, setLeadTypes] = useState([]);
@@ -96,7 +97,8 @@ export function AddLeadModal({ onClose, onSuccess }) {
                     class_level: classLevel,
                     subject,
                     lead_type: leadType,
-                    email: safeEmail
+                    email: safeEmail,
+                    country: country
                 })
             });
             onSuccess();
@@ -148,6 +150,24 @@ export function AddLeadModal({ onClose, onSuccess }) {
                     <label>
                         Email (Optional)
                         <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                    </label>
+                    <label>
+                        Country
+                        <select value={country} onChange={(e) => setCountry(e.target.value)} required>
+                            <option value="India">India</option>
+                            <option value="United Arab Emirates">United Arab Emirates</option>
+                            <option value="Saudi Arabia">Saudi Arabia</option>
+                            <option value="Qatar">Qatar</option>
+                            <option value="Oman">Oman</option>
+                            <option value="Kuwait">Kuwait</option>
+                            <option value="Bahrain">Bahrain</option>
+                            <option value="United States">United States</option>
+                            <option value="United Kingdom">United Kingdom</option>
+                            <option value="Australia">Australia</option>
+                            <option value="Singapore">Singapore</option>
+                            <option value="Malaysia">Malaysia</option>
+                            <option value="Other">Other</option>
+                        </select>
                     </label>
 
                     {error ? <p className="error">{error}</p> : null}

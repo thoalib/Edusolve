@@ -25,6 +25,7 @@ const updateTeacherSchema = z.object({
   subjects_taught: z.array(z.string().max(100)).nullable().optional(),
   syllabus: z.array(z.string().max(100)).nullable().optional(),
   languages: z.array(z.string().max(100)).nullable().optional(),
+  classes_taught: z.array(z.string().max(20)).nullable().optional(),
   experience_duration: z.string().max(100).nullable().optional(),
   experience_type: z.string().max(100).nullable().optional(),
   place: z.string().max(100).nullable().optional(),
@@ -68,6 +69,7 @@ const teacherProfileUpdateSchema = z.object({
   subjects_taught: z.array(z.string().max(100)).nullable().optional(),
   syllabus: z.array(z.string().max(100)).nullable().optional(),
   languages: z.array(z.string().max(100)).nullable().optional(),
+  classes_taught: z.array(z.string().max(20)).nullable().optional(),
   experience_duration: z.string().max(100).nullable().optional(),
   experience_type: z.string().max(100).nullable().optional(),
   communication_level: z.string().max(50).nullable().optional(),
@@ -922,7 +924,7 @@ export async function handleTeachers(req, res, url) {
       // Fields allowed during onboarding (includes professional and bank details)
       const onboardingAllowed = [
         'experience_level', 'per_hour_rate', 'phone', 'qualification',
-        'subjects_taught', 'syllabus', 'languages', 'experience_duration',
+        'subjects_taught', 'syllabus', 'languages', 'classes_taught', 'experience_duration',
         'experience_type', 'place', 'city', 'communication_level',
         'account_holder_name', 'account_number', 'ifsc_code',
         'gpay_holder_name', 'gpay_number', 'upi_id',

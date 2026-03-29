@@ -1657,7 +1657,7 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
   const [paymentHours, setPaymentHours] = useState('');
   const [paymentScreenshot, setPaymentScreenshot] = useState('');
   const [paymentMessage, setPaymentMessage] = useState('');
-  const [form, setForm] = useState({ student_name: '', class_level: '', subject: '', lead_type: '', status: 'new' });
+  const [form, setForm] = useState({ student_name: '', class_level: '', subject: '', lead_type: '', status: 'new', country: '' });
   const [leadTypes, setLeadTypes] = useState([]);
   const [allSubjects, setAllSubjects] = useState([]);
   const [showNoteModal, setShowNoteModal] = useState(null);
@@ -1697,7 +1697,8 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
           lead_type: data.lead.lead_type || '',
           status: data.lead.status || 'new',
           email: data.lead.email || '',
-          contact_number: data.lead.contact_number || ''
+          contact_number: data.lead.contact_number || '',
+          country: data.lead.country || 'India'
         });
       } catch (err) {
         if (!cancelled) setError(err.message);
@@ -1965,6 +1966,10 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
                   <label>Parent Name</label>
                   <p>{lead.parent_name || '-'}</p>
                 </div>
+                <div>
+                  <label>Country</label>
+                  <p>{lead.country || '-'}</p>
+                </div>
               </div>
 
               {/* Demo History Section */}
@@ -1997,6 +2002,24 @@ export function LeadDetailsPage({ leadId, initialTab = 'profile' }) {
                 <label>
                   Class
                   <input value={form.class_level} onChange={(e) => setForm((v) => ({ ...v, class_level: e.target.value }))} />
+                </label>
+                <label>
+                  Country
+                  <select value={form.country} onChange={(e) => setForm((v) => ({ ...v, country: e.target.value }))}>
+                    <option value="India">India</option>
+                    <option value="United Arab Emirates">United Arab Emirates</option>
+                    <option value="Saudi Arabia">Saudi Arabia</option>
+                    <option value="Qatar">Qatar</option>
+                    <option value="Oman">Oman</option>
+                    <option value="Kuwait">Kuwait</option>
+                    <option value="Bahrain">Bahrain</option>
+                    <option value="United States">United States</option>
+                    <option value="United Kingdom">United Kingdom</option>
+                    <option value="Australia">Australia</option>
+                    <option value="Singapore">Singapore</option>
+                    <option value="Malaysia">Malaysia</option>
+                    <option value="Other">Other</option>
+                  </select>
                 </label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>Subject</label>

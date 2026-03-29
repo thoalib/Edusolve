@@ -1125,6 +1125,7 @@ export function TeacherMyProfilePage() {
     const subjects = parseSubjects(profile?.subjects_taught);
     const syllabus = parseSubjects(profile?.syllabus);
     const languages = parseSubjects(profile?.languages);
+    const classesTaught = parseSubjects(profile?.classes_taught);
 
     const gridRow = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '16px' };
 
@@ -1309,6 +1310,7 @@ export function TeacherMyProfilePage() {
                         <ReadOnlyField label="Subjects" value={subjects.length ? subjects.map((s, i) => <Badge key={i} color="#3b82f6">{s}</Badge>) : null} full />
                         <ReadOnlyField label="Syllabus" value={syllabus.length ? syllabus.map((m, i) => <Badge key={i} color="#15803d">{m}</Badge>) : null} full />
                         <ReadOnlyField label="Languages" value={languages.length ? languages.map((b, i) => <Badge key={i} color="#8b5cf6">{b}</Badge>) : null} full />
+                        <ReadOnlyField label="Classes Taking" value={classesTaught.length ? classesTaught.map((c, i) => <Badge key={i} color="#ea580c">{c}</Badge>) : null} full />
                     </div>
                 </article>
             )}
