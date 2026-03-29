@@ -5073,6 +5073,19 @@ export function AutomationPage() {
   const [campaignHistory, setCampaignHistory] = useState([]);
   const [campaignMedia, setCampaignMedia] = useState(null); // { file, previewUrl, mimetype }
 
+  const fetchCampaignHistory = useCallback(async () => {
+    try {
+      const data = await apiFetch('/waappa/campaigns');
+      if (data.ok) setCampaignHistory(data.items || []);
+    } catch (e) {
+      console.warn('Failed to fetch campaign history:', e.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'campaigns') fetchCampaignHistory();
+  }, [tab, fetchCampaignHistory]);
+
   // Data Loading
   const [allStudents, setAllStudents] = useState([]);
   const [allTeachers, setAllTeachers] = useState([]);
@@ -5346,6 +5359,9 @@ export function AutomationPage() {
   async function sendCampaign() {
     if (!cMsg.trim() || !recipients.length) return;
 
+    const auth = JSON.parse(localStorage.getItem('ehms_auth') || '{}');
+    const academic_coordinator_id = auth?.user?.id;
+
     const selectedContacts = filteredRecipients.filter(r => recipients.includes(r.id));
     setSending(true);
     setBulkStatus('');
@@ -5373,13 +5389,14 @@ export function AutomationPage() {
         body: JSON.stringify({
           recipients: selectedContacts.map(r => ({ name: r.name, phone: r.phone, chatId: r.chatId, type: r.type })),
           message: cMsg,
+          academic_coordinator_id,
           ...(uploadedMedia ? { mediaUrl: uploadedMedia.url, mimetype: uploadedMedia.mimetype } : {}),
           sentAt: new Date().toISOString()
         })
       });
       if (result.ok) {
         setBulkStatus(`✅ Sent to n8n for ${selectedContacts.length} recipients`);
-        setCampaignHistory(prev => [{ id: Date.now(), sentAt: new Date().toLocaleString(), message: cMsg.slice(0, 80), count: selectedContacts.length, hasMedia: !!uploadedMedia }, ...prev]);
+        fetchCampaignHistory();
         setCMsg('');
         setCampaignMedia(null);
         setRecipients([]);
@@ -5680,6 +5697,14 @@ export function AutomationPage() {
                 style={{ flex: 1, padding: 16, border: 'none', resize: 'none', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.6, outline: 'none' }}
               />
 
+              {/* Connectivity Warning */}
+              {waSession?.status !== 'WORKING' && (
+                <div style={{ margin: '0 16px 10px', fontSize: 12, color: '#e53935', background: '#fdecea', padding: '8px 12px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8, border: '1px solid #f5c2c7' }}>
+                  <span>⚠️ <strong>WhatsApp Disconnected:</strong> You must connect your session in the Account tab before sending.</span>
+                  <button type="button" onClick={() => setTab('account')} style={{ background: 'none', border: 'none', color: '#842029', textDecoration: 'underline', padding: 0, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Go to Account</button>
+                </div>
+              )}
+
               {/* Media Preview */}
               {campaignMedia && (
                 <div style={{ margin: '0 16px 12px', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#e3f2fd', borderRadius: 8 }}>
@@ -5703,8 +5728,8 @@ export function AutomationPage() {
                   title="Attach media">📎</button>
                 <span style={{ fontSize: 12, color: '#999', flex: 1 }}>{cMsg.length} chars</span>
                 <button type="button" onClick={sendCampaign}
-                  disabled={sending || !recipients.length || !cMsg.trim()}
-                  style={{ padding: '9px 24px', borderRadius: 24, border: 'none', background: (!recipients.length || !cMsg.trim() || sending) ? '#ccc' : 'linear-gradient(135deg, #25D366, #128C7E)', color: '#fff', fontWeight: 700, fontSize: 14, cursor: sending ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
+                  disabled={sending || !recipients.length || !cMsg.trim() || waSession?.status !== 'WORKING'}
+                  style={{ padding: '9px 24px', borderRadius: 24, border: 'none', background: (!recipients.length || !cMsg.trim() || sending || waSession?.status !== 'WORKING') ? '#ccc' : 'linear-gradient(135deg, #25D366, #128C7E)', color: '#fff', fontWeight: 700, fontSize: 14, cursor: (sending || waSession?.status !== 'WORKING') ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
                   {sending ? <span style={{ animation: 'spin 0.8s linear infinite', display: 'inline-block' }}>⟳</span> : `🚀 Send to ${recipients.length} recipients`}
                 </button>
               </div>
@@ -5720,12 +5745,16 @@ export function AutomationPage() {
               <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e0e0e0', padding: 14, flex: 1, overflowY: 'auto' }}>
                 <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>🕐 History</div>
                 {campaignHistory.length === 0 ? (
-                  <div style={{ color: '#bbb', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>No campaigns this session</div>
+                  <div style={{ color: '#bbb', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>No campaigns found</div>
                 ) : campaignHistory.map(h => (
                   <div key={h.id} style={{ padding: '8px 0', borderBottom: '1px solid #f5f5f5' }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#333', marginBottom: 2 }}>📢 {h.count} recipients {h.hasMedia ? '· 📎' : ''}</div>
-                    <div style={{ fontSize: 11, color: '#666', marginBottom: 2 }}>{h.message}{h.message.length >= 80 ? '...' : ''}</div>
-                    <div style={{ fontSize: 10, color: '#aaa' }}>{h.sentAt}</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#333', marginBottom: 2 }}>📢 {h.total_count} recipients {h.media_url ? '· 📎' : ''}</div>
+                    <div style={{ fontSize: 11, color: '#666', marginBottom: 4, display: 'flex', gap: 10 }}>
+                      <span style={{ color: '#2ecc71', fontWeight: 600 }}>✓ {h.sent_count}</span>
+                      <span style={{ color: '#e74c3c', fontWeight: 600 }}>✗ {h.fail_count}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#666', marginBottom: 2, lineBreak: 'anywhere' }}>{h.message?.slice(0, 100)}{h.message?.length > 100 ? '...' : ''}</div>
+                    <div style={{ fontSize: 10, color: '#aaa' }}>{new Date(h.created_at).toLocaleString('en-IN')}</div>
                   </div>
                 ))}
               </div>
