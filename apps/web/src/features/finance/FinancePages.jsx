@@ -2224,7 +2224,7 @@ function TopupVerifyModal({ topup, accounts, onClose, onDone }) {
 
 function AddEntryModal({ type, accounts, editItem, onClose, onDone }) {
   const [form, setForm] = useState(() => {
-    if (editItem) return { amount: String(editItem.amount || ''), description: editItem.description || '', entry_date: editItem.entry_date || editItem.expense_date || new Date().toISOString().slice(0, 10), account_id: editItem.account_id || '' };
+    if (editItem) return { amount: String(editItem.amount || ''), description: editItem.description || '', entry_date: (editItem.entry_date || editItem.expense_date || new Date().toISOString()).slice(0, 10), account_id: editItem.account_id || '' };
     return { amount: '', description: '', entry_date: new Date().toISOString().slice(0, 10), account_id: '' };
   });
   const [partyType, setPartyType] = useState(() => {
@@ -2253,7 +2253,8 @@ function AddEntryModal({ type, accounts, editItem, onClose, onDone }) {
   async function submit(e) {
     e.preventDefault(); setErr('');
     try {
-      const payload = { ...form, amount: Number(form.amount), account_id: form.account_id || null };
+      // Must explicitly null out all other relations to properly switch party type
+      const payload = { ...form, amount: Number(form.amount), account_id: form.account_id || null, student_id: null, teacher_id: null, employee_id: null, party_id: null };
       if (partyType === 'students') payload.student_id = partyId || null;
       else if (partyType === 'teachers') payload.teacher_id = partyId || null;
       else if (partyType === 'employees') payload.employee_id = partyId || null;
@@ -2301,7 +2302,7 @@ function AddEntryModal({ type, accounts, editItem, onClose, onDone }) {
 
 function AddExpenseModal({ accounts, categories, editItem, onClose, onDone }) {
   const [form, setForm] = useState(() => {
-    if (editItem) return { amount: String(editItem.amount || ''), description: editItem.description || '', expense_date: editItem.expense_date || new Date().toISOString().slice(0, 10), account_id: editItem.account_id || '' };
+    if (editItem) return { amount: String(editItem.amount || ''), description: editItem.description || '', expense_date: (editItem.expense_date || new Date().toISOString()).slice(0, 10), account_id: editItem.account_id || '' };
     return { amount: '', description: '', expense_date: new Date().toISOString().slice(0, 10), account_id: '' };
   });
   const [partyType, setPartyType] = useState(() => {
@@ -2333,7 +2334,7 @@ function AddExpenseModal({ accounts, categories, editItem, onClose, onDone }) {
   async function submit(e) {
     e.preventDefault(); setErr('');
     try {
-      const payload = { ...form, amount: Number(form.amount), account_id: form.account_id || null, category: partyType || 'other' };
+      const payload = { ...form, amount: Number(form.amount), account_id: form.account_id || null, category: partyType || 'other', student_id: null, teacher_id: null, employee_id: null, party_id: null };
       if (partyType === 'students') payload.student_id = partyId || null;
       else if (partyType === 'teachers') payload.teacher_id = partyId || null;
       else if (partyType === 'employees') payload.employee_id = partyId || null;

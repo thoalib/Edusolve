@@ -53,7 +53,7 @@ export async function handleSessions(req, res, url) {
         .select('*, students(student_code,student_name,academic_coordinator_id), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(id,type,status,reason,verified_at,new_date,new_time,new_duration,created_at)')
         .eq('status', 'completed')
         .order('session_date', { ascending: false })
-        .limit(120);
+        .limit(2000);
       const { data, error } = await query;
       if (error) throw new Error(error.message);
 
@@ -87,7 +87,7 @@ export async function handleSessions(req, res, url) {
         .select('*, academic_sessions:session_id(*, students(student_code,student_name,academic_coordinator_id), users!academic_sessions_teacher_id_fkey(id,full_name,email))')
         .eq('status', 'pending')
         .order('created_at', { ascending: false })
-        .limit(120);
+        .limit(2000);
       if (error) throw new Error(error.message);
 
       // Filter for reschedule type client-side (avoids schema cache issues with new column)
@@ -114,7 +114,7 @@ export async function handleSessions(req, res, url) {
         .from('session_verifications')
         .select('*, academic_sessions:session_id(id, session_date, started_at, subject, student_id, students(student_code, student_name, academic_coordinator_id), users!academic_sessions_teacher_id_fkey(full_name))')
         .order('created_at', { ascending: false })
-        .limit(300);
+        .limit(2000);
 
       const { data, error } = await query;
       if (error) throw new Error(error.message);
@@ -141,7 +141,7 @@ export async function handleSessions(req, res, url) {
         .select('*, students(student_code,student_name), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(status,reason,verified_at)')
         .eq('status', 'completed')
         .order('session_date', { ascending: false })
-        .limit(160);
+        .limit(2000);
       if (error) throw new Error(error.message);
 
       let items = (data || []).map((item) => ({
@@ -180,7 +180,7 @@ export async function handleSessions(req, res, url) {
       }
 
       const { data, error } = await (async () => {
-        let q = query.order('session_date', { ascending: false }).limit(500);
+        let q = query.order('session_date', { ascending: false }).limit(2000);
         const requestedUserId = url.searchParams.get('user_id');
         
         if (isAC(actor)) {

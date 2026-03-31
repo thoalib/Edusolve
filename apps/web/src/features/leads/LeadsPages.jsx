@@ -327,11 +327,10 @@ function MobileLeadCard({ lead, counselorMap, onOpenDetails, onViewInPipeline, o
     </div>
   );
 }
-
 export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }) {
   const session = getSession();
   const user = session?.user;
-  const { items, total, page, setPage, limit, loading, error, refresh } = useLeads('all');
+  const { items, loading, error, refresh } = useLeads('all', 2000);
   const [selectedIds, setSelectedIds] = useState([]);
   const [counselors, setCounselors] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -342,6 +341,13 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
   const [showDropModal, setShowDropModal] = useState(null);
   const [showNoteModal, setShowNoteModal] = useState(null);
   const [noteFilter, setNoteFilter] = useState('all');
+  
+  const [clientPage, setClientPage] = useState(1);
+  const clientLimit = 20;
+
+  useEffect(() => {
+    setClientPage(1);
+  }, [filters, leadTab, noteFilter]);
 
   useEffect(() => {
     apiFetch('/counselors').then(data => setCounselors(data.items || [])).catch(() => { });
@@ -367,7 +373,7 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
   const assignedCount = useMemo(() => items.filter(i => i.counselor_id && counselorMap[i.counselor_id]).length, [items, counselorMap]);
 
   // Client-side filtering
-  const filteredItems = useMemo(() => {
+  const filteredItemsAll = useMemo(() => {
     return tabbedItems.filter(item => {
       const searchLower = filters.search.toLowerCase();
       // Only exact matches for ID when searching, otherwise partial matches on names/phones work
@@ -389,6 +395,9 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
       return matchSearch && matchStatus && matchCounselor && matchNote;
     });
   }, [tabbedItems, filters, noteFilter]);
+
+  const total = filteredItemsAll.length;
+  const paginatedItems = filteredItemsAll.slice((clientPage - 1) * clientLimit, clientPage * clientLimit);
 
   async function onDelete(id) {
     if (!confirm('Are you sure you want to delete this lead?')) return;
@@ -432,7 +441,7 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
             <button
               key={tab.id}
               className={`tab-btn ${leadTab === tab.id ? 'active' : ''}`}
-              onClick={() => { setLeadTab(tab.id); setSelectedIds([]); }}
+              onClick={() => { setLeadTab(tab.id); setSelectedIds([]); setClientPage(1); }}
             >
               {tab.label}
               <span style={{
@@ -486,9 +495,9 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
                   <th style={{ width: '40px' }}>
                     <input
                       type="checkbox"
-                      checked={filteredItems.length > 0 && selectedIds.length === filteredItems.length}
+                      checked={paginatedItems.length > 0 && selectedIds.length === paginatedItems.length}
                       onChange={(e) => {
-                        if (e.target.checked) setSelectedIds(filteredItems.map(i => i.id));
+                        if (e.target.checked) setSelectedIds(paginatedItems.map(i => i.id));
                         else setSelectedIds([]);
                       }}
                     />
@@ -510,7 +519,7 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
               </tr>
             </thead>
             <tbody>
-              {filteredItems.map((lead) => (
+              {paginatedItems.map((lead) => (
                 <tr key={lead.id}
                   className={selectedIds.includes(lead.id) && user?.role !== 'counselor' ? 'selected-row' : ''}
                   style={leadTab === 'all' && (!lead.counselor_id || !counselorMap[lead.counselor_id]) ? { background: '#fffbeb' } : undefined}
@@ -565,36 +574,36 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
                   </td>
                 </tr>
               ))}
-              {!filteredItems.length ? (
+              {!paginatedItems.length ? (
                 <tr><td colSpan="8">No matching leads found.</td></tr>
               ) : null}
             </tbody>
           </table>
         </div>
         {!loading && total > 0 && (
-          <Pagination page={page} limit={limit} total={total} onPageChange={setPage} />
+          <Pagination page={clientPage} limit={clientLimit} total={total} onPageChange={setClientPage} />
         )}
       </article>
 
       <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
         {/* Mobile Select All */}
-        {user?.role !== 'counselor' && filteredItems.length > 0 && (
+        {user?.role !== 'counselor' && paginatedItems.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 4px', marginBottom: '4px' }}>
             <input
               type="checkbox"
-              checked={selectedIds.length === filteredItems.length}
+              checked={selectedIds.length === paginatedItems.length}
               onChange={(e) => {
-                if (e.target.checked) setSelectedIds(filteredItems.map(i => i.id));
+                if (e.target.checked) setSelectedIds(paginatedItems.map(i => i.id));
                 else setSelectedIds([]);
               }}
               style={{ width: '16px', height: '16px' }}
               id="mobile-select-all"
             />
-            <label htmlFor="mobile-select-all" style={{ fontSize: '13px', color: '#4b5563', fontWeight: 500 }}>Select All ({filteredItems.length})</label>
+            <label htmlFor="mobile-select-all" style={{ fontSize: '13px', color: '#4b5563', fontWeight: 500 }}>Select All ({paginatedItems.length})</label>
           </div>
         )}
 
-        {filteredItems.map(lead => (
+        {paginatedItems.map(lead => (
           <MobileLeadCard
             key={lead.id}
             lead={lead}
@@ -610,11 +619,11 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
             }}
           />
         ))}
-        {!filteredItems.length && !loading && (
+        {!paginatedItems.length && !loading && (
           <div style={{ textAlign: 'center', padding: '24px', color: '#9ca3af' }}>No matching leads found.</div>
         )}
         {!loading && total > 0 && (
-          <Pagination page={page} limit={limit} total={total} onPageChange={setPage} />
+          <Pagination page={clientPage} limit={clientLimit} total={total} onPageChange={setClientPage} />
         )}
       </div>
 
@@ -1327,7 +1336,7 @@ function StudentLeadCard({ lead, onStatusChange, onDrop, onView, onVerifyPayment
 }
 
 export function MyLeadsPage({ onOpenDetails, initialLeadId = '', onPipelineReady, onVerifyPayment }) {
-  const { items, loading, error, refresh } = useLeads('mine');
+  const { items, loading, error, refresh } = useLeads('mine', 2000);
   const [activeTab, setActiveTab] = useState('new');
   const [highlightedLeadId, setHighlightedLeadId] = useState('');
   const [showDropModal, setShowDropModal] = useState(null);

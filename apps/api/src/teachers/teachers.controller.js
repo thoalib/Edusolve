@@ -128,7 +128,7 @@ async function generateTeacherCode(adminClient) {
     .select('teacher_code')
     .not('teacher_code', 'is', null)
     .order('created_at', { ascending: false })
-    .limit(200);
+    .limit(2000);
   if (error) throw new Error(error.message);
 
   let maxNum = 0;
@@ -1148,7 +1148,7 @@ export async function handleTeachers(req, res, url) {
         .eq('teacher_id', actor.userId)
         .eq('student_id', studentId)
         .order('created_at', { ascending: true }) // Chat order
-        .limit(50);
+        .limit(2000);
 
       if (error) throw new Error(error.message);
 

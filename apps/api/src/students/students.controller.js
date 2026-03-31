@@ -326,7 +326,7 @@ export async function handleStudents(req, res, url) {
         .from('academic_sessions')
         .select('*, students(student_code,student_name), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(id,type,status,reason,verified_at)')
         .order('session_date', { ascending: false })
-        .limit(50);
+        .limit(2000);
       if (actor.role === 'teacher') query = query.eq('teacher_id', actor.userId);
       const { data, error } = await query;
       if (error) throw new Error(error.message);
@@ -515,7 +515,7 @@ export async function handleStudents(req, res, url) {
         .select('*, users!academic_sessions_teacher_id_fkey(id,full_name), session_verifications(status)')
         .eq('student_id', studentId)
         .order('session_date', { ascending: false })
-        .limit(30);
+        .limit(2000);
 
       // Fetch messages
       const { data: messages } = await adminClient
@@ -523,7 +523,7 @@ export async function handleStudents(req, res, url) {
         .select('*')
         .eq('student_id', studentId)
         .order('created_at', { ascending: false })
-        .limit(50);
+        .limit(2000);
 
       let demoSessions = [];
       let paymentRequests = [];
@@ -1222,7 +1222,7 @@ export async function handleStudents(req, res, url) {
         .select('*')
         .eq('student_id', studentId)
         .order('created_at', { ascending: true })
-        .limit(100);
+        .limit(2000);
       if (error) throw new Error(error.message);
       sendJson(res, 200, { ok: true, items: data || [] });
       return true;
