@@ -35,7 +35,7 @@ function ExpandableMobileCard({ title, subtitle, topRight, mainStats, expandedCo
 // Session Status Color Mapping
 export const getSessionStatusStyles = (status, verificationStatus) => {
   // If it's verified, always show the green success state
-  if (status === 'verified' || verificationStatus === 'approved') {
+  if (status === 'verified' || (status === 'completed' && verificationStatus === 'approved')) {
     return { label: 'Verified', bg: '#dcfce7', color: '#15803d' };
   }
 
@@ -1103,9 +1103,10 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
               <div><span className="eyebrow">Time & Duration</span><p>{format24to12(selectedSession.started_at)} ({selectedSession.duration_hours} Hour{selectedSession.duration_hours > 1 ? 's' : ''})</p></div>
               <div><span className="eyebrow">Status</span>
                 <p>
-                  <span className={`status-tag small ${selectedSession.status === 'scheduled' ? 'warning' : 'success'}`}>
-                    {selectedSession.status}
-                  </span>
+                  {(() => {
+                    const style = getSessionStatusStyles(selectedSession.status, selectedSession.verification_status);
+                    return <span className="status-tag small" style={{ background: style.bg, color: style.color }}>{style.label}</span>;
+                  })()}
                   {isSessionOverdue(selectedSession) && <span className="status-tag small" style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', marginLeft: 4 }}>Overdue</span>}
                 </p>
               </div>

@@ -150,7 +150,7 @@ export async function handleUsers(req, res) {
                     .select('teacher_code')
                     .not('teacher_code', 'is', null)
                     .order('created_at', { ascending: false })
-                    .limit(200);
+                    .limit(2000);
 
                 let maxNum = 0;
                 for (const row of existingCodes || []) {

@@ -194,36 +194,28 @@ export async function handleFinance(req, res, url) {
       }
 
       // --- Auto-Assign AC (Round Robin) ---
-      const { data: { users: authUsers }, error: authError } = await adminClient.auth.admin.listUsers();
-      if (authError) throw new Error(authError.message);
-
-      // Get users who have AC role in user_roles table
-      const { data: roleAcData } = await adminClient
+      // Get all AC user IDs from user_roles
+      const { data: roleAcData, error: roleError } = await adminClient
         .from('user_roles')
         .select('user_id, roles!inner(code)')
         .eq('roles.code', 'academic_coordinator');
+      if (roleError) throw new Error(roleError.message);
 
-      const roleAcIds = new Set((roleAcData || []).map(r => r.user_id));
-
-      const acAuthUsers = (authUsers || []).filter(u => {
-        const metarole = u.app_metadata?.role || u.user_metadata?.role;
-        return metarole === 'academic_coordinator' || roleAcIds.has(u.id);
-      });
+      const acIds = (roleAcData || []).map(r => r.user_id);
 
       let acUsers = [];
-      if (acAuthUsers.length > 0) {
-        const { data: dbUsers } = await adminClient
+      if (acIds.length > 0) {
+        // Fetch their names and emails directly from the users table securely
+        const { data: dbUsers, error: usersError } = await adminClient
             .from('users')
             .select('id, full_name, email')
-            .in('id', acAuthUsers.map(u => u.id));
-        
-        const dbUserMap = {};
-        (dbUsers || []).forEach(u => dbUserMap[u.id] = u);
+            .in('id', acIds);
+        if (usersError) throw new Error(usersError.message);
 
-        acUsers = acAuthUsers.map(u => ({
+        acUsers = (dbUsers || []).map(u => ({
             id: u.id,
             email: u.email,
-            name: dbUserMap[u.id]?.full_name || u.user_metadata?.name || u.user_metadata?.full_name || u.email
+            name: u.full_name || u.email || 'Unknown AC'
         }));
       }
 
@@ -235,23 +227,35 @@ export async function handleFinance(req, res, url) {
         const assignedAcUser = acUsers.find(u => u.id === assignedAcId);
         assignedAcName = assignedAcUser ? assignedAcUser.name : 'Unknown AC';
       } else if (acUsers.length > 0) {
-        const { data: lastAssigned } = await adminClient
+        const { data: activeStudents } = await adminClient
           .from('students')
           .select('academic_coordinator_id')
-          .not('academic_coordinator_id', 'is', null)
-          .order('created_at', { ascending: false })
-          .limit(1);
-
-        if (lastAssigned && lastAssigned.length > 0 && lastAssigned[0].academic_coordinator_id) {
-          const lastAcId = lastAssigned[0].academic_coordinator_id;
-          const lastIndex = acUsers.findIndex(u => u.id === lastAcId);
-          const nextIndex = lastIndex >= 0 ? (lastIndex + 1) % acUsers.length : 0;
-          assignedAcId = acUsers[nextIndex].id;
-          assignedAcName = acUsers[nextIndex].name;
-        } else {
-          assignedAcId = acUsers[0].id;
-          assignedAcName = acUsers[0].name;
+          .in('academic_coordinator_id', acUsers.map(u => u.id))
+          .eq('status', 'active');
+        
+        const counts = {};
+        acUsers.forEach(u => counts[u.id] = 0);
+        
+        if (activeStudents) {
+          activeStudents.forEach(s => {
+            if (counts[s.academic_coordinator_id] !== undefined) {
+              counts[s.academic_coordinator_id]++;
+            }
+          });
         }
+        
+        let lowestAc = acUsers[0];
+        let minCount = counts[lowestAc.id];
+
+        for (let i = 1; i < acUsers.length; i++) {
+          if (counts[acUsers[i].id] < minCount) {
+            minCount = counts[acUsers[i].id];
+            lowestAc = acUsers[i];
+          }
+        }
+        
+        assignedAcId = lowestAc.id;
+        assignedAcName = lowestAc.name;
       }
 
       const studentCode = await generateStudentCode(adminClient);
@@ -750,7 +754,7 @@ export async function handleFinance(req, res, url) {
     // ═══════ INCOME (Ledger Entries) ═══════
     if (req.method === 'GET' && url.pathname === '/finance/income') {
       const { data, error } = await adminClient.from('ledger_entries').select('*, finance_accounts(name), finance_parties(name), students(student_name), employees(full_name)')
-        .eq('entry_type', 'income').order('entry_date', { ascending: false }).limit(200);
+        .eq('entry_type', 'income').order('entry_date', { ascending: false }).limit(2000);
       if (error) throw new Error(error.message);
       const enrichedData = await enrichTeachers(adminClient, data || []);
       sendJson(res, 200, { ok: true, items: enrichedData });
@@ -801,6 +805,9 @@ export async function handleFinance(req, res, url) {
         description: payload.description !== undefined ? payload.description : entry.description,
         account_id: payload.account_id !== undefined ? payload.account_id : entry.account_id,
         party_id: payload.party_id !== undefined ? payload.party_id : entry.party_id,
+        student_id: payload.student_id !== undefined ? payload.student_id : entry.student_id,
+        teacher_id: payload.teacher_id !== undefined ? payload.teacher_id : entry.teacher_id,
+        employee_id: payload.employee_id !== undefined ? payload.employee_id : entry.employee_id,
         entry_date: payload.entry_date !== undefined ? payload.entry_date : entry.entry_date,
         updated_at: nowIso()
       };
@@ -811,7 +818,8 @@ export async function handleFinance(req, res, url) {
         if (acc) await adminClient.from('finance_accounts').update({ balance: Number(acc.balance) + Number(updateData.amount), updated_at: nowIso() }).eq('id', updateData.account_id);
       }
 
-      const { data: updated } = await adminClient.from('ledger_entries').update(updateData).eq('id', id).select('*').single();
+      const { data: updated, error: updateErr } = await adminClient.from('ledger_entries').update(updateData).eq('id', id).select('*').single();
+      if (updateErr) throw new Error(updateErr.message);
       sendJson(res, 200, { ok: true, entry: updated });
       return true;
     }
@@ -832,7 +840,7 @@ export async function handleFinance(req, res, url) {
     // ═══════ EXPENSES ═══════
     if (req.method === 'GET' && url.pathname === '/finance/expenses') {
       const { data, error } = await adminClient.from('expenses').select('*, finance_accounts(name), finance_parties(name), students(student_name), employees(full_name)')
-        .order('expense_date', { ascending: false }).limit(200);
+        .order('expense_date', { ascending: false }).limit(2000);
       if (error) throw new Error(error.message);
       const enrichedData = await enrichTeachers(adminClient, data || []);
       sendJson(res, 200, { ok: true, items: enrichedData });
@@ -880,8 +888,10 @@ export async function handleFinance(req, res, url) {
         description: payload.description !== undefined ? payload.description : exp.description,
         account_id: payload.account_id !== undefined ? payload.account_id : exp.account_id,
         party_id: payload.party_id !== undefined ? payload.party_id : exp.party_id,
-        expense_date: payload.expense_date !== undefined ? payload.expense_date : exp.expense_date,
-        updated_at: nowIso()
+        student_id: payload.student_id !== undefined ? payload.student_id : exp.student_id,
+        teacher_id: payload.teacher_id !== undefined ? payload.teacher_id : exp.teacher_id,
+        employee_id: payload.employee_id !== undefined ? payload.employee_id : exp.employee_id,
+        expense_date: payload.expense_date !== undefined ? payload.expense_date : exp.expense_date
       };
 
       // Apply new amount
@@ -890,7 +900,8 @@ export async function handleFinance(req, res, url) {
         if (acc) await adminClient.from('finance_accounts').update({ balance: Number(acc.balance) - Number(updateData.amount), updated_at: nowIso() }).eq('id', updateData.account_id);
       }
 
-      const { data: updated } = await adminClient.from('expenses').update(updateData).eq('id', id).select('*').single();
+      const { data: updated, error: updateErr } = await adminClient.from('expenses').update(updateData).eq('id', id).select('*').single();
+      if (updateErr) throw new Error(updateErr.message);
       sendJson(res, 200, { ok: true, expense: updated });
       return true;
     }
