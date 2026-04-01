@@ -21,7 +21,7 @@ export async function handleLeads(req, res, url) {
     if (req.method === 'GET' && url.pathname === '/leads') {
       const scope = url.searchParams.get('scope') || 'all';
       const page = parseInt(url.searchParams.get('page')) || 1;
-      const limit = parseInt(url.searchParams.get('limit')) || 20;
+      const limit = parseInt(url.searchParams.get('limit')) || 2000;
       const status = url.searchParams.get('status') || null;
       const counselor_id = url.searchParams.get('user_id') || url.searchParams.get('counselor_id') || null;
       const lead_type = url.searchParams.get('lead_type') || null;
@@ -120,7 +120,7 @@ export async function handleLeads(req, res, url) {
 
     if (req.method === 'GET' && url.pathname === '/leads/payment-requests') {
       const page = parseInt(url.searchParams.get('page')) || 1;
-      const limit = parseInt(url.searchParams.get('limit')) || 20;
+      const limit = parseInt(url.searchParams.get('limit')) || 2000;
       const result = await leadsService.listPaymentRequests(actor, page, limit);
       if (result?.error) {
         sendJson(res, 403, { ok: false, error: result.error });
@@ -136,7 +136,7 @@ export async function handleLeads(req, res, url) {
         return true;
       }
       const page = parseInt(url.searchParams.get('page')) || 1;
-      const limit = parseInt(url.searchParams.get('limit')) || 20;
+      const limit = parseInt(url.searchParams.get('limit')) || 2000;
       const result = await leadsService.listOverdueLeads(page, limit);
       sendJson(res, 200, { ok: true, ...result });
       return true;

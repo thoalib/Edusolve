@@ -164,7 +164,8 @@ export async function handleStudents(req, res, url) {
         .from('students')
         .select('*, ac_user:academic_coordinator_id(id, full_name), student_teacher_assignments!student_teacher_assignments_student_id_fkey(id, teacher_id, subject, is_active, users!student_teacher_assignments_teacher_id_fkey(id, full_name)), leads!students_lead_id_fkey(source)')
         .is('deleted_at', null)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(2000);
 
       if (isAC(actor)) {
         query = query.eq('academic_coordinator_id', actor.userId);

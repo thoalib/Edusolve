@@ -2968,7 +2968,7 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
 
       const promises = [
         apiFetch(`/leads/payment-requests?page=${currentPage}&limit=${limit}`),
-        apiFetch('/leads?scope=my').catch(() => ({ items: [] })),
+        apiFetch('/leads?scope=my&limit=2000').catch(() => ({ items: [] })),
         apiFetch('/leads/counselors').catch(() => ({ items: [] }))
       ];
       const [prRes, leadsRes, counselorsRes] = await Promise.all(promises);
@@ -3681,10 +3681,12 @@ function NewPaymentRequestModal({ leads, onClose, onSuccess, initialLeadId }) {
   const [leadSearch, setLeadSearch] = useState('');
 
   const leadOptions = useMemo(() => {
-    return leads.map(l => ({
-      value: l.id,
-      label: `${l.student_name} — ${l.contact_number || 'No phone'} (${l.status})`
-    }));
+    return leads
+      .filter(l => l.status !== 'joined' && l.status !== 'dropped')
+      .map(l => ({
+        value: l.id,
+        label: `${l.student_name} — ${l.contact_number || 'No phone'} (${l.status})`
+      }));
   }, [leads]);
 
   function handleFileChange(e) {

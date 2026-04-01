@@ -21,7 +21,7 @@ export class RequestsService {
         }
     }
 
-    async list(role, userId, page = 1, limit = 20) {
+    async list(role, userId, page = 1, limit = 2000) {
         if (!this.admin) return { error: 'Admin client not available' };
 
         let query = this.admin

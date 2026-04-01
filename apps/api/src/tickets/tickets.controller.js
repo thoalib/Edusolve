@@ -38,7 +38,7 @@ export async function handleTickets(req, res, url) {
         // GET /tickets — list tickets
         if (req.method === 'GET' && url.pathname === '/tickets') {
             const page = parseInt(url.searchParams.get('page')) || 1;
-            const limit = parseInt(url.searchParams.get('limit')) || 20;
+            const limit = parseInt(url.searchParams.get('limit')) || 2000;
             const status = url.searchParams.get('status') || 'all';
             const priority = url.searchParams.get('priority') || 'all';
             const category = url.searchParams.get('category') || 'all';
@@ -119,7 +119,7 @@ export async function handleTickets(req, res, url) {
         // GET /notifications — list user notifications
         if (req.method === 'GET' && url.pathname === '/notifications') {
             const page = parseInt(url.searchParams.get('page')) || 1;
-            const limit = parseInt(url.searchParams.get('limit')) || 20;
+            const limit = parseInt(url.searchParams.get('limit')) || 2000;
             const unreadOnly = url.searchParams.get('unread') === 'true';
 
             const result = await ticketsService.getNotifications(userId, { page, limit, unreadOnly });
