@@ -6,12 +6,21 @@ export function LeadFilters({ onFilterChange, counselors = [], userRole, actionB
     const [search, setSearch] = useState('');
     const [status, setStatus] = useState('');
     const [counselorId, setCounselorId] = useState('');
+    const [leadType, setLeadType] = useState('');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
     const [filtersOpen, setFiltersOpen] = useState(false);
-    // debounce search could be added later
+    const [leadTypes, setLeadTypes] = useState([]);
 
     useEffect(() => {
-        onFilterChange({ search, status, counselorId });
-    }, [search, status, counselorId]);
+        apiFetch('/leads/types').then(res => {
+            if (res.ok) setLeadTypes(res.types || []);
+        }).catch(() => {});
+    }, []);
+
+    useEffect(() => {
+        onFilterChange({ search, status, counselorId, leadType, dateFrom, dateTo });
+    }, [search, status, counselorId, leadType, dateFrom, dateTo]);
 
     return (
         <div className="card filters-bar mobile-filters-grid">
@@ -59,6 +68,32 @@ export function LeadFilters({ onFilterChange, counselors = [], userRole, actionB
                     </select>
                 </div>
             )}
+
+            <div className={`filter-group ${!filtersOpen ? 'mobile-hidden' : ''}`}>
+                <select value={leadType} onChange={e => setLeadType(e.target.value)}>
+                    <option value="">All Types</option>
+                    {leadTypes.map(type => (
+                        <option key={type} value={type}>{type}</option>
+                    ))}
+                </select>
+            </div>
+
+            <div className={`filter-group ${!filtersOpen ? 'mobile-hidden' : ''}`} style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                <input 
+                    type="date" 
+                    value={dateFrom} 
+                    onChange={e => setDateFrom(e.target.value)} 
+                    title="From Date"
+                />
+                <span style={{color: '#6b7280'}}>-</span>
+                <input 
+                    type="date" 
+                    value={dateTo} 
+                    onChange={e => setDateTo(e.target.value)} 
+                    title="To Date"
+                />
+            </div>
+
             <div className={`filters-actions ${!filtersOpen ? 'mobile-hidden' : ''}`} style={{ display: 'flex', gap: '8px', flex: '1 1 auto', flexWrap: 'wrap' }}>
                 {children}
             </div>

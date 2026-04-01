@@ -1462,8 +1462,8 @@ export async function handleStudents(req, res, url) {
       return true;
     }
 
-    // ─── POST /students/import-sheet ──────────────────────────
-    if (req.method === 'POST' && url.pathname === '/students/import-sheet') {
+    // ─── POST /students/import ──────────────────────────────────
+    if (req.method === 'POST' && parts.length === 2 && parts[0] === 'students' && parts[1] === 'import') {
       if (!isAC(actor) && actor.role !== 'super_admin') {
         sendJson(res, 403, { ok: false, error: 'only academic coordinator or super admin can import students' });
         return true;
@@ -1515,7 +1515,6 @@ export async function handleStudents(req, res, url) {
       return true;
     }
 
-
     // ─── DELETE /students/:id ────────────────────────────────────
     if (req.method === 'DELETE' && parts.length === 2 && parts[0] === 'students') {
       if (!isAC(actor) && actor.role !== 'super_admin') {
@@ -1524,9 +1523,13 @@ export async function handleStudents(req, res, url) {
       }
       const studentId = parts[1];
       const hardDelete = url.searchParams.get('hard_delete') === 'true';
+      const deleteLead = url.searchParams.get('delete_lead') === 'true';
+      const deleteSessions = url.searchParams.get('delete_sessions') === 'true';
+      const deleteLedger = url.searchParams.get('delete_ledger') === 'true';
+      const deleteMessages = url.searchParams.get('delete_messages') === 'true';
 
       // Fetch student to confirm it exists
-      const { data: student } = await adminClient.from('students').select('id, student_name').eq('id', studentId).maybeSingle();
+      const { data: student } = await adminClient.from('students').select('id, student_name, lead_id').eq('id', studentId).maybeSingle();
       if (!student) {
         sendJson(res, 404, { ok: false, error: 'student not found' });
         return true;
@@ -1542,76 +1545,84 @@ export async function handleStudents(req, res, url) {
         const sessionIds = (sessions || []).map(s => s.id);
         const studentLeadId = student.lead_id || null;
 
-        if (sessionIds.length > 0) {
-          const { error: svErr } = await adminClient.from('session_verifications').delete().in('session_id', sessionIds);
-          if (svErr) throw new Error('Hard delete failed at session_verifications: ' + svErr.message);
+        // --- SECTION: MESSAGES ---
+        if (deleteMessages || (hardDelete && !deleteMessages && !deleteSessions && !deleteLedger)) { 
+          // Default to old behavior (delete all) only if NO granular flags were passed but hardDelete is true
+          const { error: smErr } = await adminClient.from('student_messages').delete().eq('student_id', studentId);
+          if (smErr && !smErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at student_messages: ' + smErr.message);
         }
 
-        const { error: sslErr } = await adminClient.from('session_student_links').delete().eq('student_id', studentId);
-        if (sslErr && !sslErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at session_student_links: ' + sslErr.message);
+        // --- SECTION: SESSIONS & ASSIGNMENTS ---
+        if (deleteSessions || (hardDelete && !deleteMessages && !deleteSessions && !deleteLedger)) {
+          if (sessionIds.length > 0) {
+            const { error: svErr } = await adminClient.from('session_verifications').delete().in('session_id', sessionIds);
+            if (svErr) throw new Error('Hard delete failed at session_verifications: ' + svErr.message);
 
-        const { error: staErr } = await adminClient.from('student_teacher_assignments').delete().eq('student_id', studentId);
-        if (staErr && !staErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at student_teacher_assignments: ' + staErr.message);
+            const { error: hlErr } = await adminClient.from('hour_ledger').delete().in('session_id', sessionIds);
+            if (hlErr && !hlErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at hour_ledger: ' + hlErr.message);
+          }
 
-        const { error: smErr } = await adminClient.from('student_messages').delete().eq('student_id', studentId);
-        if (smErr && !smErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at student_messages: ' + smErr.message);
+          const { error: sslErr } = await adminClient.from('session_student_links').delete().eq('student_id', studentId);
+          if (sslErr && !sslErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at session_student_links: ' + sslErr.message);
 
-        // Fetch topup IDs to cascade installment_payments
-        const { data: topups } = await adminClient.from('student_topups').select('id').eq('student_id', studentId);
-        const topupIds = (topups || []).map(t => t.id);
+          const { error: staErr } = await adminClient.from('student_teacher_assignments').delete().eq('student_id', studentId);
+          if (staErr && !staErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at student_teacher_assignments: ' + staErr.message);
 
-        // Fetch payment_request IDs to cascade installment_payments
-        let paymentRequestIds = [];
-        if (studentLeadId) {
-          const { data: prs } = await adminClient.from('payment_requests').select('id').eq('lead_id', studentLeadId);
-          paymentRequestIds = (prs || []).map(p => p.id);
+          const { error: asErr } = await adminClient.from('academic_sessions').delete().eq('student_id', studentId);
+          if (asErr && !asErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at academic_sessions: ' + asErr.message);
         }
 
-        // Delete installment_payments for topups and payment_requests before deleting their parents
-        const allParentIds = [...topupIds, ...paymentRequestIds];
-        if (allParentIds.length > 0) {
-          const { error: ipErr } = await adminClient.from('installment_payments').delete().in('reference_id', allParentIds);
-          if (ipErr && !ipErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at installment_payments: ' + ipErr.message);
+        // --- SECTION: FINANCE / LEDGER ---
+        if (deleteLedger || (hardDelete && !deleteMessages && !deleteSessions && !deleteLedger)) {
+          // Fetch IDs for cascading
+          const { data: topups } = await adminClient.from('student_topups').select('id').eq('student_id', studentId);
+          const topupIds = (topups || []).map(t => t.id);
+
+          let paymentRequestIds = [];
+          if (studentLeadId) {
+            const { data: prs } = await adminClient.from('payment_requests').select('id').eq('lead_id', studentLeadId);
+            paymentRequestIds = (prs || []).map(p => p.id);
+          }
+
+          const allParentIds = [...topupIds, ...paymentRequestIds];
+          if (allParentIds.length > 0) {
+            const { error: ipErr } = await adminClient.from('installment_payments').delete().in('reference_id', allParentIds);
+            if (ipErr && !ipErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at installment_payments: ' + ipErr.message);
+          }
+
+          const { error: stErr } = await adminClient.from('student_topups').delete().eq('student_id', studentId);
+          if (stErr && !stErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at student_topups: ' + stErr.message);
+
+          const { error: leErr } = await adminClient.from('ledger_entries').delete().eq('student_id', studentId);
+          if (leErr && !leErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at ledger_entries: ' + leErr.message);
+
+          const { error: expErr } = await adminClient.from('expenses').delete().eq('student_id', studentId);
+          if (expErr && !expErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at expenses: ' + expErr.message);
+
+          if (studentLeadId) {
+            const { error: prErr } = await adminClient.from('payment_requests').delete().eq('lead_id', studentLeadId);
+            if (prErr && !prErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at payment_requests: ' + prErr.message);
+          }
         }
 
-        const { error: stErr } = await adminClient.from('student_topups').delete().eq('student_id', studentId);
-        if (stErr && !stErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at student_topups: ' + stErr.message);
-
-        // Delete hour_ledger rows linked to the student's sessions before deleting sessions
-        if (sessionIds.length > 0) {
-          const { error: hlErr } = await adminClient.from('hour_ledger').delete().in('session_id', sessionIds);
-          if (hlErr && !hlErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at hour_ledger: ' + hlErr.message);
-        }
-
-        const { error: asErr } = await adminClient.from('academic_sessions').delete().eq('student_id', studentId);
-        if (asErr && !asErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at academic_sessions: ' + asErr.message);
-
-        const { error: leErr } = await adminClient.from('ledger_entries').delete().eq('student_id', studentId);
-        if (leErr && !leErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at ledger_entries: ' + leErr.message);
-
-        // Delete finance expenses linked to this student
-        const { error: expErr } = await adminClient.from('expenses').delete().eq('student_id', studentId);
-        if (expErr && !expErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at expenses: ' + expErr.message);
-
-        // Delete payment_requests linked via the student's original lead
-        if (studentLeadId) {
-          const { error: prErr } = await adminClient.from('payment_requests').delete().eq('lead_id', studentLeadId);
-          if (prErr && !prErr.message.includes('Could not find the table')) throw new Error('Hard delete failed at payment_requests: ' + prErr.message);
-        }
-
-        // Delete the student record
+        // --- FINAL: STUDENT & OPTIONAL LEAD ---
         const { error: delErr } = await adminClient.from('students').delete().eq('id', studentId);
         if (delErr) throw new Error('Hard delete failed at students: ' + delErr.message);
+
+        if (deleteLead && studentLeadId) {
+          const { error: lErr } = await adminClient.from('leads').delete().eq('id', studentLeadId);
+          if (lErr) throw new Error('Hard delete failed at leads: ' + lErr.message);
+        }
       } else {
         // Soft Delete
         const { error: softErr } = await adminClient.from('students').update({ deleted_at: new Date().toISOString(), status: 'inactive' }).eq('id', studentId);
         if (softErr) throw new Error('Soft delete failed: ' + softErr.message);
       }
 
-
       sendJson(res, 200, { ok: true, deleted: student.student_name });
       return true;
     }
+
 
     // ─── GET /students/:id/remarks ─────────────────────────
     if (req.method === 'GET' && parts.length === 3 && parts[0] === 'students' && parts[2] === 'remarks') {
