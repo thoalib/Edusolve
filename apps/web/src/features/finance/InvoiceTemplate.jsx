@@ -95,7 +95,7 @@ export function GenerateInvoiceModal({ onClose }) {
   // Fetch counselor's assigned leads
   useEffect(() => {
     import('../../lib/api.js').then(({ apiFetch }) => {
-      apiFetch('/leads?scope=my&limit=200')
+      apiFetch('/leads?scope=my&limit=2000')
         .then(res => setLeads((res.items || []).filter(l => !l.deleted_at)))
         .catch(() => {})
         .finally(() => setLeadsLoading(false));

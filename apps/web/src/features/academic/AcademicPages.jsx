@@ -2496,9 +2496,16 @@ export function StudentsHubPage({ role }) {
       {deleteStudentTarget && (
         <StudentDeleteConfirmModal
           name={deleteStudentTarget.name}
-          onConfirm={async (hardDelete) => {
+          onConfirm={async (hardDelete, options) => {
             try {
-              const res = await apiFetch(`/students/${deleteStudentTarget.id}?hard_delete=${hardDelete}`, { method: 'DELETE' });
+              let url = `/students/${deleteStudentTarget.id}?hard_delete=${hardDelete}`;
+              if (hardDelete && options) {
+                if (options.sessions) url += '&delete_sessions=true';
+                if (options.ledger) url += '&delete_ledger=true';
+                if (options.messages) url += '&delete_messages=true';
+                if (options.lead) url += '&delete_lead=true';
+              }
+              const res = await apiFetch(url, { method: 'DELETE' });
               if (!res.ok) throw new Error(res.error || 'Delete failed');
               setDeleteStudentTarget(null);
               loadData();
@@ -6409,50 +6416,153 @@ function StudentDeleteConfirmModal({ name, onConfirm, onClose }) {
   const [typed, setTyped] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [hardDelete, setHardDelete] = useState(false);
+  const [options, setOptions] = useState({
+    sessions: true,
+    ledger: true,
+    messages: true,
+    lead: false
+  });
+
   const matches = typed.trim() === name.trim();
 
   const handleConfirm = async () => {
     setDeleting(true);
-    await onConfirm(hardDelete);
+    await onConfirm(hardDelete, options);
     setDeleting(false);
   };
 
+  const toggleAll = (val) => {
+    setOptions({
+      sessions: val,
+      ledger: val,
+      messages: val,
+      lead: val
+    });
+  };
+
+  const isAllSelected = options.sessions && options.ledger && options.messages && options.lead;
+
   return (
     <div className="modal-overlay" onClick={onClose} style={{ zIndex: 2000 }}>
-      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '480px', width: '90%' }}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px', width: '95%' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ margin: 0, color: '#dc2626' }}>🗑 Delete Student</h3>
-          <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer' }}>✕</button>
+          <h3 style={{ margin: 0, color: '#dc2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '24px' }}>🗑️</span> Delete Student
+          </h3>
+          <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#94a3b8' }}>✕</button>
         </div>
-        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
-          <p style={{ margin: 0, fontSize: 13, color: '#b91c1c', fontWeight: 600 }}>⚠ This action deletes the student's active enrollment.</p>
-          <div style={{ marginTop: '8px', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-            <input type="checkbox" id="hardDeleteCheck" checked={hardDelete} onChange={e => setHardDelete(e.target.checked)} style={{ marginTop: '3px' }} />
-            <label htmlFor="hardDeleteCheck" style={{ fontSize: 12, color: '#7f1d1d', cursor: 'pointer', lineHeight: '1.4', margin: 0 }}>
-              <strong>Hard Delete:</strong> Permanently wipe all financial ledgers, past sessions, and messages. (Not Recommended: breaks historical accounting).
-            </label>
+
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 12, padding: '16px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+            <input 
+              type="checkbox" 
+              id="hardDeleteCheck" 
+              checked={hardDelete} 
+              onChange={e => setHardDelete(e.target.checked)} 
+              style={{ marginTop: '4px', width: '18px', height: '18px', cursor: 'pointer' }} 
+            />
+            <div>
+              <label htmlFor="hardDeleteCheck" style={{ fontSize: '14px', color: '#991b1b', cursor: 'pointer', fontWeight: 700, display: 'block' }}>
+                Perform Deep Cleanup (Hard Delete)
+              </label>
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#b91c1c', lineHeight: '1.5' }}>
+                Wipe historical data and dependencies. Use this for test data or specifically requested cleanups.
+              </p>
+            </div>
           </div>
+
+          {hardDelete && (
+            <div style={{ marginTop: '16px', padding: '12px', background: '#fff', borderRadius: '8px', border: '1px solid #fca5a5' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid #f1f5f9' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Select items to delete</span>
+                <button 
+                  type="button" 
+                  onClick={() => toggleAll(!isAllSelected)}
+                  style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '12px', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                >
+                  {isAllSelected ? 'Deselect All' : 'Select All'}
+                </button>
+              </div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#334155', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={options.sessions} onChange={e => setOptions({...options, sessions: e.target.checked})} />
+                  Class History
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#334155', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={options.ledger} onChange={e => setOptions({...options, ledger: e.target.checked})} />
+                  Financial Records
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#334155', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={options.messages} onChange={e => setOptions({...options, messages: e.target.checked})} />
+                  Communication
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#991b1b', cursor: 'pointer', fontWeight: 600 }}>
+                  <input type="checkbox" checked={options.lead} onChange={e => setOptions({...options, lead: e.target.checked})} />
+                  Lead Record ⚠️
+                </label>
+              </div>
+
+              {options.lead && (
+                <div style={{ marginTop: '12px', padding: '8px', background: '#fff1f2', borderLeft: '3px solid #e11d48', fontSize: '11px', color: '#9f1239' }}>
+                  <strong>WARNING:</strong> Deleting the Lead record will remove all counseling history, demo reports, and source tracking permanently.
+                </div>
+              )}
+            </div>
+          )}
         </div>
-        <p style={{ fontSize: 14, color: '#374151', marginBottom: 8 }}>
-          Type <strong style={{ fontFamily: 'monospace', background: '#f1f5f9', padding: '1px 6px', borderRadius: 4 }}>{name}</strong> to confirm:
-        </p>
-        <input
-          type="text"
-          value={typed}
-          onChange={e => setTyped(e.target.value)}
-          placeholder={name}
-          style={{ width: '100%', padding: '10px 12px', border: `1px solid ${matches ? '#16a34a' : '#e2e8f0'}`, borderRadius: 6, fontSize: 14, marginBottom: 16, outline: 'none', boxSizing: 'border-box' }}
-          autoFocus
-        />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-          <button type="button" onClick={onClose} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer' }}>Cancel</button>
+
+        <div style={{ marginBottom: 20 }}>
+          <p style={{ fontSize: 14, color: '#475569', marginBottom: 10 }}>
+            To confirm, type the student name: <span style={{ fontWeight: 700, color: '#1e293b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', fontFamily: 'monospace' }}>{name}</span>
+          </p>
+          <input
+            type="text"
+            value={typed}
+            onChange={e => setTyped(e.target.value)}
+            placeholder="Type student name here..."
+            style={{ 
+              width: '100%', 
+              padding: '12px', 
+              border: `2px solid ${matches ? '#10b981' : '#e2e8f0'}`, 
+              borderRadius: '8px', 
+              fontSize: '15px',
+              outline: 'none',
+              transition: 'all 0.2s',
+              boxSizing: 'border-box'
+            }}
+            autoFocus
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button 
+            type="button" 
+            onClick={onClose} 
+            style={{ flex: 1, padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontWeight: 600, color: '#64748b' }}
+          >
+            Cancel
+          </button>
           <button
             type="button"
-            disabled={!matches || deleting}
             onClick={handleConfirm}
-            style={{ padding: '8px 20px', background: matches ? '#dc2626' : '#fca5a5', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, cursor: matches ? 'pointer' : 'not-allowed' }}
+            disabled={!matches || deleting}
+            style={{ 
+              flex: 2, 
+              padding: '12px', 
+              border: 'none', 
+              borderRadius: '8px', 
+              background: matches ? '#dc2626' : '#f1f5f9', 
+              color: matches ? '#fff' : '#94a3b8', 
+              cursor: matches && !deleting ? 'pointer' : 'not-allowed',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px'
+            }}
           >
-            {deleting ? 'Deleting...' : 'Delete Student'}
+            {deleting ? 'Deleting...' : `Delete ${hardDelete ? 'Permanently' : 'from List'}`}
           </button>
         </div>
       </div>

@@ -334,7 +334,7 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
   const [selectedIds, setSelectedIds] = useState([]);
   const [counselors, setCounselors] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [filters, setFilters] = useState({ search: '', status: '', counselorId: '' });
+  const [filters, setFilters] = useState({ search: '', status: '', counselorId: '', leadType: '', dateFrom: '', dateTo: '' });
   const [assignCounselorId, setAssignCounselorId] = useState('');
   const [assigning, setAssigning] = useState(false);
   const [leadTab, setLeadTab] = useState(user?.role === 'counselor' ? 'all' : 'new'); // 'new', 'assigned', 'all'
@@ -384,6 +384,16 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
         (item.id === filters.search.trim());
       const matchStatus = !filters.status || item.status === filters.status;
       const matchCounselor = !filters.counselorId || item.counselor_id === filters.counselorId;
+      const matchLeadType = !filters.leadType || item.lead_type === filters.leadType;
+      
+      let matchDate = true;
+      if (item.created_at) {
+        const itemDateStr = item.created_at.split('T')[0];
+        if (filters.dateFrom && itemDateStr < filters.dateFrom) matchDate = false;
+        if (filters.dateTo && itemDateStr > filters.dateTo) matchDate = false;
+      } else if (filters.dateFrom || filters.dateTo) {
+        matchDate = false;
+      }
 
       let matchNote = true;
       if (noteFilter !== 'all') {
@@ -392,7 +402,7 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
         else matchNote = item.current_note === noteFilter;
       }
 
-      return matchSearch && matchStatus && matchCounselor && matchNote;
+      return matchSearch && matchStatus && matchCounselor && matchNote && matchLeadType && matchDate;
     });
   }, [tabbedItems, filters, noteFilter]);
 
@@ -2958,7 +2968,7 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
 
       const promises = [
         apiFetch(`/leads/payment-requests?page=${currentPage}&limit=${limit}`),
-        apiFetch('/leads?scope=my').catch(() => ({ items: [] })),
+        apiFetch('/leads?scope=my&limit=2000').catch(() => ({ items: [] })),
         apiFetch('/leads/counselors').catch(() => ({ items: [] }))
       ];
       const [prRes, leadsRes, counselorsRes] = await Promise.all(promises);
@@ -3671,10 +3681,12 @@ function NewPaymentRequestModal({ leads, onClose, onSuccess, initialLeadId }) {
   const [leadSearch, setLeadSearch] = useState('');
 
   const leadOptions = useMemo(() => {
-    return leads.map(l => ({
-      value: l.id,
-      label: `${l.student_name} — ${l.contact_number || 'No phone'} (${l.status})`
-    }));
+    return leads
+      .filter(l => l.status !== 'joined' && l.status !== 'dropped')
+      .map(l => ({
+        value: l.id,
+        label: `${l.student_name} — ${l.contact_number || 'No phone'} (${l.status})`
+      }));
   }, [leads]);
 
   function handleFileChange(e) {

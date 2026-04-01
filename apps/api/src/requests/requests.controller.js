@@ -22,7 +22,7 @@ export async function handleRequests(req, res, url) {
         // GET /requests
         if (req.method === 'GET' && url.pathname === '/requests') {
             const page = parseInt(url.searchParams.get('page')) || 1;
-            const limit = parseInt(url.searchParams.get('limit')) || 20;
+            const limit = parseInt(url.searchParams.get('limit')) || 2000;
 
             const result = await requestsService.list(role, userId, page, limit);
             if (result.error) {

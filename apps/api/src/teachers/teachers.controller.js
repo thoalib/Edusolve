@@ -267,7 +267,8 @@ export async function handleTeachers(req, res, url) {
       const { data, error } = await adminClient
         .from('teacher_profiles')
         .select('*, users!teacher_profiles_user_id_fkey(id,email,full_name,phone), coordinator:users!teacher_coordinator_id(id,full_name,phone)')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(2000);
       if (error) throw new Error(error.message);
       sendJson(res, 200, { ok: true, items: data || [] });
       return true;
