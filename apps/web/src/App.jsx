@@ -13,6 +13,7 @@ import {
   OverdueLeadsPage,
   PaymentRequestsPage
 } from './features/leads/LeadsPages.jsx';
+import { AdSetupPage } from './features/leads/AdSetupPage.jsx';
 import { TodayLeadsPage } from './features/leads/TodayLeadsPage.jsx';
 import {
   CounselorDashboardPage,
@@ -169,6 +170,7 @@ export default function App() {
     if (page.path === '/leads/converted') return <ConvertedLeadsPage />;
     if (page.path === '/leads/payment-requests') return <PaymentRequestsPage initialLeadId={paymentRequestLeadId} />;
     if (page.path === '/leads/overdue') return <OverdueLeadsPage />;
+    if (page.path === '/leads/ad-setup') return <AdSetupPage />;
 
     /* Students */
     if (page.path === '/students/hub') return <StudentsHubPage role={role} />;
