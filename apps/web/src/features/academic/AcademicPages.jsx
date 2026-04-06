@@ -92,8 +92,19 @@ function isSessionOverdue(s) {
 }
 
 
+import { DashboardDateFilter } from '../dashboards/CounselorDashboards.jsx';
+
+function getThisMonthRange() {
+  const now = new Date();
+  return {
+    from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10),
+    to: now.toISOString().slice(0, 10)
+  };
+}
+
 /* ═══════ AC Dashboard ═══════ */
 export function AcademicCoordinatorDashboardPage({ targetUserId }) {
+  const [dateRange, setDateRange] = useState(getThisMonthRange);
   const [s, setS] = useState({ students: 0, active: 0, vacation: 0, inactive: 0, today: 0, queue: 0, topups: 0 });
   const [weekSessions, setWeekSessions] = useState([]);
   const [overdueCount, setOverdueCount] = useState(0);
@@ -104,12 +115,13 @@ export function AcademicCoordinatorDashboardPage({ targetUserId }) {
       try {
         const uQ = targetUserId ? `?user_id=${targetUserId}` : '';
         const uQAnd = targetUserId ? `&user_id=${targetUserId}` : '';
+        const { from, to } = dateRange;
 
         const [a, b, c, d, w, allSched] = await Promise.all([
           apiFetch(`/students${uQ}`),
           apiFetch(`/students/sessions/today${uQ}`),
-          apiFetch(`/sessions/verification-queue${uQ}`),
-          apiFetch(`/students/topup-requests?status=pending_finance${uQAnd}`),
+          apiFetch(`/sessions/verification-queue?from=${from}&to=${to}${uQAnd}`),
+          apiFetch(`/students/topup-requests?status=pending_finance&from=${from}&to=${to}${uQAnd}`),
           apiFetch(`/students/sessions/week?offset=0${uQAnd}`),
           apiFetch(`/sessions/all?status=scheduled${uQAnd}`)
         ]);
@@ -128,7 +140,7 @@ export function AcademicCoordinatorDashboardPage({ targetUserId }) {
         setOverdueCount((allSched.items || []).filter(isSessionOverdue).length);
       } catch (e) { setError(e.message); }
     })();
-  }, [targetUserId]);
+  }, [targetUserId, dateRange]);
 
   /* Prepare Chart Data */
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -170,7 +182,8 @@ export function AcademicCoordinatorDashboardPage({ targetUserId }) {
   return (
     <section className="panel">
       {error ? <p className="error">{error}</p> : null}
-      <div className="grid-four">
+      <DashboardDateFilter onChange={setDateRange} />
+      <div className="grid-four" style={{ marginTop: '16px' }}>
         <article className="card stat-card">
           <p className="eyebrow">Total Students</p>
           <h3>{s.students}</h3>
@@ -1544,13 +1557,15 @@ function StudentDetailPage({ studentId, onBack }) {
           {(() => {
             // Initial payment (from payment_requests)
             // total_amount = full bill, amount = paid so far, outstanding = bill - paid
-            const initBill = paymentRequests.reduce((s, p) => s + Number(p.total_amount || 0), 0);
-            const initPaid = paymentRequests.reduce((s, p) => s + Number(p.amount || 0), 0);
-            const initOutstanding = initBill - initPaid;
+            const validPaymentRequests = paymentRequests.filter(p => p.status !== 'rejected');
+            const initBill = validPaymentRequests.reduce((s, p) => s + Number(p.total_amount || 0), 0);
+            const initPaid = validPaymentRequests.reduce((s, p) => s + Number(p.amount || 0), 0);
+            const initOutstanding = initBill - initPaid > 0 ? initBill - initPaid : 0;
             // Topup (from student_topups)
-            const topupBill = topupRequests.reduce((s, t) => s + Number(t.total_amount || 0), 0);
-            const topupPaid = topupRequests.reduce((s, t) => s + Number(t.amount || 0), 0);
-            const topupOutstanding = topupBill - topupPaid;
+            const validTopupRequests = topupRequests.filter(t => t.status !== 'rejected');
+            const topupBill = validTopupRequests.reduce((s, t) => s + Number(t.total_amount || 0), 0);
+            const topupPaid = validTopupRequests.reduce((s, t) => s + Number(t.amount || 0), 0);
+            const topupOutstanding = topupBill - topupPaid > 0 ? topupBill - topupPaid : 0;
 
             const row = (label, amount, variant) => {
               const bg = variant === 'paid' ? '#f0fdf4' : variant === 'due' ? '#fef2f2' : '#f9fafb';
@@ -6623,16 +6638,18 @@ function ImportOldStudentsModal({ onClose }) {
     setLoading(true); setError('');
     try {
       const res = await apiFetch('/students/import-sheet', { method: 'POST', body: JSON.stringify(parsed) });
-      if (res.ok) {
-        if (res.errors?.length > 0) {
-          const errSummary = res.errors.map(e => `• ${e.student?.student_name || 'row'}: ${e.error}`).join('\n');
-          setError(`${res.errors.length} row(s) failed:\n${errSummary}`);
-        }
-        if (res.imported_count > 0) {
-          setSuccess(`Successfully imported ${res.imported_count} student(s).`);
-          setTimeout(onClose, 2500);
-        }
-      } else throw new Error(res.error || 'Import failed');
+      
+      if (res.errors?.length > 0) {
+        const errSummary = res.errors.map(e => `• ${e.student?.student_name || 'row'}: ${e.error}`).join('\n');
+        setError(`${res.errors.length} row(s) failed:\n${errSummary}`);
+      }
+      
+      if (res.imported_count > 0) {
+        setSuccess(`Successfully imported ${res.imported_count} student(s).`);
+        setTimeout(onClose, 2500);
+      } else if (!res.errors?.length) {
+        throw new Error('Import failed with no data returned');
+      }
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
   };

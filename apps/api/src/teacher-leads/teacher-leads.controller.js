@@ -56,6 +56,11 @@ export async function handleTeacherLeads(req, res, url) {
                 .select('*')
                 .order('created_at', { ascending: false });
 
+            const from = url.searchParams.get('from');
+            const to = url.searchParams.get('to');
+            if (from) query = query.gte('created_at', from.includes('T') ? from : from + 'T00:00:00Z');
+            if (to) query = query.lte('created_at', to.includes('T') ? to : to + 'T23:59:59Z');
+
             const requestedUserId = url.searchParams.get('user_id');
             if (actor.role === 'super_admin' && requestedUserId) {
                 query = query.eq('coordinator_id', requestedUserId);
@@ -77,6 +82,58 @@ export async function handleTeacherLeads(req, res, url) {
                 .order('reason', { ascending: true });
             if (error) throw new Error(error.message);
             sendJson(res, 200, { ok: true, items: data || [] });
+            return true;
+        }
+
+        // POST /teacher-leads/bulk
+        if (req.method === 'POST' && parts.length === 2 && parts[1] === 'bulk') {
+            const payloads = await readJson(req);
+            if (!Array.isArray(payloads) || payloads.length === 0) {
+                sendJson(res, 400, { ok: false, error: 'payload must be a non-empty array' });
+                return true;
+            }
+
+            const leadsToInsert = payloads.map(p => ({
+                full_name: p.full_name,
+                email: p.email || null,
+                phone: p.phone,
+                subjects: Array.isArray(p.subjects) ? JSON.stringify(p.subjects) : '[]',
+                boards: Array.isArray(p.boards) ? JSON.stringify(p.boards) : '[]',
+                mediums: Array.isArray(p.mediums) ? JSON.stringify(p.mediums) : '[]',
+                experience_level: p.experience_level || null,
+                experience_type: p.experience_type || null,
+                experience_duration: p.experience_duration || null,
+                qualification: p.qualification || null,
+                place: p.place || null,
+                city: p.city || null,
+                status: 'new',
+                coordinator_id: actor.userId,
+                country_code: p.country_code || '+91',
+                notes: p.notes || null,
+                created_at: nowIso(),
+                updated_at: nowIso()
+            }));
+
+            const { data: inserted, error } = await adminClient
+                .from('teacher_leads')
+                .insert(leadsToInsert)
+                .select('id');
+
+            if (error) throw new Error(error.message);
+
+            if (inserted && inserted.length > 0) {
+                const historyEntries = inserted.map(l => ({
+                    teacher_lead_id: l.id,
+                    old_status: null,
+                    new_status: 'new',
+                    changed_by: actor.userId,
+                    note: 'Bulk Lead created',
+                    created_at: nowIso()
+                }));
+                await adminClient.from('teacher_lead_history').insert(historyEntries);
+            }
+
+            sendJson(res, 201, { ok: true, count: inserted?.length || 0 });
             return true;
         }
 
@@ -136,6 +193,11 @@ export async function handleTeacherLeads(req, res, url) {
                     .from('teacher_leads')
                     .select('status');
                 
+                const from = url.searchParams.get('from');
+                const to = url.searchParams.get('to');
+                if (from) query = query.gte('created_at', from.includes('T') ? from : from + 'T00:00:00Z');
+                if (to) query = query.lte('created_at', to.includes('T') ? to : to + 'T23:59:59Z');
+
                 const requestedUserId = url.searchParams.get('user_id');
                 if (actor.role === 'super_admin' && requestedUserId) {
                     query = query.eq('coordinator_id', requestedUserId);
@@ -202,6 +264,7 @@ export async function handleTeacherLeads(req, res, url) {
                     city: payload.city || null,
                     status: 'new',
                     coordinator_id: actor.userId,
+                    country_code: payload.country_code || '+91',
                     notes: payload.notes || null,
                     created_at: nowIso(),
                     updated_at: nowIso()
@@ -451,6 +514,28 @@ export async function handleTeacherLeads(req, res, url) {
             });
 
             sendJson(res, 200, { ok: true, teacher: teacherProfile });
+            return true;
+        }
+
+        // DELETE /teacher-leads/:id/hard — permanent deletion
+        if (req.method === 'DELETE' && parts.length === 3 && parts[2] === 'hard') {
+            const id = parts[1];
+            
+            // Delete history first
+            const { error: histError } = await adminClient
+                .from('teacher_lead_history')
+                .delete()
+                .eq('teacher_lead_id', id);
+            if (histError) throw new Error(histError.message);
+
+            // Delete lead
+            const { error: leadError } = await adminClient
+                .from('teacher_leads')
+                .delete()
+                .eq('id', id);
+            if (leadError) throw new Error(leadError.message);
+
+            sendJson(res, 200, { ok: true });
             return true;
         }
 

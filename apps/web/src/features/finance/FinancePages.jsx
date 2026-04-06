@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../../lib/api.js';
 import { ReceiptModal, PaySlipModal, CompanyBrandingSettings } from './InvoiceTemplate.jsx';
+import { DashboardDateFilter } from '../dashboards/CounselorDashboards.jsx';
+
+function getThisMonthRange() {
+  const now = new Date();
+  return {
+    from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10),
+    to: now.toISOString().slice(0, 10)
+  };
+}
 
 /* ═══════ HELPERS ═══════ */
 function CurrencyDisplay({ value, prefix = '₹', style = {} }) {
@@ -16,7 +25,7 @@ function CurrencyDisplay({ value, prefix = '₹', style = {} }) {
 
 /* ═══════ FINANCE DASHBOARD ═══════ */
 export function FinanceDashboardPage() {
-
+  const [dateRange, setDateRange] = useState(getThisMonthRange);
   const [stats, setStats] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [recentIncome, setRecentIncome] = useState([]);
@@ -24,20 +33,22 @@ export function FinanceDashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const { from, to } = dateRange;
+    const dF = `from=${from}&to=${to}`;
     Promise.allSettled([
-      apiFetch('/finance/stats'),
+      apiFetch(`/finance/stats?${dF}`),
       apiFetch('/finance/accounts'),
-      apiFetch('/finance/income'),
-      apiFetch('/finance/expenses')
+      apiFetch(`/finance/income?${dF}`),
+      apiFetch(`/finance/expenses?${dF}`)
     ]).then(([s, a, i, e]) => {
       if (s.status === 'fulfilled') setStats(s.value.stats);
       if (a.status === 'fulfilled') setAccounts(a.value.items || []);
       if (i.status === 'fulfilled') setRecentIncome((i.value.items || []).slice(0, 5));
       if (e.status === 'fulfilled') setRecentExpenses((e.value.items || []).slice(0, 5));
     }).finally(() => setLoading(false));
-  }, []);
+  }, [dateRange]);
 
-  if (loading) return <section className="panel"><p>Loading dashboard...</p></section>;
+  if (loading && !stats) return <section className="panel"><p>Loading dashboard...</p></section>;
   if (!stats) return <section className="panel"><p className="error">Failed to load stats</p></section>;
 
   const income = Number(stats.totalIncome) || 0;
@@ -49,8 +60,9 @@ export function FinanceDashboardPage() {
 
   return (
     <section className="panel">
+      <DashboardDateFilter onChange={setDateRange} />
       {/* ── KPI Cards ── */}
-      <div className="grid-four">
+      <div className="grid-four" style={{ marginTop: '16px' }}>
         <article className="card stat-card success">
           <p className="eyebrow">Total Income</p>
           <h3><CurrencyDisplay value={income} /></h3>
@@ -1963,6 +1975,7 @@ export function PaymentVerificationPage() {
 function InstallmentVerifyModal({ item, accounts, onClose, onDone }) {
   const [financeNote, setFinanceNote] = useState(item.finance_note || '');
   const [accountId, setAccountId] = useState('');
+  const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
 
   const studentName = item.parent?.leads?.student_name || item.parent?.students?.student_name || 'Unknown Student';
@@ -1974,7 +1987,7 @@ function InstallmentVerifyModal({ item, accounts, onClose, onDone }) {
     try {
       await apiFetch(`/finance/installments/${item.id}/verify`, {
         method: 'POST',
-        body: JSON.stringify({ approved, account_id: approved ? accountId : undefined, finance_note: financeNote })
+        body: JSON.stringify({ approved, account_id: approved ? accountId : undefined, finance_note: financeNote, entry_date: entryDate })
       });
       onDone();
     } catch (e) {
@@ -2012,6 +2025,10 @@ function InstallmentVerifyModal({ item, accounts, onClose, onDone }) {
               {accounts.map(a => <option key={a.id} value={a.id}>{a.name} (₹{Number(a.balance).toLocaleString('en-IN')})</option>)}
             </select>
           </label>
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>Entry Date *
+            <input type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)}
+              style={{ width: '100%', padding: '8px 12px', marginTop: '4px', border: '1px solid #d1d5db', borderRadius: '6px' }} />
+          </label>
           <label style={{ fontSize: '13px', fontWeight: 600 }}>Finance Note
             <textarea value={financeNote} onChange={e => setFinanceNote(e.target.value)} rows={2}
               style={{ width: '100%', padding: '8px 12px', marginTop: '4px', border: '1px solid #d1d5db', borderRadius: '6px', resize: 'vertical' }} />
@@ -2035,6 +2052,7 @@ function InstallmentVerifyModal({ item, accounts, onClose, onDone }) {
 function PaymentVerifyModal({ payment, accounts, onClose, onDone }) {
   const [financeNote, setFinanceNote] = useState(payment.finance_note || '');
   const [accountId, setAccountId] = useState('');
+  const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
 
   async function handle(approved) {
@@ -2043,7 +2061,7 @@ function PaymentVerifyModal({ payment, accounts, onClose, onDone }) {
     try {
       await apiFetch(`/finance/payment-requests/${payment.id}/verify`, {
         method: 'POST',
-        body: JSON.stringify({ approved, finance_note: financeNote || null, account_id: accountId })
+        body: JSON.stringify({ approved, finance_note: financeNote || null, account_id: accountId, entry_date: entryDate })
       });
       onDone();
     } catch (e) {
@@ -2098,6 +2116,12 @@ function PaymentVerifyModal({ payment, accounts, onClose, onDone }) {
         </label>
 
         <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', fontWeight: 600, marginBottom: '16px' }}>
+          Entry Date *
+          <input type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} required
+            style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', fontWeight: 400 }} />
+        </label>
+
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', fontWeight: 600, marginBottom: '16px' }}>
           Finance Note (optional)
           <textarea
             value={financeNote}
@@ -2129,6 +2153,7 @@ function PaymentVerifyModal({ payment, accounts, onClose, onDone }) {
 function TopupVerifyModal({ topup, accounts, onClose, onDone }) {
   const [financeNote, setFinanceNote] = useState(topup.finance_note || '');
   const [accountId, setAccountId] = useState('');
+  const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
 
   async function handle(approved) {
@@ -2137,7 +2162,7 @@ function TopupVerifyModal({ topup, accounts, onClose, onDone }) {
     try {
       await apiFetch(`/finance/topup-requests/${topup.id}/verify`, {
         method: 'POST',
-        body: JSON.stringify({ approved, finance_note: financeNote || null, account_id: accountId })
+        body: JSON.stringify({ approved, finance_note: financeNote || null, account_id: accountId, entry_date: entryDate })
       });
       onDone();
     } catch (e) {
@@ -2189,6 +2214,12 @@ function TopupVerifyModal({ topup, accounts, onClose, onDone }) {
             <option value="">— Select Account —</option>
             {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
+        </label>
+
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', fontWeight: 600, marginBottom: '16px' }}>
+          Entry Date *
+          <input type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} required
+            style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', fontWeight: 400 }} />
         </label>
 
         <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', fontWeight: 600, marginBottom: '16px' }}>

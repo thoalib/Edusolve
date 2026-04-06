@@ -157,7 +157,7 @@ export default function App() {
 
     /* Dashboards */
     if (page.path === '/dashboard/counselor') return <CounselorDashboardPage targetUserId={dashboardUserId || user?.id} />;
-    if (page.path === '/dashboard/counselor-head') return <CounselorHeadDashboardPage targetUserId={dashboardUserId || user?.id} />;
+    if (page.path === '/dashboard/counselor-head') return <CounselorHeadDashboardPage targetUserId={dashboardUserId} />;
     if (page.path === '/dashboard/academic-coordinator') return <AcademicCoordinatorDashboardPage targetUserId={dashboardUserId} />;
     if (page.path === '/dashboard/tc') return <TCDashboardPage targetUserId={dashboardUserId} />;
 

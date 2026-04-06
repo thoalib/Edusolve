@@ -54,6 +54,13 @@ export async function handleSessions(req, res, url) {
         .eq('status', 'completed')
         .order('session_date', { ascending: false })
         .limit(2000);
+      const fromParam = url.searchParams.get('from');
+      const toParam = url.searchParams.get('to');
+      if (fromParam && toParam) {
+        query = query.gte('session_date', fromParam.includes('T') ? fromParam.split('T')[0] : fromParam)
+                     .lte('session_date', toParam.includes('T') ? toParam.split('T')[0] : toParam);
+      }
+
       const { data, error } = await query;
       if (error) throw new Error(error.message);
 

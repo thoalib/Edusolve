@@ -5,6 +5,16 @@ import { getSession } from '../../lib/auth.js';
 import DateTimePicker from '../../components/DateTimePicker.jsx';
 import { MultiSelectDropdown } from '../../components/ui/MultiSelectDropdown.jsx';
 import { Pagination } from '../../components/ui/Pagination.jsx';
+import { DashboardDateFilter } from '../dashboards/CounselorDashboards.jsx';
+import { BulkImportModal } from '../common/BulkImportModal.jsx';
+
+function getThisMonthRange() {
+  const now = new Date();
+  return {
+    from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10),
+    to: now.toISOString().slice(0, 10)
+  };
+}
 
 /* ─── Inline SVG Icons ─── */
 const Icon = ({ d, color = 'currentColor', size = 16 }) => (
@@ -184,6 +194,7 @@ function ProgressTracker({ currentStatus }) {
 
 /* ═══════ TC Dashboard ═══════ */
 export function TCDashboardPage({ targetUserId }) {
+    const [dateRange, setDateRange] = useState(getThisMonthRange);
     const [stats, setStats] = useState({});
     const [pool, setPool] = useState([]);
     const [leads, setLeads] = useState([]);
@@ -193,10 +204,14 @@ export function TCDashboardPage({ targetUserId }) {
         (async () => {
             try {
                 const uQ = targetUserId ? `?user_id=${targetUserId}` : '';
+                const { from, to } = dateRange;
+                const dF = `from=${from}&to=${to}`;
+                const uQAnddF = uQ ? `&${dF}` : `?${dF}`;
+
                 const [s, p, l] = await Promise.all([
-                    apiFetch(`/teacher-leads/stats${uQ}`),
-                    apiFetch(`/teachers/pool${uQ}`),
-                    apiFetch(`/teacher-leads${uQ}`)
+                    apiFetch(`/teacher-leads/stats${uQ}${uQAnddF}`),
+                    apiFetch(`/teachers/pool${uQ}`), // Keep the whole pool
+                    apiFetch(`/teacher-leads${uQ}${uQAnddF}`)
                 ]);
                 setStats(s.stats || {});
                 setPool(p.items || []);
@@ -204,7 +219,7 @@ export function TCDashboardPage({ targetUserId }) {
             } catch (e) { }
             setLoading(false);
         })();
-    }, [targetUserId]);
+    }, [targetUserId, dateRange]);
 
     const totalLeads = Object.values(stats).reduce((a, b) => a + b, 0);
     const pipelineActive = (stats.new || 0) + (stats.contacted || 0) + (stats.first_interview || 0) + (stats.first_interview_done || 0) + (stats.second_interview || 0) + (stats.second_interview_done || 0) + (stats.approved || 0);
@@ -217,7 +232,8 @@ export function TCDashboardPage({ targetUserId }) {
 
     return (
         <section className="panel">
-            <div className="grid-four">
+            <DashboardDateFilter onChange={setDateRange} />
+            <div className="grid-four" style={{ marginTop: '16px' }}>
                 <StatCard label="Total Teacher Leads" value={totalLeads} />
                 <StatCard label="Pipeline Active" value={pipelineActive} />
                 <StatCard label="Teachers in Pool" value={pool.length} tone="success" />
@@ -884,11 +900,13 @@ function ViewLeadModal_OLD({ lead, onClose, onEdit }) {
                     <DetailItem label="Full Name" value={lead.full_name} />
                     <DetailItem label="Status" value={<span style={{ padding: '2px 8px', borderRadius: '4px', background: `${STATUS_COLORS[lead.status] || '#6b7280'}18`, color: STATUS_COLORS[lead.status] || '#6b7280', fontSize: '12px', fontWeight: 600 }}>{lead.status}</span>} />
 
-                    <DetailItem label="Phone" value={lead.phone} />
+                    <DetailItem label="Phone" value={<span><span className="text-muted" style={{ marginRight: '4px' }}>({lead.country_code || '+91'})</span>{lead.phone}</span>} />
                     <DetailItem label="Email" value={lead.email} />
 
                     <DetailItem label="Experience Remark" value={lead.experience_remark} />
-                    <DetailItem label="Type" value={lead.experience_type} />
+                    <DetailItem label="Exp. Level" value={lead.experience_level} />
+                    <DetailItem label="Exp. Type" value={lead.experience_type} />
+                    <DetailItem label="Exp. Duration" value={lead.experience_duration} />
 
                     <div style={{ width: '100%', marginBottom: '12px' }}>
                         <span className="text-muted" style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>Subjects</span>
@@ -904,6 +922,15 @@ function ViewLeadModal_OLD({ lead, onClose, onEdit }) {
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                             {boards.length ? boards.map((b, i) => (
                                 <span key={i} style={{ background: '#f0fdf4', color: '#15803d', padding: '2px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 500 }}>{b}</span>
+                            )) : '—'}
+                        </div>
+                    </div>
+
+                    <div style={{ width: '100%', marginBottom: '12px' }}>
+                        <span className="text-muted" style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>Mediums</span>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                            {(Array.isArray(lead.mediums) ? lead.mediums : []).length ? (Array.isArray(lead.mediums) ? lead.mediums : []).map((m, i) => (
+                                <span key={i} style={{ background: '#fff7ed', color: '#9a3412', padding: '2px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 500 }}>{m}</span>
                             )) : '—'}
                         </div>
                     </div>
@@ -928,7 +955,7 @@ function ViewLeadModal_OLD({ lead, onClose, onEdit }) {
 /* ─── Add Teacher Lead Modal (wide, multi-column) ─── */
 function AddTeacherLeadModal({ onClose, onDone }) {
     const [form, setForm] = useState({
-        full_name: '', phone: '', email: '', subjects: [], boards: [], mediums: [], experience_remark: 'Fresher',
+        full_name: '', country_code: '+91', phone: '', email: '', subjects: [], boards: [], mediums: [], experience_remark: 'Fresher',
         experience_type: '', experience_duration: '', qualification: '', place: '', city: '', notes: ''
     });
     const [allSubjects, setAllSubjects] = useState([]);
@@ -989,9 +1016,10 @@ function AddTeacherLeadModal({ onClose, onDone }) {
             <div className="modal card" style={{ maxWidth: '800px', width: '95vw', maxHeight: '90vh', overflowY: 'auto' }}>
                 <h3 style={{ margin: '0 0 16px', fontSize: '18px' }}>Add Teacher Lead</h3>
                 <form onSubmit={handleSubmit}>
-                    {/* Row 1: Name + Phone */}
-                    <div style={gridRow}>
+                    {/* Row 1: Name + Country Code + Phone */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 0.5fr 1fr', gap: '12px' }}>
                         <label>Full Name *<input value={form.full_name} onChange={e => upd('full_name', e.target.value)} required placeholder="Full name" /></label>
+                        <label>Code *<input value={form.country_code} onChange={e => upd('country_code', e.target.value)} required placeholder="+91" /></label>
                         <label>Phone *<input value={form.phone} onChange={e => upd('phone', e.target.value)} required placeholder="Phone number" /></label>
                     </div>
                     {/* Row 2: Email + Qualification */}
@@ -1241,9 +1269,10 @@ function EditLeadModal({ lead, onClose, onDone }) {
             <div className="modal card" style={{ maxWidth: '800px', width: '95vw', maxHeight: '90vh', overflowY: 'auto' }}>
                 <h3 style={{ margin: '0 0 16px', fontSize: '18px' }}>Edit Lead: {lead.full_name}</h3>
                 <form onSubmit={handleSubmit}>
-                    {/* Row 1: Name + Phone */}
-                    <div style={gridRow}>
+                    {/* Row 1: Name + Code + Phone */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 0.5fr 1fr', gap: '12px' }}>
                         <label>Full Name *<input value={form.full_name} onChange={e => upd('full_name', e.target.value)} required /></label>
+                        <label>Code *<input value={form.country_code} onChange={e => upd('country_code', e.target.value)} required placeholder="+91" /></label>
                         <label>Phone *<input value={form.phone} onChange={e => upd('phone', e.target.value)} required /></label>
                     </div>
                     {/* Row 2: Email + Qualification */}
@@ -1274,6 +1303,7 @@ function EditLeadModal({ lead, onClose, onDone }) {
                             <CustomDropdown value={form.experience_remark} onChange={v => upd('experience_remark', v)}
                                 options={[{ value: 'Fresher', label: 'Fresher' }, { value: 'Intermediate', label: 'Intermediate' }, { value: 'Experienced', label: 'Experienced' }]} />
                         </label>
+                        <label>Exp. Level<input value={form.experience_level} onChange={e => upd('experience_level', e.target.value)} placeholder="e.g. Advanced" /></label>
                         {isExperienced && (
                             <>
                                 <label>Exp. Type<input value={form.experience_type} onChange={e => upd('experience_type', e.target.value)} placeholder="e.g. School Teaching" /></label>
@@ -2052,6 +2082,9 @@ export function TCAllLeadsPage({ onNavigate }) {
     const [statusFilter, setStatusFilter] = useState('all');
     const [dateFilter, setDateFilter] = useState('all');
     const [showViewModal, setShowViewModal] = useState(null);
+    const [showEditModal, setShowEditModal] = useState(null);
+    const [showHardDeleteModal, setShowHardDeleteModal] = useState(null);
+    const [showBulkImportModal, setShowBulkImportModal] = useState(false);
 
     // Admin-only state
     const userRole = getSession()?.user?.role || '';
@@ -2129,49 +2162,49 @@ export function TCAllLeadsPage({ onNavigate }) {
 
     return (
         <section className="panel">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-                <h2 style={{ margin: 0, fontSize: '20px' }}>All Teacher Leads</h2>
-                <button className="primary" onClick={() => setShowAddModal(true)}>+ Add Teacher Lead</button>
+            {/* Header: Title + Buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
+                <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#111827' }}>Teacher Leads</h2>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={() => setShowBulkImportModal(true)} className="secondary" style={{ whiteSpace: 'nowrap', padding: '8px 16px', fontSize: '13px' }}>Bulk Import</button>
+                    <button onClick={() => setShowAddModal(true)} className="primary" style={{ whiteSpace: 'nowrap', padding: '8px 16px', fontSize: '13px' }}>+ Add Lead</button>
+                </div>
             </div>
 
-            <div className="card" style={{ padding: '16px', marginBottom: '16px' }}>
-                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                    <div style={{ flex: '1 1 200px' }}>
-                        <label style={{ display: 'block', fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Search</label>
-                        <input
-                            type="text"
-                            placeholder="Search name, phone, email..."
-                            value={search}
-                            onChange={e => setSearch(e.target.value)}
-                            style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
-                        />
-                    </div>
-                    <div style={{ flex: '0 0 160px' }}>
-                        <label style={{ display: 'block', fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Status</label>
-                        <select
-                            value={statusFilter}
-                            onChange={e => setStatusFilter(e.target.value)}
-                            style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: 'white' }}
-                        >
-                            <option value="all">All Statuses</option>
-                            {STATUS_STEPS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-                            <option value="rejected">Rejected</option>
-                        </select>
-                    </div>
-                    <div style={{ flex: '0 0 160px' }}>
-                        <label style={{ display: 'block', fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Date Received</label>
-                        <select
-                            value={dateFilter}
-                            onChange={e => setDateFilter(e.target.value)}
-                            style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: 'white' }}
-                        >
-                            <option value="all">All Time</option>
-                            <option value="today">Today</option>
-                            <option value="yesterday">Yesterday (1 day ago)</option>
-                            <option value="last7">Last 7 Days</option>
-                            <option value="last30">Last 30 Days</option>
-                        </select>
-                    </div>
+            {/* Filters Row: Single horizontal line */}
+            <div className="card" style={{ padding: '12px 16px', marginBottom: '16px', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', background: '#fff' }}>
+                <div style={{ flex: '2 1 240px', minWidth: '180px' }}>
+                    <input
+                        type="text"
+                        placeholder="Search name, phone, email..."
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px', outline: 'none' }}
+                    />
+                </div>
+                <div style={{ flex: '1 1 160px' }}>
+                    <select
+                        value={statusFilter}
+                        onChange={e => setStatusFilter(e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: 'white', fontSize: '13px', outline: 'none' }}
+                    >
+                        <option value="all">All Statuses</option>
+                        {STATUS_STEPS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+                        <option value="rejected">Rejected</option>
+                    </select>
+                </div>
+                <div style={{ flex: '1 1 160px' }}>
+                    <select
+                        value={dateFilter}
+                        onChange={e => setDateFilter(e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: 'white', fontSize: '13px', outline: 'none' }}
+                    >
+                        <option value="all">Date Received: All Time</option>
+                        <option value="today">Today</option>
+                        <option value="yesterday">Yesterday</option>
+                        <option value="last7">Last 7 Days</option>
+                        <option value="last30">Last 30 Days</option>
+                    </select>
                 </div>
             </div>
 
@@ -2270,13 +2303,34 @@ export function TCAllLeadsPage({ onNavigate }) {
                                     )}
 
                                     <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                                        <button
-                                            className="small secondary"
-                                            onClick={() => setShowViewModal(lead)}
-                                            style={{ padding: '4px 8px', fontSize: '12px' }}
-                                        >
-                                            View
-                                        </button>
+                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                            <button
+                                                className="small secondary"
+                                                onClick={() => setShowViewModal(lead)}
+                                                style={{ padding: '4px 8px', fontSize: '12px' }}
+                                            >
+                                                View
+                                            </button>
+                                            <button
+                                                className="small secondary"
+                                                onClick={() => setShowEditModal(lead)}
+                                                style={{ padding: '4px 8px', fontSize: '12px', background: 'var(--surface-soft)' }}
+                                            >
+                                                <Icon d={ICONS.edit} size={14} />
+                                            </button>
+                                            <button
+                                                className="small secondary"
+                                                onClick={() => setShowHardDeleteModal(lead)}
+                                                style={{ 
+                                                    padding: '4px 8px', fontSize: '12px', 
+                                                    background: 'rgba(239, 68, 68, 0.1)', 
+                                                    color: 'var(--danger)', 
+                                                    border: '1px solid rgba(239, 68, 68, 0.2)' 
+                                                }}
+                                            >
+                                                <Icon d={ICONS.trash} size={14} />
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
@@ -2286,7 +2340,29 @@ export function TCAllLeadsPage({ onNavigate }) {
             </div>
 
             {/* View Lead Modal */}
-            {showViewModal ? <ViewLeadModal lead={showViewModal} onClose={() => setShowViewModal(null)} onEdit={() => { }} /> : null}
+            {showViewModal ? <ViewLeadModal lead={showViewModal} onClose={() => setShowViewModal(null)} onEdit={() => { setShowViewModal(null); setShowEditModal(showViewModal); }} /> : null}
+
+            {showEditModal ? (
+                <EditLeadModal
+                    lead={showEditModal}
+                    onClose={() => setShowEditModal(null)}
+                    onDone={() => {
+                        setShowEditModal(null);
+                        apiFetch('/teacher-leads').then(res => setLeads(res.items || []));
+                    }}
+                />
+            ) : null}
+
+            {showHardDeleteModal ? (
+                <HardDeleteModal
+                    lead={showHardDeleteModal}
+                    onClose={() => setShowHardDeleteModal(null)}
+                    onDone={() => {
+                        setShowHardDeleteModal(null);
+                        apiFetch('/teacher-leads').then(res => setLeads(res.items || []));
+                    }}
+                />
+            ) : null}
 
             {/* Add Lead Modal */}
             {showAddModal ? (
@@ -2298,6 +2374,74 @@ export function TCAllLeadsPage({ onNavigate }) {
                     }}
                 />
             ) : null}
+
+            {showBulkImportModal && (
+                <BulkImportModal
+                    type="teacher"
+                    onClose={() => setShowBulkImportModal(false)}
+                    onDone={() => {
+                        setShowBulkImportModal(false);
+                        apiFetch('/teacher-leads').then(res => setLeads(res.items || []));
+                    }}
+                />
+            )}
         </section>
+    );
+}
+
+/* ─── Hard Delete Modal ─── */
+function HardDeleteModal({ lead, onClose, onDone }) {
+    const [confirmText, setConfirmText] = useState('');
+    const [deleting, setDeleting] = useState(false);
+    const [err, setErr] = useState('');
+
+    async function handleHardDelete() {
+        if (confirmText !== 'DELETE') return;
+        setDeleting(true);
+        setErr('');
+        try {
+            const res = await apiFetch(`/teacher-leads/${lead.id}/hard`, { method: 'DELETE' });
+            if (res.ok) {
+                onDone();
+            } else {
+                setErr(res.error || 'Failed to delete');
+            }
+        } catch (e) {
+            setErr(e.message);
+        } finally {
+            setDeleting(false);
+        }
+    }
+
+    return (
+        <div className="modal-overlay">
+            <div className="modal card" style={{ maxWidth: '400px' }}>
+                <h3 style={{ color: 'var(--danger)', margin: '0 0 12px' }}>Hard Delete Lead</h3>
+                <p style={{ fontSize: '14px', marginBottom: '16px' }}>
+                    This will <strong>permanently</strong> delete <strong>{lead.full_name}</strong> and all associated history.
+                    This action cannot be undone.
+                </p>
+                <div style={{ marginBottom: '16px' }}>
+                    <label style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>Type <strong>DELETE</strong> to confirm:</label>
+                    <input 
+                        value={confirmText}
+                        onChange={e => setConfirmText(e.target.value)}
+                        placeholder="DELETE"
+                        style={{ width: '100%', borderColor: confirmText === 'DELETE' ? 'var(--danger)' : '' }}
+                    />
+                </div>
+                {err && <p className="error" style={{ marginBottom: '12px' }}>{err}</p>}
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                    <button onClick={onClose} className="secondary" disabled={deleting}>Cancel</button>
+                    <button 
+                        onClick={handleHardDelete} 
+                        className="danger" 
+                        disabled={deleting || confirmText !== 'DELETE'}
+                    >
+                        {deleting ? 'Deleting...' : 'Permanently Delete'}
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 }

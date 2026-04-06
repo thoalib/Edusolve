@@ -674,15 +674,22 @@ export async function handleHR(req, res, url) {
       // e.g. India time is UTC+5:30. A payment verified at 01:00 AM on Mar 1 IST
       // is 19:30 on Feb 28th in UTC.
       
-      const start = new Date(year, month - 1, 1);
-      // Give a 1 day buffer backwards for timezone 
-      start.setDate(start.getDate() - 1);
-      const startIso = start.toISOString().split('T')[0] + 'T00:00:00Z';
+      let startIso, endIso;
+      const fromParam = url.searchParams.get('from');
+      const toParam = url.searchParams.get('to');
 
-      const end = new Date(year, month, 0);
-      // Give a 1 day buffer forwards for timezone
-      end.setDate(end.getDate() + 1);
-      const endIso = end.toISOString().split('T')[0] + 'T23:59:59Z';
+      if (fromParam && toParam) {
+        startIso = fromParam.includes('T') ? fromParam : fromParam + 'T00:00:00Z';
+        endIso = toParam.includes('T') ? toParam : toParam + 'T23:59:59Z';
+      } else {
+        const start = new Date(year, month - 1, 1);
+        start.setDate(start.getDate() - 1);
+        startIso = start.toISOString().split('T')[0] + 'T00:00:00Z';
+
+        const end = new Date(year, month, 0);
+        end.setDate(end.getDate() + 1);
+        endIso = end.toISOString().split('T')[0] + 'T23:59:59Z';
+      }
 
       const { data: verifiedPayments } = await adminClient
         .from('payment_requests')
@@ -693,9 +700,17 @@ export async function handleHR(req, res, url) {
 
       const salesMap = {};
       (verifiedPayments || []).forEach(p => {
-        // Double check it belongs in the requested month exactly using local month matching
-        const pDate = new Date(p.verified_at);
-        if (pDate.getMonth() + 1 === month && pDate.getFullYear() === year) {
+        let inRange = false;
+        if (fromParam && toParam) {
+           inRange = true; // DB query already filtered it perfectly
+        } else {
+           const pDate = new Date(p.verified_at);
+           if (pDate.getMonth() + 1 === month && pDate.getFullYear() === year) {
+             inRange = true;
+           }
+        }
+
+        if (inRange) {
           const cId = p.leads?.counselor_id;
           if (cId) {
             salesMap[cId] = (salesMap[cId] || 0) + Number(p.total_amount || p.amount || 0);
