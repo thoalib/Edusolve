@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../../lib/api.js';
+import { DashboardDateFilter } from './CounselorDashboards.jsx';
 
 function CurrencyDisplay({ value, prefix = '₹', style = {} }) {
     const val = Number(value) || 0;
@@ -12,24 +13,36 @@ function CurrencyDisplay({ value, prefix = '₹', style = {} }) {
     );
 }
 
+function getThisMonthRange() {
+    const now = new Date();
+    return {
+        from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10),
+        to: now.toISOString().slice(0, 10)
+    };
+}
+
 export function SuperAdminDashboardPage() {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [dateRange, setDateRange] = useState(getThisMonthRange);
 
     useEffect(() => {
-        apiFetch('/dashboard/super-admin')
+        setLoading(true);
+        const params = `from=${dateRange.from}&to=${dateRange.to}`;
+        apiFetch(`/dashboard/super-admin?${params}`)
             .then(res => setStats(res.stats))
             .catch(err => console.error('Failed to load super admin stats', err))
             .finally(() => setLoading(false));
-    }, []);
+    }, [dateRange]);
 
-    if (loading) return <section className="panel"><p>Loading system overview...</p></section>;
+    if (loading && !stats) return <section className="panel"><p>Loading system overview...</p></section>;
     if (!stats) return <section className="panel"><p className="error">Failed to load system stats</p></section>;
 
     const { leads, students, teachers, finance } = stats;
 
     return (
         <section className="panel">
+            <DashboardDateFilter onChange={setDateRange} />
 
             {/* ── Financial Health ── */}
             <h3 style={{ margin: '0 0 16px', fontSize: '18px', fontWeight: 700 }}>Financial Health</h3>

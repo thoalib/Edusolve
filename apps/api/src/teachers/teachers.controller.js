@@ -607,12 +607,21 @@ export async function handleTeachers(req, res, url) {
         sendJson(res, 403, { ok: false, error: 'teacher role required' });
         return true;
       }
-      const { data, error } = await adminClient
+      let query = adminClient
         .from('hour_ledger')
         .select('*')
         .eq('teacher_id', actor.userId)
         .eq('entry_type', 'teacher_credit')
         .order('created_at', { ascending: false });
+
+      const from = url.searchParams.get('from');
+      const to = url.searchParams.get('to');
+      if (from && to) {
+        query = query.gte('created_at', from.includes('T') ? from : from + 'T00:00:00Z')
+                     .lte('created_at', to.includes('T') ? to : to + 'T23:59:59Z');
+      }
+
+      const { data, error } = await query;
       if (error) throw new Error(error.message);
       const totalHours = (data || []).reduce((sum, r) => sum + Number(r.hours_delta || 0), 0);
       sendJson(res, 200, { ok: true, items: data || [], total_hours: totalHours });
@@ -638,9 +647,15 @@ export async function handleTeachers(req, res, url) {
         return true;
       }
 
-      const now = new Date();
-      const currentMonth = now.getMonth() + 1;
-      const currentYear = now.getFullYear();
+      let currentMonth = new Date().getMonth() + 1;
+      let currentYear = new Date().getFullYear();
+      
+      const fromParam = url.searchParams.get('from');
+      if (fromParam) {
+        const d = new Date(fromParam);
+        currentMonth = d.getMonth() + 1;
+        currentYear = d.getFullYear();
+      }
 
       // Dynamically calculate total earned from approved sessions
       const { calculateAllTeacherSalaries } = await import('../hr/salary.service.js');

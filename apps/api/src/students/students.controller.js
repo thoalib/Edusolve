@@ -173,6 +173,13 @@ export async function handleStudents(req, res, url) {
         query = query.eq('academic_coordinator_id', acIdFilter);
       }
 
+      const fromParam = url.searchParams.get('from');
+      const toParam = url.searchParams.get('to');
+      if (fromParam && toParam) {
+        query = query.gte('created_at', fromParam.includes('T') ? fromParam : fromParam + 'T00:00:00Z')
+                     .lte('created_at', toParam.includes('T') ? toParam : toParam + 'T23:59:59Z');
+      }
+
       const { data, error } = await query;
       if (error) throw new Error(error.message);
 
@@ -455,6 +462,13 @@ export async function handleStudents(req, res, url) {
         query = query.eq('students.academic_coordinator_id', actor.userId);
       } else if (actor.role === 'super_admin' && requestedUserId) {
         query = query.eq('students.academic_coordinator_id', requestedUserId);
+      }
+
+      const fromParam = url.searchParams.get('from');
+      const toParam = url.searchParams.get('to');
+      if (fromParam && toParam) {
+        query = query.gte('created_at', fromParam.includes('T') ? fromParam : fromParam + 'T00:00:00Z')
+                     .lte('created_at', toParam.includes('T') ? toParam : toParam + 'T23:59:59Z');
       }
 
       const { data, error } = await query;
@@ -1463,8 +1477,8 @@ export async function handleStudents(req, res, url) {
       return true;
     }
 
-    // ─── POST /students/import ──────────────────────────────────
-    if (req.method === 'POST' && parts.length === 2 && parts[0] === 'students' && parts[1] === 'import') {
+    // ─── POST /students/import-sheet ──────────────────────────────
+    if (req.method === 'POST' && parts.length === 2 && parts[0] === 'students' && parts[1] === 'import-sheet') {
       if (!isAC(actor) && actor.role !== 'super_admin') {
         sendJson(res, 403, { ok: false, error: 'only academic coordinator or super admin can import students' });
         return true;

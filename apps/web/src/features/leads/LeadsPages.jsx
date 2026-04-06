@@ -3,6 +3,7 @@ import { apiFetch } from '../../lib/api.js';
 import { getSession } from '../../lib/auth.js';
 import { AddLeadModal } from './components/AddLeadModal.jsx';
 import { GenerateInvoiceModal, ReceiptModal } from '../finance/InvoiceTemplate.jsx';
+import { BulkImportModal } from '../common/BulkImportModal.jsx';
 
 import { LeadFilters } from './components/LeadFilters.jsx';
 import { SearchSelect } from '../../components/ui/SearchSelect.jsx';
@@ -254,7 +255,7 @@ function MobileLeadCard({ lead, counselorMap, onOpenDetails, onViewInPipeline, o
       className="card list-mobile-card"
       style={{ padding: '16px', position: 'relative', marginBottom: '0', border: (!isCounselor && isSelected) ? '2px solid #3b82f6' : '1px solid #e5e7eb', background: lead.counselor_id ? '#fff' : '#fffbeb' }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
         <div style={{ flex: 1, paddingRight: 8, display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
           {!isCounselor && (
             <div style={{ marginTop: '2px' }} onClick={e => e.stopPropagation()}>
@@ -267,9 +268,12 @@ function MobileLeadCard({ lead, counselorMap, onOpenDetails, onViewInPipeline, o
             </div>
           )}
           <div onClick={() => setExpanded(!expanded)} style={{ cursor: 'pointer', flex: 1 }}>
-            <h4 style={{ margin: '0 0 4px', fontSize: '15px', fontWeight: 600, color: '#2563eb' }}>
-              {lead.student_name}
-            </h4>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <h4 style={{ margin: '0 0 4px', fontSize: '15px', fontWeight: 600, color: '#2563eb' }}>
+                {lead.student_name}
+              </h4>
+              {lead.is_reassigned && <span className="status-badge neutral" style={{ fontSize: '10px', padding: '1px 4px' }} title="Reassigned from another counselor">↩</span>}
+            </div>
             <div style={{ margin: 0, fontSize: '13px', color: '#6b7280' }}>
               {lead.contact_number || '-'} • {getRelativeTime(lead.created_at)}
             </div>
@@ -336,10 +340,12 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
   const [showAddModal, setShowAddModal] = useState(false);
   const [filters, setFilters] = useState({ search: '', status: '', counselorId: '', leadType: '', dateFrom: '', dateTo: '' });
   const [assignCounselorId, setAssignCounselorId] = useState('');
+  const [showBulkImportModal, setShowBulkImportModal] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const [leadTab, setLeadTab] = useState(user?.role === 'counselor' ? 'all' : 'new'); // 'new', 'assigned', 'all'
   const [showDropModal, setShowDropModal] = useState(null);
   const [showNoteModal, setShowNoteModal] = useState(null);
+  const [showHardDeleteModal, setShowHardDeleteModal] = useState(null);
   const [noteFilter, setNoteFilter] = useState('all');
   
   const [clientPage, setClientPage] = useState(1);
@@ -440,58 +446,48 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
 
   return (
     <section className="panel">
-      {/* All / Unassigned / Assigned Tabs — visible to counselor_head and above */}
-      {user?.role !== 'counselor' ? (
-        <div className="tabs-row" style={{ marginBottom: 16 }}>
-          {[
-            { id: 'all', label: 'All', count: items.length },
-            { id: 'unassigned', label: 'Unassigned', count: unassignedCount },
-            { id: 'assigned', label: 'Assigned', count: assignedCount },
-          ].map(tab => (
-            <button
-              key={tab.id}
-              className={`tab-btn ${leadTab === tab.id ? 'active' : ''}`}
-              onClick={() => { setLeadTab(tab.id); setSelectedIds([]); setClientPage(1); }}
-            >
-              {tab.label}
-              <span style={{
-                marginLeft: 6, fontSize: 11, fontWeight: 700,
-                background: leadTab === tab.id ? 'rgba(255,255,255,0.25)' : (tab.id === 'unassigned' && unassignedCount > 0 ? '#fee2e2' : 'var(--surface-soft)'),
-                color: leadTab === tab.id ? '#fff' : (tab.id === 'unassigned' && unassignedCount > 0 ? 'var(--danger)' : 'var(--muted)'),
-                borderRadius: 99, padding: '1px 7px'
-              }}>
-                {tab.count}
-              </span>
-            </button>
-          ))}
+      {/* Header Row: Tabs (Left) + Buttons (Right) */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '16px' }}>
+        {user?.role !== 'counselor' ? (
+          <div className="tabs-row" style={{ marginBottom: 0, borderBottom: 'none' }}>
+            {[
+              { id: 'all', label: 'All', count: items.length },
+              { id: 'unassigned', label: 'Unassigned', count: unassignedCount },
+              { id: 'assigned', label: 'Assigned', count: assignedCount },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                className={`tab-btn ${leadTab === tab.id ? 'active' : ''}`}
+                onClick={() => { setLeadTab(tab.id); setSelectedIds([]); setClientPage(1); }}
+                style={{ padding: '8px 16px', fontSize: '13px' }}
+              >
+                {tab.label}
+                <span style={{
+                  marginLeft: 6, fontSize: 11, fontWeight: 700,
+                  background: leadTab === tab.id ? 'rgba(255,255,255,0.25)' : (tab.id === 'unassigned' && unassignedCount > 0 ? '#fee2e2' : 'var(--surface-soft)'),
+                  color: leadTab === tab.id ? '#fff' : (tab.id === 'unassigned' && unassignedCount > 0 ? 'var(--danger)' : 'var(--muted)'),
+                  borderRadius: 99, padding: '1px 7px'
+                }}>
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : <h2 style={{ fontSize: '18px', margin: 0 }}>Leads</h2>}
+
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={() => setShowBulkImportModal(true)} className="secondary" style={{ whiteSpace: 'nowrap', padding: '8px 16px', fontSize: '13px' }}>Bulk Import</button>
+          <button onClick={() => setShowAddModal(true)} className="primary" style={{ whiteSpace: 'nowrap', padding: '8px 16px', fontSize: '13px' }}>+ Add Lead</button>
         </div>
-      ) : null}
+      </div>
 
       <LeadFilters
         onFilterChange={setFilters}
         counselors={counselors}
         userRole={user?.role}
-        actionButton={<button onClick={() => setShowAddModal(true)} className="primary" style={{ whiteSpace: 'nowrap' }}>+ Add Lead</button>}
-      >
-        {filters.status && filters.status !== 'dropped' && filters.status !== 'joined' && (
-          <div style={{ position: 'relative', display: 'inline-block' }}>
-            <select
-              value={noteFilter}
-              onChange={e => setNoteFilter(e.target.value)}
-              className="filter-toggle-btn"
-              style={{ paddingRight: '28px', appearance: 'none', outline: 'none', background: 'white' }}
-            >
-              <option value="all">Note: All</option>
-              <option value="none">Note: None</option>
-              {(STUDENT_LEAD_NOTES[filters.status] || []).map(n => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-              <option value="other">Note: Other</option>
-            </select>
-            <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', fontSize: '10px', color: 'var(--primary)' }}>▼</span>
-          </div>
-        )}
-      </LeadFilters>
+        noteFilter={noteFilter}
+        onNoteFilterChange={setNoteFilter}
+      />
 
       {loading ? <p>Loading leads...</p> : null}
       {error ? <p className="error">{error}</p> : null}
@@ -557,10 +553,21 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
                   <td>{lead.contact_number || '-'}</td>
                   <td>{lead.class_level || '-'}</td>
                   <td>{lead.lead_type || '-'}</td>
-                  <td><StatusBadge status={lead.status} /></td>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <StatusBadge status={lead.status} />
+                      {lead.is_reassigned && <span className="status-badge neutral" style={{ fontSize: '10px', padding: '1px 4px' }} title="Reassigned from another counselor">↩ Reassigned</span>}
+                    </div>
+                  </td>
                   <td style={{ whiteSpace: 'nowrap', color: '#6b7280', fontSize: '13px' }}>{getRelativeTime(lead.created_at)}</td>
                   {user?.role !== 'counselor' ? (
-                    <td>{counselorMap[lead.counselor_id] || <span className="text-dim">Unassigned</span>}</td>
+                    <td>
+                      {!lead.counselor_id ? (
+                        <InlineAssign leadId={lead.id} counselors={counselors} onDone={refresh} />
+                      ) : (
+                        counselorMap[lead.counselor_id] || <span className="text-dim">Unassigned</span>
+                      )}
+                    </td>
                   ) : null}
                   {filters.status === 'joined' && (
                     <td>{lead.students?.users?.full_name || lead.students?.users?.email || '-'}</td>
@@ -580,6 +587,9 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
                     <button type="button" className="secondary small" onClick={() => onOpenDetails(lead.id)}>View</button>
                     {lead.status !== 'dropped' && lead.status !== 'joined' && (
                       <button type="button" className="danger small" onClick={() => setShowDropModal(lead)}>Drop</button>
+                    )}
+                    {(user?.role === 'super_admin' || user?.role === 'counselor_head') && (
+                      <button type="button" className="danger-outline small" onClick={() => setShowHardDeleteModal(lead)} title="Hard Delete">🗑️</button>
                     )}
                   </td>
                 </tr>
@@ -686,9 +696,27 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
         />
       )}
 
+      {showHardDeleteModal && (
+        <HardDeleteModal
+          lead={showHardDeleteModal}
+          onClose={() => setShowHardDeleteModal(null)}
+          onDone={() => { setShowHardDeleteModal(null); refresh(); }}
+        />
+      )}
+
+      {showBulkImportModal && (
+        <BulkImportModal
+          type="student"
+          onClose={() => setShowBulkImportModal(false)}
+          onDone={() => { setShowBulkImportModal(false); refresh(); }}
+        />
+      )}
+
     </section>
   );
 }
+
+
 
 /* ─── Student Lead Note Modal ─── */
 function StudentLeadNoteModal({ lead, onClose, onDone }) {
@@ -1351,6 +1379,7 @@ export function MyLeadsPage({ onOpenDetails, initialLeadId = '', onPipelineReady
   const [highlightedLeadId, setHighlightedLeadId] = useState('');
   const [showDropModal, setShowDropModal] = useState(null);
   const [showNoteModal, setShowNoteModal] = useState(null);
+  const [showBulkImportModal, setShowBulkImportModal] = useState(false);
   const [rejectionReasons, setRejectionReasons] = useState([]);
   const [rejectionFilter, setRejectionFilter] = useState('all');
   const [noteFilter, setNoteFilter] = useState('all');
@@ -1597,6 +1626,14 @@ export function MyLeadsPage({ onOpenDetails, initialLeadId = '', onPipelineReady
           </div>
         ))}
       </div>
+
+      {showBulkImportModal && (
+        <BulkImportModal
+          type="student"
+          onClose={() => setShowBulkImportModal(false)}
+          onDone={() => { setShowBulkImportModal(false); refresh(); }}
+        />
+      )}
     </section>
   );
 }
@@ -3490,6 +3527,9 @@ export function OverdueLeadsPage() {
   const [search, setSearch] = useState('');
   const [reassigning, setReassigning] = useState({});
   const [selectedCounselor, setSelectedCounselor] = useState({});
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkAssignCounselorId, setBulkAssignCounselorId] = useState('');
+  const [isBulkAssigning, setIsBulkAssigning] = useState(false);
 
   async function loadData(currentPage = page) {
     setLoading(true);
@@ -3511,6 +3551,26 @@ export function OverdueLeadsPage() {
     if (!assignedAt) return '—';
     const days = Math.floor((Date.now() - new Date(assignedAt).getTime()) / (1000 * 60 * 60 * 24));
     return days;
+  }
+
+  async function handleBulkReassign(e) {
+    if (e) e.preventDefault();
+    if (!bulkAssignCounselorId || !selectedIds.length) return;
+    setIsBulkAssigning(true);
+    try {
+      await apiFetch('/leads/assign', {
+        method: 'POST',
+        body: JSON.stringify({ lead_ids: selectedIds, counselor_id: bulkAssignCounselorId })
+      });
+      setSelectedIds([]);
+      setBulkAssignCounselorId('');
+      await loadData();
+      alert('Leads reassigned successfully');
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setIsBulkAssigning(false);
+    }
   }
 
   async function handleReassign(leadId) {
@@ -3575,6 +3635,16 @@ export function OverdueLeadsPage() {
           <table className="data-table">
             <thead>
               <tr>
+                <th style={{ width: '40px' }}>
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && selectedIds.length === filtered.length}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelectedIds(filtered.map(i => i.id));
+                      else setSelectedIds([]);
+                    }}
+                  />
+                </th>
                 <th>Student</th>
                 <th>Phone</th>
                 <th>Subject</th>
@@ -3589,8 +3659,23 @@ export function OverdueLeadsPage() {
               {filtered.map(l => {
                 const days = daysOverdue(l.assigned_at);
                 return (
-                  <tr key={l.id} style={{ background: days >= 20 ? '#fef2f2' : 'transparent' }}>
-                    <td style={{ fontWeight: 500 }}>{l.student_name}</td>
+                  <tr key={l.id} style={{ background: days >= 20 ? '#fef2f2' : 'transparent' }} className={selectedIds.includes(l.id) ? 'selected-row' : ''}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(l.id)}
+                        onChange={() => {
+                          if (selectedIds.includes(l.id)) setSelectedIds(selectedIds.filter(id => id !== l.id));
+                          else setSelectedIds([...selectedIds, l.id]);
+                        }}
+                      />
+                    </td>
+                    <td style={{ fontWeight: 500 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {l.student_name}
+                        {l.is_reassigned && <span className="status-badge neutral" style={{ fontSize: '10px', padding: '1px 4px' }} title="Reassigned from another counselor">↩ Reassigned</span>}
+                      </div>
+                    </td>
                     <td>{l.contact_number || '—'}</td>
                     <td>{l.subject || '—'}</td>
                     <td>
@@ -3663,6 +3748,35 @@ export function OverdueLeadsPage() {
       </div>
       {!loading && total > 0 && (
         <Pagination page={page} limit={limit} total={total} onPageChange={setPage} />
+      )}
+
+      {selectedIds.length > 0 && (
+        <div className="floating-actions" style={{
+          position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
+          background: '#1f2937', color: 'white', padding: '12px 24px', borderRadius: '50px',
+          display: 'flex', alignItems: 'center', gap: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
+          zIndex: 100
+        }}>
+          <span>{selectedIds.length} selected</span>
+          <div style={{ height: '20px', width: '1px', background: '#4b5563' }} />
+
+          <form onSubmit={handleBulkReassign} style={{ display: 'flex', gap: '8px' }}>
+            <select
+              value={bulkAssignCounselorId}
+              onChange={e => setBulkAssignCounselorId(e.target.value)}
+              required
+              style={{ background: '#374151', color: 'white', border: 'none', padding: '4px 8px', borderRadius: '4px' }}
+            >
+              <option value="">Reassign to...</option>
+              {counselors.map(c => <option key={c.id} value={c.id}>{c.full_name || c.email}</option>)}
+            </select>
+            <button type="submit" disabled={isBulkAssigning} className="primary small" style={{ padding: '4px 12px' }}>
+              {isBulkAssigning ? '...' : 'Reassign'}
+            </button>
+          </form>
+
+          <button className="text-danger" type="button" onClick={() => setSelectedIds([])} style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer' }}>Cancel</button>
+        </div>
       )}
     </section>
   );
@@ -3857,6 +3971,99 @@ function NewPaymentRequestModal({ leads, onClose, onSuccess, initialLeadId }) {
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+/* ─── Hard Delete Modal ─── */
+function HardDeleteModal({ lead, onClose, onDone }) {
+  const [confirmText, setConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    if (confirmText !== 'DELETE') return;
+    setDeleting(true);
+    try {
+      await apiFetch(`/leads/${lead.id}/hard`, { method: 'DELETE' });
+      onDone();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ margin: 0 }}>Hard Delete: {lead.student_name}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer' }}>×</button>
+        </div>
+        <div style={{ padding: '12px', background: '#fee2e2', border: '1px solid #f87171', borderRadius: '6px', marginBottom: '16px' }}>
+          <p style={{ margin: 0, color: '#dc2626', fontSize: '13px', fontWeight: 600 }}>
+            ⚠️ WARNING: This will permanently remove all data, history, and requests related to this lead. This action cannot be undone.
+          </p>
+        </div>
+        <p style={{ fontSize: '14px', marginBottom: '8px' }}>Type <strong style={{ color: '#dc2626' }}>DELETE</strong> to confirm:</p>
+        <input 
+          type="text" 
+          value={confirmText} 
+          onChange={e => setConfirmText(e.target.value)} 
+          placeholder="DELETE"
+          autoFocus
+          style={{ width: '100%', marginBottom: '16px', border: '2px solid #ef4444', padding: '8px', borderRadius: '4px', outline: 'none' }}
+        />
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button className="secondary" onClick={onClose} disabled={deleting}>Cancel</button>
+          <button className="danger" onClick={handleDelete} disabled={confirmText !== 'DELETE' || deleting}>
+            {deleting ? 'Deleting...' : 'Permanent Delete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Inline Assign Component ─── */
+function InlineAssign({ leadId, counselors, onDone }) {
+  const [selectedId, setSelectedId] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleAssign() {
+    if (!selectedId) return;
+    setLoading(true);
+    try {
+      await apiFetch(`/leads/${leadId}/assign`, {
+        method: 'POST',
+        body: JSON.stringify({ counselor_id: selectedId })
+      });
+      onDone();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+      <select 
+        value={selectedId} 
+        onChange={e => setSelectedId(e.target.value)}
+        style={{ fontSize: '12px', padding: '2px 4px', width: '110px', borderRadius: '4px', border: '1px solid #d1d5db' }}
+      >
+        <option value="">Assign...</option>
+        {counselors.map(c => <option key={c.id} value={c.id}>{c.full_name || c.email}</option>)}
+      </select>
+      <button 
+        className="primary small" 
+        onClick={handleAssign} 
+        disabled={!selectedId || loading}
+        style={{ padding: '2px 8px', fontSize: '11px', whiteSpace: 'nowrap' }}
+      >
+        {loading ? '...' : 'Assign'}
+      </button>
     </div>
   );
 }

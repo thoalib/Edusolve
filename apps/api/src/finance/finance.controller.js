@@ -94,12 +94,29 @@ export async function handleFinance(req, res, url) {
   try {
     // ═══════ STATS ═══════
     if (req.method === 'GET' && url.pathname === '/finance/stats') {
+      const fromParam = url.searchParams.get('from');
+      const toParam = url.searchParams.get('to');
+
+      let incomeQ = adminClient.from('ledger_entries').select('amount').eq('entry_type', 'income');
+      let expensesQ = adminClient.from('expenses').select('amount');
+      let payReqsQ = adminClient.from('payment_requests').select('status');
+      let topupsQ = adminClient.from('student_topups').select('status');
+
+      if (fromParam && toParam) {
+        const toDate = toParam.includes('T') ? toParam : toParam + 'T23:59:59Z';
+        const fromDate = fromParam.includes('T') ? fromParam : fromParam + 'T00:00:00Z';
+        incomeQ = incomeQ.gte('created_at', fromDate).lte('created_at', toDate);
+        expensesQ = expensesQ.gte('created_at', fromDate).lte('created_at', toDate);
+        payReqsQ = payReqsQ.gte('created_at', fromDate).lte('created_at', toDate);
+        topupsQ = topupsQ.gte('created_at', fromDate).lte('created_at', toDate);
+      }
+
       const results = await Promise.all([
-        adminClient.from('ledger_entries').select('amount').eq('entry_type', 'income'),
-        adminClient.from('expenses').select('amount'),
+        incomeQ,
+        expensesQ,
         adminClient.from('finance_accounts').select('balance'),
-        adminClient.from('payment_requests').select('status'),
-        adminClient.from('student_topups').select('status')
+        payReqsQ,
+        topupsQ
       ]);
       const income = results[0]?.data || [];
       const expenses = results[1]?.data || [];
@@ -312,9 +329,10 @@ export async function handleFinance(req, res, url) {
       });
 
       // Insert receivable entry (total owed) and income entry (amount paid)
+      const entryDate = payload.entry_date || nowIso().slice(0, 10);
       await adminClient.from('ledger_entries').insert([
         {
-          entry_date: nowIso().slice(0, 10),
+          entry_date: entryDate,
           entry_type: 'receivable',
           amount: request.total_amount || request.amount || 0,
           description: `Receivable: Onboarding Fee — ${student.student_name}`,
@@ -322,7 +340,7 @@ export async function handleFinance(req, res, url) {
           posted_by: actor.userId
         },
         {
-          entry_date: nowIso().slice(0, 10),
+          entry_date: entryDate,
           entry_type: 'income',
           amount: request.amount || 0,
           description: `Payment Received: ${student.student_name} (Onboarding)`,
@@ -413,9 +431,10 @@ export async function handleFinance(req, res, url) {
       if (requestUpdateError) throw new Error(requestUpdateError.message);
 
       // Insert receivable entry (total owed) and income entry (amount paid)
+      const entryDate = payload.entry_date || nowIso().slice(0, 10);
       await adminClient.from('ledger_entries').insert([
         {
-          entry_date: nowIso().slice(0, 10),
+          entry_date: entryDate,
           entry_type: 'receivable',
           amount: request.total_amount || request.amount || 0,
           description: `Receivable: Top-Up Fee — ${student.student_name}`,
@@ -423,7 +442,7 @@ export async function handleFinance(req, res, url) {
           posted_by: actor.userId
         },
         {
-          entry_date: nowIso().slice(0, 10),
+          entry_date: entryDate,
           entry_type: 'income',
           amount: request.amount || 0,
           description: `Payment Received: ${student.student_name} (Top-Up)`,
@@ -753,8 +772,16 @@ export async function handleFinance(req, res, url) {
 
     // ═══════ INCOME (Ledger Entries) ═══════
     if (req.method === 'GET' && url.pathname === '/finance/income') {
-      const { data, error } = await adminClient.from('ledger_entries').select('*, finance_accounts(name), finance_parties(name), students(student_name), employees(full_name)')
+      let query = adminClient.from('ledger_entries').select('*, finance_accounts(name), finance_parties(name), students(student_name), employees(full_name)')
         .eq('entry_type', 'income').order('entry_date', { ascending: false }).limit(2000);
+
+      const fromParam = url.searchParams.get('from');
+      const toParam = url.searchParams.get('to');
+      if (fromParam && toParam) {
+        query = query.gte('entry_date', fromParam.split('T')[0]).lte('entry_date', toParam.split('T')[0]);
+      }
+
+      const { data, error } = await query;
       if (error) throw new Error(error.message);
       const enrichedData = await enrichTeachers(adminClient, data || []);
       sendJson(res, 200, { ok: true, items: enrichedData });
@@ -839,8 +866,16 @@ export async function handleFinance(req, res, url) {
 
     // ═══════ EXPENSES ═══════
     if (req.method === 'GET' && url.pathname === '/finance/expenses') {
-      const { data, error } = await adminClient.from('expenses').select('*, finance_accounts(name), finance_parties(name), students(student_name), employees(full_name)')
+      let query = adminClient.from('expenses').select('*, finance_accounts(name), finance_parties(name), students(student_name), employees(full_name)')
         .order('expense_date', { ascending: false }).limit(2000);
+
+      const fromParam = url.searchParams.get('from');
+      const toParam = url.searchParams.get('to');
+      if (fromParam && toParam) {
+        query = query.gte('expense_date', fromParam.split('T')[0]).lte('expense_date', toParam.split('T')[0]);
+      }
+
+      const { data, error } = await query;
       if (error) throw new Error(error.message);
       const enrichedData = await enrichTeachers(adminClient, data || []);
       sendJson(res, 200, { ok: true, items: enrichedData });
@@ -1250,9 +1285,10 @@ export async function handleFinance(req, res, url) {
         }
 
         // 3. Add Ledger Entries (Receivable for the new hours, Income for the actual cash)
+        const overpayDate = payload.entry_date || nowIso().slice(0, 10);
         await adminClient.from('ledger_entries').insert([
           {
-            entry_date: nowIso().slice(0, 10),
+            entry_date: overpayDate,
             entry_type: 'receivable',
             amount: excessAmount,
             description: `Receivable: Auto Top-Up Fee — ${studentName}`,
@@ -1260,7 +1296,7 @@ export async function handleFinance(req, res, url) {
             posted_by: actor.userId
           },
           {
-            entry_date: nowIso().slice(0, 10),
+            entry_date: overpayDate,
             entry_type: 'income',
             amount: excessAmount,
             description: `Auto Top-up Income: Overpayment by ${studentName}`,
@@ -1272,10 +1308,11 @@ export async function handleFinance(req, res, url) {
       }
 
       // Add to Ledger for the base installment amount
+      const entryDate = payload.entry_date || nowIso().slice(0, 10);
       const baseInstallmentAmount = Number(inst.amount) - excessAmount;
       if (baseInstallmentAmount > 0) {
         await adminClient.from('ledger_entries').insert({
-          entry_date: nowIso().slice(0, 10),
+          entry_date: entryDate,
           entry_type: 'income',
           amount: baseInstallmentAmount,
           description: `Installment Payment: ${studentName}`,

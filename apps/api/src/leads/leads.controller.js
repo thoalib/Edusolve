@@ -168,6 +168,17 @@ export async function handleLeads(req, res, url) {
       return true;
     }
 
+    if (req.method === 'POST' && url.pathname === '/leads/bulk') {
+      const payloads = await readJson(req);
+      const result = await leadsService.bulkCreate(payloads, actor);
+      if (result.error) {
+        sendJson(res, 403, { ok: false, error: result.error });
+        return true;
+      }
+      sendJson(res, 201, { ok: true, count: result.count });
+      return true;
+    }
+
     if (req.method === 'POST' && url.pathname === '/leads/bulk-assign-ac') {
       const payload = await readJson(req);
       const result = await leadsService.bulkConvertToStudents(payload.lead_ids, payload.ac_user_id, actor);
@@ -236,6 +247,16 @@ export async function handleLeads(req, res, url) {
         return true;
       }
       sendJson(res, 200, { ok: true, lead: updated });
+      return true;
+    }
+
+    if (req.method === 'DELETE' && parts.length === 3 && parts[2] === 'hard') {
+      const result = await leadsService.hardDelete(leadId, actor);
+      if (result && result.error) {
+        sendJson(res, 403, { ok: false, error: result.error });
+        return true;
+      }
+      sendJson(res, 200, { ok: true });
       return true;
     }
 

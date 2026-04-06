@@ -272,9 +272,24 @@ export class LeadsService {
       query = query.range(from, from + limit - 1);
     }
 
-    const { data, count, error } = await query;
-    if (error) throw new Error(error.message);
-    return { items: data || [], total: count || 0, page, limit };
+    const { data, count, error: fetchError } = await query;
+    if (fetchError) throw new Error(fetchError.message);
+
+    const itemsWithHistory = await this.attachReassignedFlag(data || [], adminClient);
+    return { items: itemsWithHistory, total: count || 0, page, limit };
+  }
+
+  async attachReassignedFlag(items, adminClient) {
+    if (!items.length || !adminClient) return items;
+    const leadIds = items.map(i => i.id);
+    const { data: reassignedHistory } = await adminClient
+      .from('lead_status_history')
+      .select('lead_id')
+      .in('lead_id', leadIds)
+      .like('reason', 'Reassigned from%');
+
+    const reassignedSet = new Set((reassignedHistory || []).map(h => h.lead_id));
+    return items.map(i => ({ ...i, is_reassigned: reassignedSet.has(i.id) }));
   }
 
   async get(id, actor) {
@@ -486,6 +501,76 @@ export class LeadsService {
     return data;
   }
 
+  async bulkCreate(payloads, actor) {
+    const adminClient = getSupabaseAdminClient();
+    if (!isCounselor(actor) && !isCounselorHead(actor) && !isSuperAdmin(actor)) {
+      return { error: 'only counselor, counselor head or super admin can create leads' };
+    }
+
+    if (!Array.isArray(payloads) || payloads.length === 0) {
+      return { error: 'payloads must be a non-empty array' };
+    }
+
+    let forcedCounselorId = null;
+    if (isCounselor(actor)) {
+      forcedCounselorId = actor.userId;
+    }
+
+    if (!adminClient) {
+      const createdItems = payloads.map(p => ({
+        id: randomUUID(),
+        student_name: p.student_name,
+        parent_name: p.parent_name || null,
+        class_level: p.class_level || null,
+        subject: p.subject || null,
+        counselor_id: forcedCounselorId,
+        contact_number: p.contact_number || null,
+        status: 'new',
+        owner_stage: 'counselor',
+        created_at: nowIso(),
+        updated_at: nowIso(),
+        deleted_at: null
+      }));
+      memoryLeads.push(...createdItems);
+      return { count: createdItems.length };
+    }
+
+    const leadsToInsert = payloads.map(p => ({
+      student_name: p.student_name,
+      parent_name: p.parent_name || null,
+      class_level: p.class_level || null,
+      subject: p.subject || null,
+      lead_type: p.lead_type || null,
+      counselor_id: forcedCounselorId,
+      contact_number: p.contact_number || null,
+      email: p.email || null,
+      country: p.country || null,
+      status: 'new',
+      owner_stage: 'counselor'
+    }));
+
+    const { data: insertedLeads, error } = await adminClient
+      .from('leads')
+      .insert(leadsToInsert)
+      .select('id, status');
+
+    if (error) throw new Error(error.message);
+
+    if (insertedLeads && insertedLeads.length > 0) {
+      const historyEntries = insertedLeads.map(l => ({
+        lead_id: l.id,
+        from_status: null,
+        to_status: l.status,
+        changed_by: actor.userId,
+        reason: 'bulk import'
+      }));
+      await adminClient.from('lead_status_history').insert(historyEntries);
+      await safeAuditInsert('lead.bulk_create', 'lead', actor.userId, actor.userId, null, { count: insertedLeads.length }, 'bulk import');
+    }
+
+    return { count: insertedLeads?.length || 0 };
+  }
+
   async update(id, payload, actor) {
     const adminClient = getSupabaseAdminClient();
     if (!isCounselor(actor) && !isCounselorHead(actor) && !isSuperAdmin(actor)) {
@@ -663,6 +748,50 @@ export class LeadsService {
 
     await safeAuditInsert('lead.soft_delete', 'lead', deleted.id, actor.userId, current, deleted, reason || null);
     return deleted;
+  }
+
+  async hardDelete(id, actor) {
+    const adminClient = getSupabaseAdminClient();
+    if (!isCounselorHead(actor) && !isSuperAdmin(actor)) {
+      return { error: 'only counselor head or super admin can hard delete a lead' };
+    }
+
+    if (!adminClient) {
+      const idx = memoryLeads.findIndex(l => l.id === id);
+      if (idx !== -1) memoryLeads.splice(idx, 1);
+      return { ok: true };
+    }
+
+    // 1. Get current lead
+    const { data: current, error: fetchErr } = await adminClient
+      .from('leads')
+      .select('id')
+      .eq('id', id)
+      .maybeSingle();
+    if (!current) return { error: 'lead not found' };
+
+    // 2. Delete related data in order to satisfy FKs (assuming we might not have cascade delete)
+    await Promise.all([
+      adminClient.from('lead_status_history').delete().eq('lead_id', id),
+      adminClient.from('demo_requests').delete().eq('lead_id', id),
+      adminClient.from('demo_sessions').delete().eq('lead_id', id),
+      adminClient.from('payment_requests').delete().eq('lead_id', id),
+      adminClient.from('student_topups').delete().eq('lead_id', id),
+    ]);
+
+    // Note: students entries are NOT deleted here, as converting to student is a one-way trip usually.
+    // If we really want to purge everything, we'd delete from students too, but let's keep it to lead records.
+
+    // 3. Delete lead itself
+    const { error: deleteErr } = await adminClient
+      .from('leads')
+      .delete()
+      .eq('id', id);
+
+    if (deleteErr) throw new Error(deleteErr.message);
+
+    await safeAuditInsert('lead.hard_delete', 'lead', id, actor.userId, current, null, 'hard delete');
+    return { ok: true };
   }
 
   async createDemoRequest(id, actor, scheduledAt) {
@@ -897,6 +1026,8 @@ export class LeadsService {
 
     if (updateError) throw new Error(updateError.message);
 
+    const reassignmentReason = current.counselor_id ? `Reassigned from ${current.counselor_id} to ${counselorUserId}` : `Assigned to ${counselorUserId}`;
+
     await safeAuditInsert(
       'lead.assign_counselor',
       'lead',
@@ -904,7 +1035,7 @@ export class LeadsService {
       actor.userId,
       current,
       updated,
-      'reassigned by counselor head'
+      reassignmentReason
     );
 
     // Add to timeline/history
@@ -913,7 +1044,7 @@ export class LeadsService {
       from_status: current.status,
       to_status: current.status, // Status didn't change, but assignment did
       changed_by: actor.userId,
-      reason: `Assigned to counselor: ${counselorUserId}` // Log the assignment
+      reason: reassignmentReason
     });
 
 
@@ -1021,15 +1152,28 @@ export class LeadsService {
 
     if (error) throw new Error(error.message);
 
+    // Fetch old counselor info for history
+    const { data: leadsBefore } = await adminClient
+      .from('leads')
+      .select('id, counselor_id')
+      .in('id', leadIds);
+
+    const oldCounselorMap = {};
+    (leadsBefore || []).forEach(l => { oldCounselorMap[l.id] = l.counselor_id; });
+
     // Add timeline entries for each assigned lead
     if (updated && updated.length) {
-      const historyEntries = updated.map(u => ({
-        lead_id: u.id,
-        from_status: null,  // We don't track status change here
-        to_status: null,
-        changed_by: actor.userId,
-        reason: `Assigned to counselor (bulk)`
-      }));
+      const historyEntries = updated.map(u => {
+        const oldCid = oldCounselorMap[u.id];
+        const reason = oldCid ? `Reassigned from ${oldCid} to ${counselorId}` : `Assigned to ${counselorId}`;
+        return {
+          lead_id: u.id,
+          from_status: null,
+          to_status: null,
+          changed_by: actor.userId,
+          reason
+        };
+      });
       await adminClient.from('lead_status_history').insert(historyEntries);
     }
 
@@ -1058,7 +1202,8 @@ export class LeadsService {
 
     const { data, count, error } = await query;
     if (error) throw new Error(error.message);
-    return { items: data || [], total: count || 0, page, limit };
+    const itemsWithHistory = await this.attachReassignedFlag(data || [], adminClient);
+    return { items: itemsWithHistory, total: count || 0, page, limit };
   }
 
   async listAcademicCoordinators() {

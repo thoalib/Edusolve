@@ -105,18 +105,20 @@ export class CounselorsService {
     }
 
     // Get aggregated stats for all counselors
-    async getStats({ from, to, userId, actorRole, actorId } = {}) {
+    async getStats({ from, to, userId, actorRole, actorId, leadType } = {}) {
         if (!this.admin) return { error: 'Admin client not available' };
 
-        // Get all leads to aggregate
-        // Note: large dataset in future might need SQL grouping/view
         let query = this.admin
             .from('leads')
-            .select('counselor_id, status, created_at')
+            .select('counselor_id, status, created_at, lead_type, drop_reason')
             .or('source.neq."AC Direct Onboarding",source.is.null');
 
         if (from) query = query.gte('created_at', from);
-        if (to) query = query.lte('created_at', to);
+        if (to) {
+            const toDate = to.includes('T') ? to : to + 'T23:59:59.999Z';
+            query = query.lte('created_at', toDate);
+        }
+        if (leadType && leadType !== 'all') query = query.eq('lead_type', leadType);
         if (userId && actorRole === 'super_admin') {
             query = query.eq('counselor_id', userId);
         } else if (actorRole !== 'super_admin' && actorRole !== 'counselor_head' && actorRole !== 'hr') {
@@ -127,16 +129,24 @@ export class CounselorsService {
 
         if (error) return { error: error.message };
 
-        const stats = {}; // counselor_id -> { total, active, joined, dropped }
+        const stats = {};
 
         for (const lead of leads) {
             const cid = lead.counselor_id || 'unassigned';
-            if (!stats[cid]) stats[cid] = { total: 0, active: 0, joined: 0, dropped: 0 };
+            if (!stats[cid]) stats[cid] = {
+                total: 0, active: 0, new: 0, contacted: 0,
+                demo_scheduled: 0, demo_done: 0, payment_pending: 0,
+                payment_verification: 0, joined: 0, dropped: 0,
+                dropReasons: {}
+            };
 
             stats[cid].total++;
-            if (['joined'].includes(lead.status)) stats[cid].joined++;
-            else if (['dropped'].includes(lead.status)) stats[cid].dropped++;
-            else stats[cid].active++;
+            if (stats[cid][lead.status] !== undefined) stats[cid][lead.status]++;
+            if (!['joined', 'dropped'].includes(lead.status)) stats[cid].active++;
+
+            if (lead.status === 'dropped' && lead.drop_reason) {
+                stats[cid].dropReasons[lead.drop_reason] = (stats[cid].dropReasons[lead.drop_reason] || 0) + 1;
+            }
         }
 
         return stats;

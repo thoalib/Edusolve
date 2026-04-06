@@ -2,6 +2,15 @@ import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { apiFetch } from '../../lib/api.js';
 import { getSessionStatusStyles } from '../academic/AcademicPages.jsx';
 import { TeacherOnboardingModal } from './TeacherOnboardingModal.jsx';
+import { DashboardDateFilter } from '../dashboards/CounselorDashboards.jsx';
+
+function getThisMonthRange() {
+  const now = new Date();
+  return {
+    from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10),
+    to: now.toISOString().slice(0, 10)
+  };
+}
 
 export function isSessionVerified(session) {
     if (session.status === 'verified') return true;
@@ -35,22 +44,25 @@ export function TeacherDashboardPage() {
     const [allSessions, setAllSessions] = useState([]);
     const [hours, setHours] = useState({ items: [], total_hours: 0 });
     const [salary, setSalary] = useState({ total_earned: 0, paid: 0, payable: 0, total_hours: 0, month: 0, year: 0 });
-    const [loading, setLoading] = useState(true);
+    const [dateRange, setDateRange] = useState(getThisMonthRange);
 
     useEffect(() => {
         (async () => {
+            setLoading(true);
             try {
+                const { from, to } = dateRange;
                 const [p, t, h, hist, demoRes, salRes] = await Promise.all([
                     apiFetch('/teachers/me').catch(() => ({ teacher: null })),
+                    // Today's sessions are deliberately not filtered by dateRange
                     apiFetch('/students/sessions/today').catch(() => ({ items: [] })),
-                    apiFetch('/teachers/my-hours').catch(() => ({ items: [], total_hours: 0 })),
-                    apiFetch('/students/sessions/history').catch(() => ({ items: [] })),
-                    apiFetch('/teachers/my-demos').catch(() => ({ items: [] })),
-                    apiFetch('/teachers/my-salary').catch(() => ({ salary: { total_earned: 0, paid: 0, payable: 0, total_hours: 0, month: 0, year: 0 } }))
+                    apiFetch(`/teachers/my-hours?from=${from}&to=${to}`).catch(() => ({ items: [], total_hours: 0 })),
+                    apiFetch(`/students/sessions/history?from=${from}&to=${to}`).catch(() => ({ items: [] })),
+                    apiFetch(`/teachers/my-demos?from=${from}&to=${to}`).catch(() => ({ items: [] })),
+                    apiFetch(`/teachers/my-salary?from=${from}&to=${to}`).catch(() => ({ salary: { total_earned: 0, paid: 0, payable: 0, total_hours: 0, month: 0, year: 0 } }))
                 ]);
                 setProfile(p.teacher);
-                // Merge today's demos into todaySessions
-                const todayStr = new Date().toISOString().split('T')[0];
+                // Merge today's demos into todaySessions - note: demos fetch all based on date range so we manually filter for today
+                const todayStr = new Date().toLocaleTimeString('en-CA', { timeZone: 'Asia/Kolkata' }).split(',')[0] || new Date().toISOString().split('T')[0];
                 const todayDemos = (demoRes.items || [])
                     .filter(d => d.scheduled_at && d.scheduled_at.startsWith(todayStr))
                     .map(d => ({
@@ -65,10 +77,10 @@ export function TeacherDashboardPage() {
                 setHours(h);
                 setAllSessions(hist.items || []);
                 if (salRes.salary) setSalary(salRes.salary);
-            } catch (e) { }
+            } catch (e) { console.error(e); }
             setLoading(false);
         })();
-    }, []);
+    }, [dateRange]);
 
     const metrics = useMemo(() => {
         const currentMonth = new Date().getMonth();
@@ -95,6 +107,7 @@ export function TeacherDashboardPage() {
 
     return (
         <section className="panel">
+            <DashboardDateFilter onChange={setDateRange} />
             {/* Salary Summary (Counselor Banner Style) */}
             <article className="card counselor-target-banner" style={{ padding: '24px', background: 'linear-gradient(to right, #173b73, #1f4b8f)', color: 'white', border: 'none', marginBottom: '16px' }}>
                 <div className="cdb-layout" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '20px' }}>
