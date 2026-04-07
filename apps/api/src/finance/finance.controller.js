@@ -313,6 +313,7 @@ export async function handleFinance(req, res, url) {
         .update({
           status: 'verified',
           finance_note: payload.finance_note || null,
+          effective_date: entryDate, // Save Actual Payment Date
           verified_by: actor.userId,
           verified_at: nowIso(),
           updated_at: nowIso()
@@ -424,6 +425,7 @@ export async function handleFinance(req, res, url) {
           status: 'verified',
           payment_verified: true,
           finance_note: payload.finance_note || null,
+          effective_date: entryDate, // Save Actual Payment Date
           verified_by: actor.userId,
           verified_at: nowIso()
         })

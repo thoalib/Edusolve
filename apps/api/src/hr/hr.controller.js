@@ -670,54 +670,58 @@ export async function handleHR(req, res, url) {
       const year = parseInt(url.searchParams.get('year') || new Date().getFullYear(), 10);
       const month = parseInt(url.searchParams.get('month') || (new Date().getMonth() + 1), 10);
       
-      // Use broader UTC boundaries to safely catch local timezone offsets
-      // e.g. India time is UTC+5:30. A payment verified at 01:00 AM on Mar 1 IST
-      // is 19:30 on Feb 28th in UTC.
-      
-      let startIso, endIso;
       const fromParam = url.searchParams.get('from');
       const toParam = url.searchParams.get('to');
 
+      // Use DATE boundaries for effective_date filtering
+      let startDate, endDate;
       if (fromParam && toParam) {
-        startIso = fromParam.includes('T') ? fromParam : fromParam + 'T00:00:00Z';
-        endIso = toParam.includes('T') ? toParam : toParam + 'T23:59:59Z';
+        startDate = fromParam.split('T')[0];
+        endDate = toParam.split('T')[0];
       } else {
-        const start = new Date(year, month - 1, 1);
-        start.setDate(start.getDate() - 1);
-        startIso = start.toISOString().split('T')[0] + 'T00:00:00Z';
-
-        const end = new Date(year, month, 0);
-        end.setDate(end.getDate() + 1);
-        endIso = end.toISOString().split('T')[0] + 'T23:59:59Z';
+        startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        endDate = new Date(year, month, 0).toISOString().split('T')[0];
       }
 
+      // 1. Fetch Verified Lead Payments (Initial Onboarding)
       const { data: verifiedPayments } = await adminClient
         .from('payment_requests')
-        .select('total_amount, amount, leads!inner(counselor_id), verified_at')
+        .select('amount, leads!inner(counselor_id), effective_date, verified_at')
         .eq('status', 'verified')
-        .gte('verified_at', startIso)
-        .lte('verified_at', endIso);
+        .or(`effective_date.gte.${startDate},and(effective_date.is.null,verified_at.gte.${startDate})`)
+        .or(`effective_date.lte.${endDate},and(effective_date.is.null,verified_at.lte.${endDate})`);
+
+      // 2. Fetch Verified Student Topups (Renewals)
+      const { data: verifiedTopups } = await adminClient
+        .from('student_topups')
+        .select('amount, requested_by, effective_date, verified_at')
+        .eq('status', 'verified')
+        .or(`effective_date.gte.${startDate},and(effective_date.is.null,verified_at.gte.${startDate})`)
+        .or(`effective_date.lte.${endDate},and(effective_date.is.null,verified_at.lte.${endDate})`);
 
       const salesMap = {};
-      (verifiedPayments || []).forEach(p => {
-        let inRange = false;
-        if (fromParam && toParam) {
-           inRange = true; // DB query already filtered it perfectly
-        } else {
-           const pDate = new Date(p.verified_at);
-           if (pDate.getMonth() + 1 === month && pDate.getFullYear() === year) {
-             inRange = true;
-           }
-        }
 
-        if (inRange) {
+      // Process Initial Payments
+      (verifiedPayments || []).forEach(p => {
+        const pDateStr = p.effective_date || p.verified_at?.split('T')[0];
+        if (pDateStr >= startDate && pDateStr <= endDate) {
           const cId = p.leads?.counselor_id;
           if (cId) {
-            salesMap[cId] = (salesMap[cId] || 0) + Number(p.total_amount || p.amount || 0);
+            salesMap[cId] = (salesMap[cId] || 0) + Number(p.amount || 0);
           }
         }
       });
 
+      // Process Topups (Renewals are often requested by the counselor)
+      (verifiedTopups || []).forEach(t => {
+        const tDateStr = t.effective_date || t.verified_at?.split('T')[0];
+        if (tDateStr >= startDate && tDateStr <= endDate) {
+          const cId = t.requested_by; // For topups, we attribute sales to the person who requested it
+          if (cId) {
+            salesMap[cId] = (salesMap[cId] || 0) + Number(t.amount || 0);
+          }
+        }
+      });
 
       sendJson(res, 200, { ok: true, report: salesMap });
       return true;
