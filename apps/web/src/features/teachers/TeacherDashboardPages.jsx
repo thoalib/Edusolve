@@ -39,6 +39,7 @@ export function getSessionDisplayStatus(session) {
 
 /* ═══════ Teacher Dashboard ═══════ */
 export function TeacherDashboardPage() {
+    const [loading, setLoading] = useState(true);
     const [profile, setProfile] = useState(null);
     const [todaySessions, setTodaySessions] = useState([]);
     const [allSessions, setAllSessions] = useState([]);
