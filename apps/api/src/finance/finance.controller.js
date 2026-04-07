@@ -277,6 +277,23 @@ export async function handleFinance(req, res, url) {
 
       const studentCode = await generateStudentCode(adminClient);
 
+      // Check for PIN collision if sharing contact_number
+      let initialPin = '123456';
+      if (lead.contact_number) {
+        const { data: conflict } = await adminClient
+          .from('students')
+          .select('id')
+          .eq('contact_number', lead.contact_number)
+          .eq('login_pin', '123456')
+          .is('deleted_at', null)
+          .maybeSingle();
+        
+        if (conflict) {
+          // Use a different sequence if 123456 is taken for this phone number
+          initialPin = '111111';
+        }
+      }
+
       const { data: student, error: studentError } = await adminClient
         .from('students')
         .insert({
@@ -291,7 +308,8 @@ export async function handleFinance(req, res, url) {
           remaining_hours: request.hours || 0,
           status: 'active',
           joined_at: nowIso(),
-          student_code: studentCode
+          student_code: studentCode,
+          login_pin: initialPin
         })
         .select('*')
         .single();
@@ -1255,9 +1273,11 @@ export async function handleFinance(req, res, url) {
       await adminClient.from(table).update({ amount: newPaidAmount }).eq('id', parent.id);
 
       // Verify Installment
+      const effectiveDate = payload.entry_date || nowIso().slice(0, 10);
       await adminClient.from('installment_payments').update({
         status: 'verified', account_id: payload.account_id, finance_note: payload.finance_note || null,
-        verified_by: actor.userId, verified_at: nowIso(), updated_at: nowIso()
+        verified_by: actor.userId, verified_at: nowIso(), updated_at: nowIso(),
+        effective_date: effectiveDate
       }).eq('id', instId);
 
       // Handle overpayment: create verified top-up, add hours, and log receivable + income

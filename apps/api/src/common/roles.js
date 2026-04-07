@@ -6,7 +6,8 @@ export const ROLES = {
   ACADEMIC_COORDINATOR: 'academic_coordinator',
   TEACHER: 'teacher',
   FINANCE: 'finance',
-  HR: 'hr'
+  HR: 'hr',
+  STUDENT: 'student'
 };
 
 export const ALL_ROLES = Object.values(ROLES);

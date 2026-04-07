@@ -121,12 +121,38 @@ export async function handleLeads(req, res, url) {
     if (req.method === 'GET' && url.pathname === '/leads/payment-requests') {
       const page = parseInt(url.searchParams.get('page')) || 1;
       const limit = parseInt(url.searchParams.get('limit')) || 2000;
-      const result = await leadsService.listPaymentRequests(actor, page, limit);
+      const status = url.searchParams.get('status') || null;
+      const counselor_id = url.searchParams.get('counselor_id') || null;
+      const search = url.searchParams.get('search') || null;
+      
+      const result = await leadsService.listPaymentRequests(actor, page, limit, status, counselor_id, search);
       if (result?.error) {
         sendJson(res, 403, { ok: false, error: result.error });
         return true;
       }
       sendJson(res, 200, { ok: true, ...result });
+      return true;
+    }
+
+    const prUpdateMatch = url.pathname.match(/^\/leads\/payment-requests\/([^/]+)$/);
+    if (prUpdateMatch && req.method === 'PUT') {
+      const payload = await readJson(req);
+      const result = await leadsService.updatePaymentRequest(prUpdateMatch[1], actor, payload);
+      if (result?.error) {
+        sendJson(res, 400, { ok: false, error: result.error });
+        return true;
+      }
+      sendJson(res, 200, { ok: true, request: result });
+      return true;
+    }
+
+    if (prUpdateMatch && req.method === 'DELETE') {
+      const result = await leadsService.deletePaymentRequest(prUpdateMatch[1], actor);
+      if (result?.error) {
+        sendJson(res, 400, { ok: false, error: result.error });
+        return true;
+      }
+      sendJson(res, 200, { ok: true });
       return true;
     }
 

@@ -1,4 +1,4 @@
-import { apiFetch } from './api.js';
+import { apiFetch, API_BASE_URL } from './api.js';
 
 const STORAGE_KEY = 'ehms_auth';
 
@@ -10,6 +10,19 @@ export async function login({ email, password, role }) {
     method: 'POST',
     body: JSON.stringify(payload)
   });
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  return data;
+}
+
+export async function studentLogin({ phone, pin }) {
+  const response = await fetch(`${API_BASE_URL}/auth/student-login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone, pin })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) throw new Error(data.error || 'Login failed');
 
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   return data;

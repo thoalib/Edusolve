@@ -26,8 +26,8 @@ function NavIcon({ path, active }) {
         <line x1="3" y1="10" x2="21" y2="10"></line>
       </svg>
     );
-  } else if (p.includes('today-sessions') || p.includes('today')) {
-    // Today Sessions / Clock icon
+  } else if (p.includes('today-sessions') || p.includes('today') || p.includes('history')) {
+    // Today Sessions / History / Clock icon
     return (
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill={active ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10"></circle>
@@ -166,23 +166,39 @@ export default function AppShell({ roleLabel, role, user, pages, activePath, onN
   // Take up to 4 items for the bottom nav.
   let bottomNavPages = [];
   if (role === 'counselor') {
-    // Explicit order for Counselor: Dashboard, Today Leads, Lead Pipeline, Payment Requests
     const dash = navPages.find(p => p.path === '/dashboard/counselor');
     const today = navPages.find(p => p.path === '/leads/today');
     const pipeline = navPages.find(p => p.path === '/leads/mine');
     const payments = navPages.find(p => p.path === '/leads/payment-requests');
     bottomNavPages = [dash, today, pipeline, payments].filter(Boolean);
+  } else if (role === 'student') {
+    const home = navPages.find(p => p.path === '/student/dashboard');
+    const materials = navPages.find(p => p.path === '/student/materials');
+    const history = navPages.find(p => p.path === '/student/history');
+    const profile = navPages.find(p => p.path === '/student/profile');
+    bottomNavPages = [home, materials, history, profile].filter(Boolean);
   } else {
     bottomNavPages = navPages.slice(0, 4);
   }
 
+  // Standard professional shell for all roles
+  // We will handle student-specific mobile hiding via the main return logic below
+
   return (
     <div className="app-shell">
-      <aside className={mobileMenuOpen ? 'sidebar mobile-open' : 'sidebar'}>
+      <aside className={`sidebar ${mobileMenuOpen ? 'mobile-open' : ''} ${role === 'student' ? 'student-sidebar' : ''}`}>
+        <style dangerouslySetInnerHTML={{ __html: `
+          @media (max-width: 1023px) {
+            .sidebar.student-sidebar { display: none !important; }
+          }
+          @media (min-width: 1024px) {
+            .app-shell:has(.student-sidebar) .page-content { padding: 12px 16px; }
+          }
+        `}} />
         <div className="brand-block">
           <h1>
             Edusolve
-            <span className="role-badge-small">{roleLabel}</span>
+            <span className="role-badge-small">{role === 'student' ? 'Student Portal' : roleLabel}</span>
           </h1>
         </div>
 
@@ -266,24 +282,18 @@ export default function AppShell({ roleLabel, role, user, pages, activePath, onN
         <header className="top-bar">
           <div className="top-bar-title-section" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
             <div>
-              <p className="eyebrow">{roleLabel}</p>
+              <p className="eyebrow">{role === 'student' ? 'Student Portal' : roleLabel}</p>
               <h2>
                 {(() => {
                   let title = activePage?.title || 'Dashboard';
-                  if (role !== 'super_admin' && role !== 'admin') {
-                    if (title.toLowerCase().includes('dashboard')) {
-                      return getSalutation(user?.full_name || user?.name || '');
-                    }
+                  if (title.toLowerCase().includes('dashboard') || title.toLowerCase() === 'home') {
+                    return getSalutation(user?.full_name || user?.name || '');
                   }
                   return title;
                 })()}
               </h2>
             </div>
-            <NotificationBell onNavigateToTicket={(ticketId) => onNavigateToTicket && onNavigateToTicket(ticketId)} />
-          </div>
-          {/* Timestamp moved below title on mobile */}
-          <div className="top-bar-actions">
-            <span className="timestamp" style={{ marginLeft: 'auto' }}>IST: {nowInKolkata()}</span>
+            {role !== 'student' && <NotificationBell onNavigateToTicket={(ticketId) => onNavigateToTicket && onNavigateToTicket(ticketId)} />}
           </div>
         </header>
 
@@ -312,17 +322,19 @@ export default function AppShell({ roleLabel, role, user, pages, activePath, onN
             </button>
           );
         })}
-        <button
-          className={`bottom-nav-item ${mobileMenuOpen ? 'active' : ''}`}
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="3" y1="12" x2="21" y2="12"></line>
-            <line x1="3" y1="6" x2="21" y2="6"></line>
-            <line x1="3" y1="18" x2="21" y2="18"></line>
-          </svg>
-          <span>More</span>
-        </button>
+        {role !== 'student' && (
+          <button
+            className={`bottom-nav-item ${mobileMenuOpen ? 'active' : ''}`}
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+            <span>More</span>
+          </button>
+        )}
       </nav>
     </div >
   );

@@ -47,6 +47,8 @@ import { TeacherSalesReportsPage } from './features/teachers/TeacherSalesReports
 import { TeacherDashboardPage, TeacherTodaySessionsPage, TeacherTimetablePage, TeacherMyProfilePage, TeacherStudentsPage, TeacherReportsPage, TeacherInvoicesPage, TeacherMaterialsPage } from './features/teachers/TeacherDashboardPages.jsx';
 import { MaterialTransfersPage } from './features/academic/MaterialTransfersPage.jsx';
 import { HRDashboardPage, AttendancePage, EmployeesPage, SalaryCalculatorPage, HRPaymentRequestsPage, CouncilorLevelsPage, ACIncentiveConfigPage } from './features/hr/HRPages.jsx';
+import { StudentDashboardPage, StudentHistoryPage, StudentMaterialsPage, StudentProfilePage } from './features/student-portal/StudentPortalPages.jsx';
+import StudentLoginPage from './features/student-portal/StudentLoginPage.jsx';
 import { getSession, logout } from './lib/auth.js';
 import { defaultPageForRole, getPageByPath, pagesForRole } from './lib/routes.js';
 import { ROLE_OPTIONS } from './lib/roles.js';
@@ -69,15 +71,24 @@ export default function App() {
   const [selectedTeacherProfileId, setSelectedTeacherProfileId] = useState('');
   const [pipelineLeadId, setPipelineLeadId] = useState('');
   const [paymentRequestLeadId, setPaymentRequestLeadId] = useState('');
+  const [showStudentLogin, setShowStudentLogin] = useState(false);
 
   useEffect(() => {
     const session = getSession();
+    const hashPath = currentPathFromHash();
+
+    // Handle direct login route even if no session
+    if (hashPath === '/login/student') {
+      setShowStudentLogin(true);
+    } else if (hashPath === '/login') {
+      setShowStudentLogin(false);
+    }
+
     if (!session?.user?.role) return;
 
     const sessionUser = session.user;
     setUser(sessionUser);
 
-    const hashPath = currentPathFromHash();
     const matchingPage = getPageByPath(hashPath, sessionUser.role);
     const defaultPage = defaultPageForRole(sessionUser.role);
     const nextPath = matchingPage?.path || defaultPage?.path || '';
@@ -87,8 +98,14 @@ export default function App() {
 
   useEffect(() => {
     function onHashChange() {
-      if (!user?.role) return;
       const hashPath = currentPathFromHash();
+      
+      if (!user?.role) {
+        if (hashPath === '/login/student') setShowStudentLogin(true);
+        if (hashPath === '/login' || hashPath === '') setShowStudentLogin(false);
+        return;
+      }
+
       const page = getPageByPath(hashPath, user.role);
       if (page) setActivePath(hashPath);
     }
@@ -115,13 +132,21 @@ export default function App() {
   }
 
   function onLogout() {
+    const isStudent = user?.role === 'student';
     logout();
     setUser(null);
     setActivePath('');
     setSelectedLeadId('');
     setSelectedTeacherProfileId('');
     setPaymentRequestLeadId('');
-    window.location.hash = '';
+    
+    if (isStudent) {
+      window.location.hash = '/login/student';
+      setShowStudentLogin(true);
+    } else {
+      window.location.hash = '';
+      setShowStudentLogin(false);
+    }
   }
 
   function openLeadDetails(leadId, tab = 'profile') {
@@ -258,11 +283,29 @@ export default function App() {
     if (page.path === '/admin/users') return <UsersPage />;
     if (page.path === '/admin/settings') return <SystemSettingsPage />;
 
+    /* Student Portal */
+    if (page.path === '/student/dashboard') return <StudentDashboardPage onNavigate={onNavigate} />;
+    if (page.path === '/student/history') return <StudentHistoryPage onNavigate={onNavigate} />;
+    if (page.path === '/student/materials') return <StudentMaterialsPage />;
+    if (page.path === '/student/profile') return <StudentProfilePage />;
+
     return <PageView page={page} role={roleLabel(role)} />;
   }
 
   if (!role) {
-    return <LoginPage onSuccess={onLoginSuccess} />;
+    if (showStudentLogin) {
+      return <StudentLoginPage onSuccess={onLoginSuccess} onSwitchToStaff={() => setShowStudentLogin(false)} />;
+    }
+    return (
+      <>
+        <LoginPage onSuccess={onLoginSuccess} />
+        <div style={{ textAlign: 'center', padding: '0 0 20px', background: '#f8fafc' }}>
+          <button onClick={() => { window.location.hash = '/login/student'; setShowStudentLogin(true); }} style={{ background: 'none', border: '1px solid #cbd5e1', borderRadius: '12px', padding: '10px 24px', color: '#1f4b8f', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+            🎓 Student / Parent Login
+          </button>
+        </div>
+      </>
+    );
   }
 
   if (!page) {

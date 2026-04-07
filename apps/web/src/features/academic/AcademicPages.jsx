@@ -3,6 +3,8 @@ import { apiFetch, API_BASE_URL } from '../../lib/api.js';
 import { PhoneInput } from '../../components/PhoneInput.jsx';
 import { ReceiptModal } from '../finance/InvoiceTemplate.jsx';
 import { MultiSelectDropdown } from '../../components/ui/MultiSelectDropdown.jsx';
+import { getSession } from '../../lib/auth.js';
+import { EditPaymentRequestModal } from '../leads/LeadsPages.jsx';
 
 export function getISTTimeForInput(isoStr) {
   if (!isoStr) return '';
@@ -2623,6 +2625,28 @@ export function NewStudentPipelinePage() {
   const [myInstallments, setMyInstallments] = useState([]);
   const [loadingMyInstallments, setLoadingMyInstallments] = useState(false);
   const [receiptItem, setReceiptItem] = useState(null);
+  const [editingRequest, setEditingRequest] = useState(null);
+
+  const session = getSession();
+  const userId = session?.user?.id || '';
+  const userRole = session?.user?.role || '';
+  const isCounselorHead = userRole === 'counselor_head' || userRole === 'super_admin';
+
+  const canModify = (r) => {
+    if (r.status !== 'pending') return false;
+    return r.requested_by === userId || isCounselorHead;
+  };
+
+  async function handleDelete(id) {
+    if (!confirm('Are you sure you want to delete this payment request?')) return;
+    try {
+      await apiFetch(`/leads/payment-requests/${id}`, { method: 'DELETE' });
+      alert('Payment request deleted');
+      loadData();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
 
   const loadData = useCallback(async () => {
     setError('');
@@ -2837,6 +2861,7 @@ export function NewStudentPipelinePage() {
                     <th>Status</th>
                     <th>Finance Note</th>
                     <th>Submitted</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2861,15 +2886,21 @@ export function NewStudentPipelinePage() {
                       <td data-label="Submitted" style={{ fontSize: '12px', color: '#6b7280' }}>
                         {new Date(r.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}
                       </td>
-                      <td data-label="Doc">
+                      <td data-label="Actions">
                         {r.status === 'verified' && (
                           <button onClick={() => setReceiptItem(r)} style={{ fontSize: '11px', padding: '3px 10px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>🧾 Receipt</button>
+                        )}
+                        {canModify(r) && (
+                          <div style={{ display: 'flex', gap: '4px', marginTop: r.status === 'verified' ? '4px' : '0' }}>
+                            <button onClick={() => setEditingRequest(r)} style={{ fontSize: '11px', padding: '3px 6px', background: '#fff', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer' }}>✎ Edit</button>
+                            <button onClick={() => handleDelete(r.id)} style={{ fontSize: '11px', padding: '3px 6px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '4px', cursor: 'pointer' }}>🗑</button>
+                          </div>
                         )}
                       </td>
                     </tr>
                   ))}
                   {!filtered.length && (
-                    <tr><td colSpan="10" style={{ textAlign: 'center', color: '#9ca3af', padding: '40px' }}>
+                    <tr><td colSpan="11" style={{ textAlign: 'center', color: '#9ca3af', padding: '40px' }}>
                       No onboarding requests found. Add a new student from the Students page to see them here.
                     </td></tr>
                   )}
@@ -2879,6 +2910,15 @@ export function NewStudentPipelinePage() {
           </div>
         </>
       )}
+
+      {editingRequest && (
+        <EditPaymentRequestModal
+          request={editingRequest}
+          onClose={() => setEditingRequest(null)}
+          onSuccess={() => { setEditingRequest(null); loadData(); }}
+        />
+      )}
+
       {receiptItem && <ReceiptModal payment={receiptItem} type="payment" onClose={() => setReceiptItem(null)} />}
     </section>
   );
@@ -4379,6 +4419,101 @@ function UploadInstallmentModal({ item, onClose, onSuccess }) {
   );
 }
 
+function EditTopupRequestModal({ request, onClose, onSuccess }) {
+  const [amount, setAmount] = useState(request.amount || '');
+  const [totalAmount, setTotalAmount] = useState(request.total_amount || '');
+  const [hrs, setHrs] = useState(request.hours_added || '');
+  const [financeNote, setFinanceNote] = useState(request.finance_note || '');
+  const [screenshotFile, setScreenshotFile] = useState(null);
+  const [screenshotUrl, setScreenshotUrl] = useState(request.screenshot_url || '');
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  function handleFileChange(e) {
+    const file = e.target.files[0];
+    if (file) {
+      setScreenshotFile(file);
+      setScreenshotUrl(''); // Clear any old URL if they select a new file
+    }
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!amount || Number(amount) <= 0) return alert('Enter a valid amount');
+    if (!screenshotFile && !screenshotUrl) return alert('Please upload a screenshot');
+
+    setSaving(true);
+    try {
+      let finalUrl = screenshotUrl;
+      if (screenshotFile) {
+        setUploading(true);
+        const presignData = await apiFetch(`/upload/presigned-url`, {
+          method: 'POST',
+          body: JSON.stringify({ filename: screenshotFile.name, contentType: screenshotFile.type })
+        });
+        const uploadRes = await fetch(presignData.uploadUrl, {
+          method: 'PUT', headers: { 'Content-Type': screenshotFile.type }, body: screenshotFile
+        });
+        if (!uploadRes.ok) throw new Error('Failed to upload file');
+        finalUrl = presignData.publicUrl;
+      }
+
+      await apiFetch(`/students/topup-requests/${request.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          amount: Number(amount),
+          total_amount: Number(totalAmount) || null,
+          hours_added: Number(hrs) || null,
+          screenshot_url: finalUrl,
+          finance_note: financeNote || null
+        })
+      });
+      alert('Top-up request updated!');
+      onSuccess();
+    } catch (err) {
+      alert('Error: ' + err.message);
+    } finally {
+      setUploading(false);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '440px', padding: '24px', borderRadius: '10px', background: 'white' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ margin: 0 }}>Edit Top-Up</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#6b7280' }}>×</button>
+        </div>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>Hours Added *
+            <input type="number" value={hrs} onChange={e => setHrs(e.target.value)} required min="1" step="0.5" style={{ width: '100%', padding: '8px 12px', marginTop: '4px', border: '1px solid #d1d5db', borderRadius: '6px' }} />
+          </label>
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>Total Amount (₹) *
+            <input type="number" value={totalAmount} onChange={e => setTotalAmount(e.target.value)} required min="1" style={{ width: '100%', padding: '8px 12px', marginTop: '4px', border: '1px solid #d1d5db', borderRadius: '6px' }} />
+          </label>
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>Paid Amount (₹) *
+            <input type="number" value={amount} onChange={e => setAmount(e.target.value)} required min="1" style={{ width: '100%', padding: '8px 12px', marginTop: '4px', border: '1px solid #d1d5db', borderRadius: '6px' }} />
+          </label>
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>Payment Screenshot *
+            <input type="file" accept="image/*" onChange={handleFileChange} required={!screenshotFile && !screenshotUrl} style={{ width: '100%', marginTop: '4px' }} />
+            {screenshotFile && !uploading && <p style={{ fontSize: '12px', color: '#15803d', margin: '4px 0 0' }}>✅ File selected: {screenshotFile.name}</p>}
+            {screenshotUrl && !screenshotFile && <p style={{ fontSize: '12px', color: '#15803d', margin: '4px 0 0' }}>✅ Existing receipt kept.</p>}
+            {uploading && <p style={{ fontSize: '12px', color: '#6b7280', margin: '4px 0 0' }}>Uploading screenshot…</p>}
+          </label>
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>Finance Note
+            <textarea value={financeNote} onChange={e => setFinanceNote(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 12px', marginTop: '4px', border: '1px solid #d1d5db', borderRadius: '6px', resize: 'vertical' }} />
+          </label>
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+            <button type="button" onClick={onClose} className="secondary">Cancel</button>
+            <button type="submit" className="primary" disabled={saving || uploading || (!screenshotFile && !screenshotUrl)}>{saving || uploading ? 'Saving...' : 'Save Changes'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function TopUpsPage() {
   const [students, setStudents] = useState([]);
   const [requests, setRequests] = useState([]);
@@ -4398,6 +4533,11 @@ export function TopUpsPage() {
   const [loadingMyInstallments, setLoadingMyInstallments] = useState(false);
   const [receiptItem, setReceiptItem] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [editingRequest, setEditingRequest] = useState(null);
+
+  const session = getSession();
+  const userId = session?.user?.id || '';
+  const userRole = session?.user?.role || '';
 
   const studentOptions = useMemo(() => students.map(s => ({
     value: s.id,
@@ -4440,6 +4580,22 @@ export function TopUpsPage() {
     setWarningAck(false);
     setPendingWarning(null);
   }, [sid, hrs, totalAmt, amt]);
+
+  async function handleDelete(id) {
+    if (!confirm('Are you sure you want to delete this top-up request?')) return;
+    try {
+      await apiFetch(`/students/topup-requests/${id}`, { method: 'DELETE' });
+      alert('Top-up request deleted');
+      load();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  const canModify = (r) => {
+    if (r.status !== 'pending' && r.status !== 'pending_finance') return false;
+    return r.requested_by === userId || userRole === 'academic_coordinator' || userRole === 'super_admin';
+  };
 
   async function submit(e) {
     if (e) e.preventDefault();
@@ -4524,7 +4680,41 @@ export function TopUpsPage() {
         </div>
 
         {activeTab === 'all' && (
-          <div className="table-wrap mobile-friendly-table"><table><thead><tr><th>Student</th><th>Hrs</th><th>Total ₹</th><th>Paid ₹</th><th>Note</th><th>Screenshot</th><th>Status</th><th>Date</th><th>Doc</th></tr></thead><tbody>{requests.map(r => <tr key={r.id}><td data-label="Student">{r.students?.student_name || '—'} <span className="text-muted" style={{ fontSize: '11px' }}>({r.students?.student_code || r.student_id})</span></td><td data-label="Hrs">{r.hours_added}</td><td data-label="Total ₹">₹{r.total_amount ? r.total_amount : '—'}</td><td data-label="Paid ₹">₹{r.amount}</td><td data-label="Note" style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.finance_note || '—'}</td><td data-label="Screenshot">{r.screenshot_url ? <a href={r.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca' }}>View</a> : '—'}</td><td data-label="Status"><span className={`status-tag ${r.status === 'verified' ? 'success' : ''}`}>{r.status}</span></td><td data-label="Date">{new Date(r.created_at).toLocaleDateString('en-IN')}</td><td data-label="Doc">{r.status === 'verified' && <button onClick={() => setReceiptItem(r)} style={{ fontSize: '11px', padding: '3px 8px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>🧾 Receipt</button>}</td></tr>)}{!requests.length ? <tr><td colSpan="9">No requests.</td></tr> : null}</tbody></table></div>
+          <div className="table-wrap mobile-friendly-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Student</th><th>Hrs</th><th>Total ₹</th><th>Paid ₹</th><th>Note</th><th>Screenshot</th><th>Status</th><th>Date</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {requests.map(r => (
+                  <tr key={r.id}>
+                    <td data-label="Student">{r.students?.student_name || '—'} <span className="text-muted" style={{ fontSize: '11px' }}>({r.students?.student_code || r.student_id})</span></td>
+                    <td data-label="Hrs">{r.hours_added}</td>
+                    <td data-label="Total ₹">₹{r.total_amount ? r.total_amount : '—'}</td>
+                    <td data-label="Paid ₹">₹{r.amount}</td>
+                    <td data-label="Note" style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.finance_note || '—'}</td>
+                    <td data-label="Screenshot">{r.screenshot_url ? <a href={r.screenshot_url} target="_blank" rel="noreferrer" style={{ color: '#4338ca' }}>View</a> : '—'}</td>
+                    <td data-label="Status"><span className={`status-tag ${r.status === 'verified' ? 'success' : ''}`}>{r.status}</span></td>
+                    <td data-label="Date">{new Date(r.created_at).toLocaleDateString('en-IN')}</td>
+                    <td data-label="Actions">
+                      {r.status === 'verified' && (
+                        <button onClick={() => setReceiptItem(r)} style={{ fontSize: '11px', padding: '3px 8px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>🧾 Receipt</button>
+                      )}
+                      {canModify(r) && (
+                        <div style={{ display: 'flex', gap: '4px', marginTop: r.status === 'verified' ? '4px' : '0' }}>
+                          <button onClick={() => setEditingRequest(r)} style={{ fontSize: '11px', padding: '3px 6px', background: '#fff', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer' }}>✎ Edit</button>
+                          <button onClick={() => handleDelete(r.id)} style={{ fontSize: '11px', padding: '3px 6px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '4px', cursor: 'pointer' }}>🗑</button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {!requests.length ? <tr><td colSpan="9">No requests.</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
         )}
 
         {activeTab === 'pending' && (
@@ -4597,6 +4787,15 @@ export function TopUpsPage() {
           onSuccess={() => { setShowInstallmentModal(null); loadPending(); loadMyInstallments(); }}
         />
       )}
+      
+      {editingRequest && (
+        <EditTopupRequestModal
+          request={editingRequest}
+          onClose={() => setEditingRequest(null)}
+          onSuccess={() => { setEditingRequest(null); load(); }}
+        />
+      )}
+      
       {receiptItem && <ReceiptModal payment={receiptItem} type="topup" onClose={() => setReceiptItem(null)} />}
     </section>
   );

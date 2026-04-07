@@ -151,6 +151,377 @@ export async function handleStudents(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean);
 
   try {
+
+    // ══════════════════════════════════════════════════════════
+    // ══  STUDENT PORTAL ENDPOINTS (role: student)  ═══════════
+    // ══════════════════════════════════════════════════════════
+
+    // ─── GET /students/my-dashboard ─────────────────────────
+    if (req.method === 'GET' && url.pathname === '/students/my-dashboard') {
+      if (actor.role !== 'student') { sendJson(res, 403, { ok: false, error: 'student role required' }); return true; }
+      const studentId = actor.userId;
+
+      // Fetch student profile
+      const { data: student, error: sErr } = await adminClient
+        .from('students')
+        .select('id, student_name, student_code, class_level, board, medium, country, status, remaining_hours, total_hours, contact_number, academic_coordinator_id, joined_at, package_name')
+        .eq('id', studentId)
+        .is('deleted_at', null)
+        .maybeSingle();
+      if (sErr || !student) { sendJson(res, 404, { ok: false, error: 'student not found' }); return true; }
+
+      // Fetch AC name
+      let acName = null;
+      if (student.academic_coordinator_id) {
+        const { data: acUser } = await adminClient.from('users').select('full_name').eq('id', student.academic_coordinator_id).maybeSingle();
+        acName = acUser?.full_name || null;
+      }
+
+      // Fetch today's sessions
+      const nowRaw = new Date();
+      const istStr = nowRaw.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+      const now = new Date(istStr);
+      const pad = n => String(n).padStart(2, '0');
+      const todayDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+      const { data: todaySessions } = await adminClient
+        .from('academic_sessions')
+        .select('id, session_date, started_at, duration_hours, subject, status, teacher_id, users!academic_sessions_teacher_id_fkey(full_name)')
+        .eq('student_id', studentId)
+        .eq('session_date', todayDate)
+        .order('started_at', { ascending: true });
+
+      // Fetch recent sessions (last 10)
+      const { data: recentSessions } = await adminClient
+        .from('academic_sessions')
+        .select('id, session_date, started_at, duration_hours, subject, status, teacher_id, users!academic_sessions_teacher_id_fkey(full_name), session_verifications(status)')
+        .eq('student_id', studentId)
+        .order('session_date', { ascending: false })
+        .limit(10);
+
+      // Fetch assigned teachers
+      const { data: assignments } = await adminClient
+        .from('student_teacher_assignments')
+        .select('teacher_id, subject, is_active, users!student_teacher_assignments_teacher_id_fkey(full_name)')
+        .eq('student_id', studentId)
+        .eq('is_active', true);
+
+      sendJson(res, 200, {
+        ok: true,
+        student: { ...student, ac_name: acName },
+        todaySessions: (todaySessions || []).map(s => ({ ...s, teacher_name: s.users?.full_name || 'Teacher' })),
+        recentSessions: (recentSessions || []).map(s => ({ ...s, teacher_name: s.users?.full_name || 'Teacher', verification_status: verificationStatusOf(s) })),
+        assignments: (assignments || []).map(a => ({ teacher_id: a.teacher_id, subject: a.subject, teacher_name: a.users?.full_name || 'Teacher' }))
+      });
+      return true;
+    }
+
+    // ─── GET /students/my-sessions ──────────────────────────
+    if (req.method === 'GET' && url.pathname === '/students/my-sessions') {
+      if (actor.role !== 'student') { sendJson(res, 403, { ok: false, error: 'student role required' }); return true; }
+      const studentId = actor.userId;
+
+      const { data: sessions, error } = await adminClient
+        .from('academic_sessions')
+        .select('id, session_date, started_at, duration_hours, subject, status, teacher_id, users!academic_sessions_teacher_id_fkey(full_name), session_verifications(status)')
+        .eq('student_id', studentId)
+        .order('session_date', { ascending: false });
+      if (error) throw new Error(error.message);
+
+      sendJson(res, 200, {
+        ok: true,
+        items: (sessions || []).map(s => ({
+          ...s,
+          teacher_name: s.users?.full_name || 'Teacher',
+          verification_status: verificationStatusOf(s)
+        }))
+      });
+      return true;
+    }
+
+    // ─── GET /students/my-payments ──────────────────────────
+    if (req.method === 'GET' && url.pathname === '/students/my-payments') {
+      if (actor.role !== 'student') { sendJson(res, 403, { ok: false, error: 'student role required' }); return true; }
+      const studentId = actor.userId;
+
+      // Get lead_id from student
+      const { data: st } = await adminClient.from('students').select('id, lead_id').eq('id', studentId).maybeSingle();
+      if (!st) { sendJson(res, 404, { ok: false, error: 'student not found' }); return true; }
+
+      let paymentRequests = [];
+      if (st.lead_id) {
+        const { data: prs } = await adminClient
+          .from('payment_requests')
+          .select('id, amount, total_amount, hours, status, screenshot_url, created_at, verified_at, effective_date')
+          .eq('lead_id', st.lead_id)
+          .order('created_at', { ascending: false });
+        paymentRequests = prs || [];
+      }
+
+      // Fetch top-ups
+      const { data: topups } = await adminClient
+        .from('student_topups')
+        .select('id, hours_added, amount, total_amount, status, screenshot_url, created_at, verified_at, finance_note')
+        .eq('student_id', studentId)
+        .order('created_at', { ascending: false });
+
+      // Fetch installments
+      const { data: installments } = await adminClient
+        .from('installment_payments')
+        .select('id, reference_id, reference_type, amount, paid_at, screenshot_url, status, created_at')
+        .or(`reference_id.in.(${[...paymentRequests.map(p => p.id), ...(topups || []).map(t => t.id)].join(',')})`)
+        .order('created_at', { ascending: false });
+
+      sendJson(res, 200, {
+        ok: true,
+        paymentRequests,
+        topups: topups || [],
+        installments: installments || []
+      });
+      return true;
+    }
+
+    // ─── GET /students/my-teachers ──────────────────────────
+    if (req.method === 'GET' && url.pathname === '/students/my-teachers') {
+      if (actor.role !== 'student') { sendJson(res, 403, { ok: false, error: 'student role required' }); return true; }
+      const studentId = actor.userId;
+
+      const { data, error } = await adminClient
+        .from('student_teacher_assignments')
+        .select('teacher_id, subject, is_active, users!student_teacher_assignments_teacher_id_fkey(full_name)')
+        .eq('student_id', studentId)
+        .eq('is_active', true);
+      if (error) throw new Error(error.message);
+
+      // Group by teacher
+      const teacherMap = {};
+      (data || []).forEach(a => {
+        if (!teacherMap[a.teacher_id]) {
+          teacherMap[a.teacher_id] = { teacher_id: a.teacher_id, teacher_name: a.users?.full_name || 'Teacher', subjects: [] };
+        }
+        teacherMap[a.teacher_id].subjects.push(a.subject);
+      });
+
+      sendJson(res, 200, { ok: true, items: Object.values(teacherMap) });
+      return true;
+    }
+
+    // ─── GET /students/my-remarks ───────────────────────────
+    if (req.method === 'GET' && url.pathname === '/students/my-remarks') {
+      if (actor.role !== 'student') { sendJson(res, 403, { ok: false, error: 'student role required' }); return true; }
+      const studentId = actor.userId;
+
+      const { data, error } = await adminClient
+        .from('student_remarks')
+        .select('*, creator:created_by(id, full_name)')
+        .eq('student_id', studentId)
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(error.message);
+
+      sendJson(res, 200, { ok: true, items: data || [] });
+      return true;
+    }
+
+    // ─── GET /students/my-materials/:teacherId ──────────────
+    const myMaterialsMatch = url.pathname.match(/^\/students\/my-materials\/([0-9a-fA-F-]+)$/);
+    if (req.method === 'GET' && myMaterialsMatch) {
+      if (actor.role !== 'student') { sendJson(res, 403, { ok: false, error: 'student role required' }); return true; }
+      const studentId = actor.userId;
+      const teacherId = myMaterialsMatch[1];
+
+      const { data, error } = await adminClient
+        .from('material_transfers')
+        .select('*')
+        .eq('student_id', studentId)
+        .eq('teacher_id', teacherId)
+        .order('created_at', { ascending: true })
+        .limit(2000);
+      if (error) throw new Error(error.message);
+
+      sendJson(res, 200, { ok: true, items: data || [] });
+      return true;
+    }
+
+    // ─── POST /students/send-material ───────────────────────
+    if (req.method === 'POST' && url.pathname === '/students/send-material') {
+      if (actor.role !== 'student') { sendJson(res, 403, { ok: false, error: 'student role required' }); return true; }
+      const studentId = actor.userId;
+      const payload = await readJson(req);
+
+      if (!payload.teacher_id || !payload.subject) {
+        sendJson(res, 400, { ok: false, error: 'Missing teacher_id or subject' });
+        return true;
+      }
+
+      // Validate assignment exists
+      const { data: assignment } = await adminClient
+        .from('student_teacher_assignments')
+        .select('id, students(id, academic_coordinator_id, student_name), users!student_teacher_assignments_teacher_id_fkey(id, contact_number)')
+        .eq('student_id', studentId)
+        .eq('teacher_id', payload.teacher_id)
+        .eq('subject', payload.subject)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (!assignment || !assignment.students) {
+        sendJson(res, 403, { ok: false, error: 'No active assignment found for this teacher and subject.' });
+        return true;
+      }
+
+      const student = assignment.students;
+      const teacher = assignment.users;
+
+      if (!teacher || !teacher.contact_number) {
+        sendJson(res, 400, { ok: false, error: 'This teacher does not have a contact number registered for WhatsApp delivery.' });
+        return true;
+      }
+
+      // Find AC WhatsApp session
+      const { data: acSession } = await adminClient
+        .from('whatsapp_sessions')
+        .select('*')
+        .eq('user_id', student.academic_coordinator_id)
+        .eq('status', 'WORKING')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const theSessionName = acSession?.session_name || null;
+      const isOnline = !!theSessionName;
+
+      let captionStr = `📝 ${payload.subject} - ${student.student_name} (Student)`;
+      if (payload.caption_text) captionStr += `\n${payload.caption_text}`;
+
+      const insertRecord = {
+        student_id: student.id,
+        teacher_id: payload.teacher_id,
+        ac_id: student.academic_coordinator_id,
+        subject: payload.subject,
+        file_url: payload.file_url || null,
+        mimetype: payload.mimetype || 'text',
+        caption_text: captionStr,
+        direction: 'student_to_teacher',
+        status: isOnline ? 'pending' : 'failed',
+        error_message: isOnline ? null : 'Coordinator WhatsApp session is offline.'
+      };
+
+      const { data: row, error: insErr } = await adminClient.from('material_transfers').insert(insertRecord).select('id').single();
+      if (insErr) { sendJson(res, 500, { ok: false, error: 'Failed to record transfer.' }); return true; }
+
+      if (!isOnline) {
+        sendJson(res, 200, { ok: true, queued: true, message: 'Coordinator WhatsApp is offline. Material queued.' });
+        return true;
+      }
+
+      const WAAPPA_BASE = process.env.WAAPPA_BASE_URL || 'http://main.waappa.com';
+      const WAAPPA_KEY = acSession.api_key || process.env.WAAPPA_API_KEY || 'yoursecretkey';
+      
+      // Route directly to teacher's personal phone
+      const teacherPhone = teacher.contact_number.replace(/\D/g, '');
+      const destinationJid = `${teacherPhone}@c.us`;
+
+      try {
+        if (!payload.file_url) {
+          await waappaService.sendText(theSessionName, WAAPPA_KEY, destinationJid, captionStr);
+        } else {
+          if ((payload.mimetype || '').toLowerCase().startsWith('audio/')) {
+            await waappaService.sendText(theSessionName, WAAPPA_KEY, destinationJid, captionStr);
+          }
+          await waappaService.sendMedia(theSessionName, WAAPPA_KEY, destinationJid, payload.file_url, payload.mimetype, captionStr, payload.filename);
+        }
+        await adminClient.from('material_transfers').update({ status: 'sent', error_message: null }).eq('id', row.id);
+        sendJson(res, 200, { ok: true, message: 'Material sent successfully' });
+      } catch (extError) {
+        await adminClient.from('material_transfers').update({ status: 'failed', error_message: extError.message }).eq('id', row.id);
+        sendJson(res, 500, { ok: false, error: 'Delivery failed. Marked as failed.' });
+      }
+      return true;
+    }
+
+    // ─── POST /students/change-pin ──────────────────────────
+    if (req.method === 'POST' && url.pathname === '/students/change-pin') {
+      if (actor.role !== 'student') { sendJson(res, 403, { ok: false, error: 'student role required' }); return true; }
+      const studentId = actor.userId;
+      const payload = await readJson(req);
+
+      if (!payload.current_pin || !payload.new_pin) {
+        sendJson(res, 400, { ok: false, error: 'current_pin and new_pin are required' });
+        return true;
+      }
+      if (!/^\d{6}$/.test(payload.new_pin)) {
+        sendJson(res, 400, { ok: false, error: 'New PIN must be exactly 6 digits' });
+        return true;
+      }
+
+      const { data: st } = await adminClient.from('students').select('login_pin').eq('id', studentId).maybeSingle();
+      if (!st) { sendJson(res, 404, { ok: false, error: 'student not found' }); return true; }
+
+      if ((st.login_pin || '123456') !== payload.current_pin) {
+        sendJson(res, 400, { ok: false, error: 'Current PIN is incorrect' });
+        return true;
+      }
+
+      // Check for PIN uniqueness among students with the same contact_number
+      const { data: currentStudent } = await adminClient.from('students').select('contact_number').eq('id', studentId).maybeSingle();
+      if (currentStudent?.contact_number) {
+        const { data: conflict } = await adminClient
+          .from('students')
+          .select('id')
+          .eq('contact_number', currentStudent.contact_number)
+          .eq('login_pin', payload.new_pin)
+          .neq('id', studentId)
+          .is('deleted_at', null)
+          .maybeSingle();
+
+        if (conflict) {
+          sendJson(res, 400, { ok: false, error: 'This PIN is already in use by another student sharing this contact number. Please use a unique PIN.' });
+          return true;
+        }
+      }
+
+      const { error } = await adminClient.from('students').update({ login_pin: payload.new_pin }).eq('id', studentId);
+      if (error) throw new Error(error.message);
+
+      sendJson(res, 200, { ok: true, message: 'PIN changed successfully' });
+      return true;
+    }
+
+    // ─── PATCH /students/:id/reset-pin (AC/super_admin only) ─
+    if (req.method === 'PATCH' && parts.length === 3 && parts[0] === 'students' && parts[2] === 'reset-pin') {
+      if (!['academic_coordinator', 'super_admin'].includes(actor.role)) {
+        sendJson(res, 403, { ok: false, error: 'only AC or super admin can reset student PIN' });
+        return true;
+      }
+      const studentId = parts[1];
+
+      // Check for PIN uniqueness among siblings (same contact_number) before resetting to 123456
+      const { data: currentStudent } = await adminClient.from('students').select('contact_number').eq('id', studentId).maybeSingle();
+      if (currentStudent?.contact_number) {
+        const { data: conflict } = await adminClient
+          .from('students')
+          .select('id')
+          .eq('contact_number', currentStudent.contact_number)
+          .eq('login_pin', '123456') // DEFAULT PIN
+          .neq('id', studentId)
+          .is('deleted_at', null)
+          .maybeSingle();
+
+        if (conflict) {
+          sendJson(res, 400, { ok: false, error: 'Reset failed: Another student with this phone number is already using the default PIN (123456). Please set a custom PIN for this student.' });
+          return true;
+        }
+      }
+
+      const { error } = await adminClient.from('students').update({ login_pin: '123456' }).eq('id', studentId);
+      if (error) throw new Error(error.message);
+      sendJson(res, 200, { ok: true, message: 'PIN reset to 123456' });
+      return true;
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // ══  END STUDENT PORTAL ENDPOINTS  ═══════════════════════
+    // ══════════════════════════════════════════════════════════
+
     // ─── GET /students ─────────────────────────────────────
     if (req.method === 'GET' && url.pathname === '/students') {
       if (!canViewStudents(actor)) {
@@ -1334,6 +1705,88 @@ export async function handleStudents(req, res, url) {
         .single();
       if (error) throw new Error(error.message);
       sendJson(res, 201, { ok: true, topup: data });
+      return true;
+    }
+
+    // ─── PUT /students/topup-requests/:id ───────────────────
+    if (req.method === 'PUT' && parts.length === 3 && parts[0] === 'students' && parts[1] === 'topup-requests') {
+      const topupId = parts[2];
+      const payload = await readJson(req);
+
+      const { data: request, error: fetchErr } = await adminClient
+        .from('student_topups')
+        .select('*')
+        .eq('id', topupId)
+        .maybeSingle();
+
+      if (fetchErr || !request) {
+        sendJson(res, 404, { ok: false, error: 'Top-up request not found' });
+        return true;
+      }
+
+      if (request.status !== 'pending' && request.status !== 'pending_finance') {
+        sendJson(res, 400, { ok: false, error: 'Only pending requests can be modified' });
+        return true;
+      }
+
+      if (request.requested_by !== actor.userId && !['academic_coordinator', 'super_admin'].includes(actor.role)) {
+        sendJson(res, 403, { ok: false, error: 'You are not allowed to modify this request' });
+        return true;
+      }
+
+      const updates = {};
+      if (payload.amount !== undefined) updates.amount = payload.amount;
+      if (payload.total_amount !== undefined) updates.total_amount = payload.total_amount || null;
+      if (payload.hours_added !== undefined) updates.hours_added = payload.hours_added;
+      if (payload.screenshot_url !== undefined) updates.screenshot_url = payload.screenshot_url || null;
+      if (payload.finance_note !== undefined) updates.finance_note = payload.finance_note || null;
+
+      const { data: updated, error: updateErr } = await adminClient
+        .from('student_topups')
+        .update(updates)
+        .eq('id', topupId)
+        .select('*')
+        .single();
+
+      if (updateErr) throw new Error(updateErr.message);
+
+      sendJson(res, 200, { ok: true, request: updated });
+      return true;
+    }
+
+    // ─── DELETE /students/topup-requests/:id ────────────────
+    if (req.method === 'DELETE' && parts.length === 3 && parts[0] === 'students' && parts[1] === 'topup-requests') {
+      const topupId = parts[2];
+
+      const { data: request, error: fetchErr } = await adminClient
+        .from('student_topups')
+        .select('*')
+        .eq('id', topupId)
+        .maybeSingle();
+
+      if (fetchErr || !request) {
+        sendJson(res, 404, { ok: false, error: 'Top-up request not found' });
+        return true;
+      }
+
+      if (request.status !== 'pending' && request.status !== 'pending_finance') {
+        sendJson(res, 400, { ok: false, error: 'Only pending requests can be deleted' });
+        return true;
+      }
+
+      if (request.requested_by !== actor.userId && !['academic_coordinator', 'super_admin'].includes(actor.role)) {
+        sendJson(res, 403, { ok: false, error: 'You are not allowed to delete this request' });
+        return true;
+      }
+
+      const { error: deleteErr } = await adminClient
+        .from('student_topups')
+        .delete()
+        .eq('id', topupId);
+
+      if (deleteErr) throw new Error(deleteErr.message);
+
+      sendJson(res, 200, { ok: true });
       return true;
     }
 

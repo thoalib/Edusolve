@@ -81,7 +81,13 @@ export const APP_PAGES = [
   { path: '/manage/subjects', title: 'Subjects & Boards', group: 'Academics', roles: [ROLES.HR, ROLES.SUPER_ADMIN], showInNav: true },
 
   /* ── Support (always last in sidebar) ── */
-  { path: '/tickets', title: 'Tickets', group: 'Support', roles: [ROLES.COUNSELOR, ROLES.COUNSELOR_HEAD, ROLES.TEACHER, ROLES.TEACHER_COORDINATOR, ROLES.ACADEMIC_COORDINATOR, ROLES.HR, ROLES.FINANCE, ROLES.SUPER_ADMIN], showInNav: true }
+  { path: '/tickets', title: 'Tickets', group: 'Support', roles: [ROLES.COUNSELOR, ROLES.COUNSELOR_HEAD, ROLES.TEACHER, ROLES.TEACHER_COORDINATOR, ROLES.ACADEMIC_COORDINATOR, ROLES.HR, ROLES.FINANCE, ROLES.SUPER_ADMIN], showInNav: true },
+
+  /* ── Student Portal ── */
+  { path: '/student/dashboard', title: 'Home', group: 'Home', roles: [ROLES.STUDENT], showInNav: true },
+  { path: '/student/materials', title: 'Materials', group: 'Home', roles: [ROLES.STUDENT], showInNav: true },
+  { path: '/student/history', title: 'History', group: 'Home', roles: [ROLES.STUDENT], showInNav: true },
+  { path: '/student/profile', title: 'Profile', group: 'Home', roles: [ROLES.STUDENT], showInNav: true }
 ];
 
 export function pagesForRole(role) {

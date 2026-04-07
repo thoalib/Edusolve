@@ -2964,7 +2964,6 @@ function ExpandableMobileCard({ title, subtitle, topRight, mainStats, expandedCo
 
 export function PaymentRequestsPage({ initialLeadId, onReady }) {
   const [requests, setRequests] = useState([]);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const limit = 20;
 
@@ -2984,6 +2983,8 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
   const [loadingMyInstallments, setLoadingMyInstallments] = useState(false);
   const [showGenerateInvoice, setShowGenerateInvoice] = useState(false);
   const [receiptPayment, setReceiptPayment] = useState(null);
+  const [editingRequest, setEditingRequest] = useState(null);
+  const [userId, setUserId] = useState('');
 
   useEffect(() => {
     if (initialLeadId && leads.length > 0) {
@@ -2996,28 +2997,33 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
     }
   }, [initialLeadId, leads, onReady]);
 
-  async function loadData(currentPage = page) {
+  async function loadData() {
     setLoading(true);
     try {
       const session = getSession();
       const userRole = session?.user?.role || '';
       setRole(userRole);
+      setUserId(session?.user?.id || '');
 
       const promises = [
-        apiFetch(`/leads/payment-requests?page=${currentPage}&limit=${limit}`),
+        apiFetch(`/leads/payment-requests?page=1&limit=5000`),
         apiFetch('/leads?scope=my&limit=2000').catch(() => ({ items: [] })),
         apiFetch('/leads/counselors').catch(() => ({ items: [] }))
       ];
       const [prRes, leadsRes, counselorsRes] = await Promise.all(promises);
       setRequests(prRes.items || []);
-      setTotal(prRes.total || 0);
       setLeads((leadsRes.items || []).filter(l => !l.deleted_at));
       setCounselors(counselorsRes?.items || []);
     } catch (e) { alert(e.message); }
     setLoading(false);
   }
 
-  useEffect(() => { loadData(page); }, [page]);
+  useEffect(() => { loadData(); }, []);
+
+  // Reset pagination on filter change
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, counselorFilter]);
 
   const loadPendingBalances = useCallback(async () => {
     setLoadingPending(true);
@@ -3063,6 +3069,11 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
     }
     return list;
   }, [requests, statusFilter, counselorFilter, search, counselorMap, isCounselorHead]);
+  
+  const pagedList = useMemo(() => {
+    const start = (page - 1) * limit;
+    return filtered.slice(start, start + limit);
+  }, [filtered, page, limit]);
 
   const statusBadge = (status) => {
     const map = {
@@ -3085,6 +3096,22 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
     requests.forEach(r => { if (c[r.status] !== undefined) c[r.status]++; });
     return c;
   }, [requests]);
+
+  async function handleDelete(id) {
+    if (!confirm('Are you sure you want to delete this payment request?')) return;
+    try {
+      await apiFetch(`/leads/payment-requests/${id}`, { method: 'DELETE' });
+      alert('Payment request deleted');
+      loadData();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  const canModify = (r) => {
+    if (r.status !== 'pending') return false;
+    return r.requested_by === userId || isCounselorHead;
+  };
 
   if (loading) return <section className="panel"><p>Loading payment requests...</p></section>;
 
@@ -3340,10 +3367,11 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
                     <th>Status</th>
                     <th>Finance Note</th>
                     <th>Submitted</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(r => (
+                  {pagedList.map(r => (
                     <tr key={r.id}>
                       <td style={{ fontWeight: 500 }}>{r.leads?.student_name || '—'}</td>
                       <td>{r.leads?.contact_number || '—'}</td>
@@ -3372,11 +3400,17 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
                         {r.status === 'verified' && (
                           <button onClick={() => setReceiptPayment(r)} style={{ fontSize: '11px', padding: '3px 10px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>🧾 Receipt</button>
                         )}
+                        {canModify(r) && (
+                          <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                            <button onClick={() => setEditingRequest(r)} style={{ fontSize: '11px', padding: '3px 6px', background: '#fff', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer' }}>✎ Edit</button>
+                            <button onClick={() => handleDelete(r.id)} style={{ fontSize: '11px', padding: '3px 6px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '4px', cursor: 'pointer' }}>🗑</button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
-                  {!filtered.length && (
-                    <tr><td colSpan={isCounselorHead ? 10 : 9} style={{ textAlign: 'center', color: '#9ca3af', padding: '40px' }}>
+                  {!pagedList.length && (
+                    <tr><td colSpan={isCounselorHead ? 11 : 10} style={{ textAlign: 'center', color: '#9ca3af', padding: '40px' }}>
                       No payment requests found.
                     </td></tr>
                   )}
@@ -3385,7 +3419,7 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
             </div>
 
             <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {filtered.map(r => (
+              {pagedList.map(r => (
                 <ExpandableMobileCard
                   key={r.id}
                   title={r.leads?.student_name}
@@ -3416,20 +3450,29 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
                     </>
                   }
                   actions={
-                    isCounselorHead && r.status === 'pending' ? (
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button className="primary small" style={{ flex: 1, justifyContent: 'center' }} onClick={(e) => { e.stopPropagation(); setActiveApproval(r); setApprovalAction('approve'); }}>Approve</button>
-                        <button className="danger small" style={{ flex: 1, justifyContent: 'center' }} onClick={(e) => { e.stopPropagation(); setActiveApproval(r); setApprovalAction('reject'); }}>Reject</button>
-                      </div>
-                    ) : null
+                    <>
+                      {isCounselorHead && r.status === 'pending' && (
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                          <button className="primary small" style={{ flex: 1, justifyContent: 'center' }} onClick={(e) => { e.stopPropagation(); setActiveApproval(r); setApprovalAction('approve'); }}>Approve</button>
+                          <button className="danger small" style={{ flex: 1, justifyContent: 'center' }} onClick={(e) => { e.stopPropagation(); setActiveApproval(r); setApprovalAction('reject'); }}>Reject</button>
+                        </div>
+                      )}
+                      
+                      {canModify(r) && (
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button className="secondary small" style={{ flex: 1, justifyContent: 'center' }} onClick={(e) => { e.stopPropagation(); setEditingRequest(r); }}>✎ Edit</button>
+                          <button className="danger small" style={{ flex: 1, justifyContent: 'center', background: '#fee2e2', color: '#dc2626', border: 'none' }} onClick={(e) => { e.stopPropagation(); handleDelete(r.id); }}>🗑 Delete</button>
+                        </div>
+                      )}
+                    </>
                   }
                 />
               ))}
-              {!filtered.length && <p className="text-muted" style={{ textAlign: 'center', padding: '20px' }}>No requests found.</p>}
+              {!pagedList.length && <p className="text-muted" style={{ textAlign: 'center', padding: '20px' }}>No requests found.</p>}
             </div>
           </>
-          {!loading && total > 0 && (
-            <Pagination page={page} limit={limit} total={total} onPageChange={setPage} />
+          {!loading && filtered.length > 0 && (
+            <Pagination page={page} limit={limit} total={filtered.length} onPageChange={setPage} />
           )}
 
           {showNewModal && (
@@ -3438,6 +3481,14 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
               initialLeadId={initialLeadId}
               onClose={() => setShowNewModal(false)}
               onSuccess={() => { setShowNewModal(false); loadData(); }}
+            />
+          )}
+
+          {editingRequest && (
+            <EditPaymentRequestModal
+              request={editingRequest}
+              onClose={() => setEditingRequest(null)}
+              onSuccess={() => { setEditingRequest(null); loadData(); }}
             />
           )}
         </>
@@ -3967,6 +4018,177 @@ function NewPaymentRequestModal({ leads, onClose, onSuccess, initialLeadId }) {
             <button type="button" onClick={onClose} className="secondary" style={{ fontSize: '13px' }}>Cancel</button>
             <button type="submit" className="primary" disabled={saving || uploading || (!screenshotFile && !screenshotUrl)} style={{ fontSize: '13px' }}>
               {saving || uploading ? 'Submitting…' : 'Submit Request'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+export function EditPaymentRequestModal({ request, onClose, onSuccess }) {
+  const [totalAmount, setTotalAmount] = useState(request.total_amount || '');
+  const [hours, setHours] = useState(request.hours || '');
+  const [amount, setAmount] = useState(request.amount || '');
+  const [financeNote, setFinanceNote] = useState(request.finance_note || '');
+  const [screenshotFile, setScreenshotFile] = useState(null);
+  const [screenshotUrl, setScreenshotUrl] = useState(request.screenshot_url || '');
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  function handleFileChange(e) {
+    const file = e.target.files[0];
+    if (file) {
+      setScreenshotFile(file);
+      setScreenshotUrl(''); // Clear any old URL if they select a new file
+    }
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!amount || Number(amount) <= 0) return alert('Please enter a valid amount');
+    if (!screenshotFile && !screenshotUrl) return alert('Please upload a screenshot');
+
+    setSaving(true);
+    try {
+      let finalUrl = screenshotUrl;
+
+      if (screenshotFile) {
+        setUploading(true);
+        // 1. Get presigned URL
+        const presignData = await apiFetch(`/upload/presigned-url`, {
+          method: 'POST',
+          body: JSON.stringify({
+            filename: screenshotFile.name,
+            contentType: screenshotFile.type
+          })
+        });
+
+        // 2. Upload directly to R2/S3
+        const uploadRes = await fetch(presignData.uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': screenshotFile.type
+          },
+          body: screenshotFile
+        });
+
+        if (!uploadRes.ok) {
+          setUploading(false);
+          throw new Error('Failed to upload file to storage');
+        }
+
+        setUploading(false);
+        finalUrl = presignData.publicUrl;
+        setScreenshotUrl(finalUrl);
+      }
+
+      await apiFetch(`/leads/payment-requests/${request.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          amount: Number(amount),
+          total_amount: Number(totalAmount) || null,
+          hours: Number(hours) || null,
+          screenshot_url: finalUrl,
+          notes: financeNote || null
+        })
+      });
+      alert('Payment request updated!');
+      onSuccess();
+    } catch (err) {
+      setUploading(false);
+      alert('Error: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}
+        style={{ maxWidth: '440px', background: 'white', padding: '24px', borderRadius: '10px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ margin: 0, fontSize: '18px' }}>Edit Payment Request</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#6b7280' }}>×</button>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {/* Total Amount */}
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>
+            Total Amount (₹) *
+            <input
+              type="number"
+              min="1"
+              step="0.01"
+              value={totalAmount}
+              onChange={e => setTotalAmount(e.target.value)}
+              required
+              placeholder="e.g. 15000"
+              style={{ width: '100%', padding: '8px 12px', fontSize: '13px', border: '1px solid #d1d5db', borderRadius: '6px', marginTop: '4px' }}
+            />
+          </label>
+
+          {/* Hours */}
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>
+            Hours *
+            <input
+              type="number"
+              min="1"
+              step="0.5"
+              value={hours}
+              onChange={e => setHours(e.target.value)}
+              required
+              placeholder="e.g. 24"
+              style={{ width: '100%', padding: '8px 12px', fontSize: '13px', border: '1px solid #d1d5db', borderRadius: '6px', marginTop: '4px' }}
+            />
+          </label>
+
+          {/* Paid Amount */}
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>
+            Paid Amount (₹) *
+            <input
+              type="number"
+              min="1"
+              step="0.01"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              required
+              placeholder="e.g. 5000"
+              style={{ width: '100%', padding: '8px 12px', fontSize: '13px', border: '1px solid #d1d5db', borderRadius: '6px', marginTop: '4px' }}
+            />
+          </label>
+
+          {/* Screenshot Upload */}
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>
+            Payment Screenshot *
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              required={!screenshotFile && !screenshotUrl}
+              style={{ width: '100%', padding: '8px 0', fontSize: '13px', marginTop: '4px' }}
+            />
+            {screenshotFile && !uploading && <p style={{ fontSize: '12px', color: '#15803d', margin: '4px 0 0' }}>✅ File selected: {screenshotFile.name}</p>}
+            {screenshotUrl && !screenshotFile && <p style={{ fontSize: '12px', color: '#15803d', margin: '4px 0 0' }}>✅ Existing receipt will be kept.</p>}
+            {uploading && <p style={{ fontSize: '12px', color: '#6b7280', margin: '4px 0 0' }}>Uploading screenshot…</p>}
+          </label>
+
+          {/* Finance Note */}
+          <label style={{ fontSize: '13px', fontWeight: 600 }}>
+            Finance Note
+            <textarea
+              value={financeNote}
+              onChange={e => setFinanceNote(e.target.value)}
+              placeholder="Optional note for finance team…"
+              rows={2}
+              style={{ width: '100%', padding: '8px 12px', fontSize: '13px', border: '1px solid #d1d5db', borderRadius: '6px', marginTop: '4px', resize: 'vertical' }}
+            />
+          </label>
+
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+            <button type="button" onClick={onClose} className="secondary" style={{ fontSize: '13px' }}>Cancel</button>
+            <button type="submit" className="primary" disabled={saving || uploading || (!screenshotFile && !screenshotUrl)} style={{ fontSize: '13px' }}>
+              {saving || uploading ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
         </form>

@@ -852,7 +852,7 @@ export class LeadsService {
     return demoRequest;
   }
 
-  async listPaymentRequests(actor, page, limit) {
+  async listPaymentRequests(actor, page, limit, statusFilter, counselorFilter, search) {
     const adminClient = getSupabaseAdminClient();
     if (!isCounselor(actor) && !isCounselorHead(actor) && !isSuperAdmin(actor) && actor.role !== 'academic_coordinator') {
       return { error: 'payment request access is not allowed for this role' };
@@ -872,6 +872,22 @@ export class LeadsService {
     // Counselors and ACs see only their own requests
     if (isCounselor(actor) || actor.role === 'academic_coordinator') {
       query = query.eq('requested_by', actor.userId);
+    } else if (actor.role === 'counselor_head' || actor.role === 'super_admin') {
+      if (counselorFilter && counselorFilter !== 'all') {
+        query = query.eq('leads.counselor_id', counselorFilter);
+      }
+    }
+
+    if (statusFilter && statusFilter !== 'all') {
+      query = query.eq('status', statusFilter);
+    }
+
+    if (search) {
+      if (!isNaN(search)) {
+         query = query.or(`amount.eq.${search}`);
+      } else {
+         query = query.or(`student_name.ilike.%${search}%,contact_number.ilike.%${search}%`, { foreignTable: 'leads' });
+      }
     }
 
     if (page && limit) {
@@ -985,6 +1001,84 @@ export class LeadsService {
       'payment evidence submitted'
     );
     return paymentRequest;
+  }
+
+  async updatePaymentRequest(id, actor, payload) {
+    const adminClient = getSupabaseAdminClient();
+    if (!adminClient) return { error: 'Not supported in memory mode' };
+
+    const { data: request, error } = await adminClient
+      .from('payment_requests')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!request) return { error: 'Request not found' };
+
+    if (request.status !== 'pending') {
+      return { error: 'Only pending requests can be modified' };
+    }
+
+    if (request.requested_by !== actor.userId && actor.role !== 'counselor_head' && actor.role !== 'super_admin') {
+      return { error: 'You are not allowed to modify this request' };
+    }
+
+    const { amount, total_amount, hours, screenshot_url, notes } = payload;
+    if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0)) {
+      return { error: 'valid payment amount is required' };
+    }
+
+    const updates = {};
+    if (amount !== undefined) updates.amount = amount;
+    if (total_amount !== undefined) updates.total_amount = total_amount || null;
+    if (hours !== undefined) updates.hours = hours || null;
+    if (screenshot_url !== undefined) updates.screenshot_url = screenshot_url || null;
+    if (notes !== undefined) updates.finance_note = notes || null;
+    updates.updated_at = nowIso();
+
+    const { data: updated, error: updateError } = await adminClient
+      .from('payment_requests')
+      .update(updates)
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (updateError) throw new Error(updateError.message);
+    return updated;
+  }
+
+  async deletePaymentRequest(id, actor) {
+    const adminClient = getSupabaseAdminClient();
+    if (!adminClient) return { error: 'Not supported in memory mode' };
+
+    const { data: request, error } = await adminClient
+      .from('payment_requests')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!request) return { error: 'Request not found' };
+
+    if (request.status !== 'pending') {
+      return { error: 'Only pending requests can be deleted' };
+    }
+
+    if (request.requested_by !== actor.userId && actor.role !== 'counselor_head' && actor.role !== 'super_admin') {
+      return { error: 'You are not allowed to delete this request' };
+    }
+
+    const { error: deleteError } = await adminClient
+      .from('payment_requests')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) throw new Error(deleteError.message);
+    
+    // Attempt to revert the lead status to "contacted" if no more pending payment requests exist?
+    // User didn't request this deep logic, usually deleting a payment request means they'll just make a new one soon.
+    return { ok: true };
   }
 
   async assignCounselor(id, counselorUserId, actor) {
@@ -1230,30 +1324,33 @@ export class LeadsService {
     const adminClient = getSupabaseAdminClient();
     if (!adminClient) return [];
 
-    const { data: { users }, error } = await adminClient.auth.admin.listUsers();
-    if (error) throw new Error(error.message);
+    // 1. Get role ID for 'counselor'
+    const { data: roleData } = await adminClient
+        .from('roles')
+        .select('id')
+        .eq('code', 'counselor')
+        .single();
 
-    const counselorAuthUsers = (users || []).filter(u => {
-      const role = u.app_metadata?.role || u.user_metadata?.role;
-      return role === 'counselor';
-    });
+    if (!roleData) return [];
 
-    // Enrich with full_name from users DB table
-    const ids = counselorAuthUsers.map(u => u.id);
-    let dbNameMap = {};
-    if (ids.length) {
-      const { data: dbUsers } = await adminClient
+    // 2. Get user_ids having this role
+    const { data: userRoles } = await adminClient
+        .from('user_roles')
+        .select('user_id')
+        .eq('role_id', roleData.id);
+
+    const userIds = (userRoles || []).map(ur => ur.user_id);
+    if (!userIds.length) return [];
+
+    // 3. Get user details from users table
+    const { data: users, error } = await adminClient
         .from('users')
-        .select('id, full_name')
-        .in('id', ids);
-      (dbUsers || []).forEach(u => { if (u.full_name) dbNameMap[u.id] = u.full_name; });
-    }
+        .select('id, full_name, email')
+        .in('id', userIds)
+        .order('full_name');
 
-    return counselorAuthUsers.map(u => ({
-      id: u.id,
-      email: u.email,
-      full_name: dbNameMap[u.id] || u.user_metadata?.name || u.user_metadata?.full_name || u.email
-    }));
+    if (error) throw new Error(error.message);
+    return users || [];
   }
 
   async convertToStudent(leadId, acUserId, actor) {
