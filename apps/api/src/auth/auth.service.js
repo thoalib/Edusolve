@@ -156,4 +156,79 @@ export class AuthService {
 
     return { ok: false, error: 'auth provider is not configured for refresh' };
   }
+
+  async studentLogin(phone, pin) {
+    if (!phone || !pin) return { ok: false, error: 'phone and pin are required' };
+
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    if (!cleanPhone || cleanPhone.length < 7) return { ok: false, error: 'invalid phone number' };
+    if (!/^\d{6}$/.test(pin)) return { ok: false, error: 'PIN must be exactly 6 digits' };
+
+    const adminClient = getSupabaseAdminClient();
+    if (!adminClient) return { ok: false, error: 'database not configured' };
+
+    // Search for a student by contact_number, alternative_number or parent_phone
+    const { data: students, error } = await adminClient
+      .from('students')
+      .select('id, student_name, student_code, contact_number, alternative_number, parent_phone, login_pin, status, remaining_hours, total_hours, class_level, board, medium, country, academic_coordinator_id')
+      .is('deleted_at', null)
+      .or(`contact_number.ilike.%${cleanPhone}%,alternative_number.ilike.%${cleanPhone}%,parent_phone.ilike.%${cleanPhone}%`);
+
+    if (error) return { ok: false, error: 'database error' };
+    if (!students || students.length === 0) return { ok: false, error: 'No student found with this phone number' };
+
+    // Find the one whose PIN matches
+    const student = students.find(s => (s.login_pin || '123456') === pin);
+    if (!student) return { ok: false, error: 'Incorrect PIN' };
+
+    if (student.status === 'inactive') return { ok: false, error: 'This student account is inactive. Please contact your coordinator.' };
+
+    // Generate a simple token (base64 JSON) containing student info
+    const tokenPayload = { studentId: student.id, role: 'student', phone: cleanPhone };
+    const token = Buffer.from(JSON.stringify(tokenPayload)).toString('base64');
+
+    return {
+      ok: true,
+      token,
+      user: {
+        id: student.id,
+        name: student.student_name,
+        role: 'student',
+        studentCode: student.student_code
+      }
+    };
+  }
+
+  async studentMe(accessToken) {
+    if (!accessToken) return { ok: false, error: 'missing token' };
+
+    try {
+      const parsed = JSON.parse(Buffer.from(accessToken, 'base64').toString('utf8'));
+      if (parsed?.role !== 'student' || !parsed?.studentId) return null; // Not a student token
+
+      const adminClient = getSupabaseAdminClient();
+      if (!adminClient) return { ok: false, error: 'database not configured' };
+
+      const { data: student, error } = await adminClient
+        .from('students')
+        .select('id, student_name, student_code, status')
+        .eq('id', parsed.studentId)
+        .is('deleted_at', null)
+        .maybeSingle();
+
+      if (error || !student) return { ok: false, error: 'student not found' };
+
+      return {
+        ok: true,
+        user: {
+          id: student.id,
+          name: student.student_name,
+          role: 'student',
+          studentCode: student.student_code
+        }
+      };
+    } catch {
+      return null; // Not a student token, let normal flow handle
+    }
+  }
 }

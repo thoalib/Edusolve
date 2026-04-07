@@ -449,22 +449,16 @@ export function CounselorHeadDashboardPage({ targetUserId }) {
 
   // Static data — fetch once
   useEffect(() => {
-    const d = new Date();
-    const month = d.getMonth() + 1;
-    const year = d.getFullYear();
-
     Promise.all([
       apiFetch('/counselors'),
       apiFetch('/hr/councilor-profiles'),
       apiFetch('/hr/councilor-levels'),
-      apiFetch(`/hr/councilors/sales-report?month=${month}&year=${year}`),
       apiFetch('/leads/types'),
       apiFetch('/leads?scope=all&limit=5000')
-    ]).then(([counselorsData, cpRes, clRes, srRes, typesRes, leadsRes]) => {
+    ]).then(([counselorsData, cpRes, clRes, typesRes, leadsRes]) => {
       setCounselors(counselorsData.items || []);
       setCLevels(clRes.items || []);
       setAllCProfiles(cpRes.items || []);
-      setSalesMap(srRes.report || {});
       setLeadTypes(typesRes.types || []);
       setAllLeads(leadsRes.items || []);
     }).catch(console.error);
@@ -482,12 +476,17 @@ export function CounselorHeadDashboardPage({ targetUserId }) {
     if (leadTypeFilter !== 'all') fp.set('lead_type', leadTypeFilter);
     const filtered = `/counselors/stats?${fp.toString()}`;
 
+    const toDate = dateRange.to ? new Date(dateRange.to) : new Date();
+    const srPath = `/hr/councilors/sales-report?from=${dateRange.from || ''}&to=${dateRange.to || ''}&month=${toDate.getMonth() + 1}&year=${toDate.getFullYear()}`;
+
     Promise.all([
       apiFetch(base),
-      leadTypeFilter !== 'all' ? apiFetch(filtered) : null
-    ]).then(([mainData, filteredData]) => {
+      leadTypeFilter !== 'all' ? apiFetch(filtered) : null,
+      apiFetch(srPath)
+    ]).then(([mainData, filteredData, srRes]) => {
       setStats(mainData.stats);
       setFilteredStats(filteredData ? filteredData.stats : mainData.stats);
+      if (srRes) setSalesMap(srRes.report || {});
     }).catch(console.error);
   }, [targetUserId, dateRange, leadTypeFilter]);
 

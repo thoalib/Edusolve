@@ -684,41 +684,98 @@ export async function handleHR(req, res, url) {
       }
 
       // 1. Fetch Verified Lead Payments (Initial Onboarding)
-      const { data: verifiedPayments } = await adminClient
+      const { data: vPs } = await adminClient
         .from('payment_requests')
-        .select('amount, leads!inner(counselor_id), effective_date, verified_at')
+        .select('id, amount, leads!inner(counselor_id), effective_date, verified_at')
         .eq('status', 'verified')
         .or(`effective_date.gte.${startDate},and(effective_date.is.null,verified_at.gte.${startDate})`)
         .or(`effective_date.lte.${endDate},and(effective_date.is.null,verified_at.lte.${endDate})`);
 
       // 2. Fetch Verified Student Topups (Renewals)
-      const { data: verifiedTopups } = await adminClient
+      const { data: vTs } = await adminClient
         .from('student_topups')
-        .select('amount, requested_by, effective_date, verified_at')
+        .select('id, amount, requested_by, effective_date, verified_at')
         .eq('status', 'verified')
         .or(`effective_date.gte.${startDate},and(effective_date.is.null,verified_at.gte.${startDate})`)
         .or(`effective_date.lte.${endDate},and(effective_date.is.null,verified_at.lte.${endDate})`);
 
+      // 3. Fetch Verified Installments within the range (Part Payments)
+      const { data: vInsts } = await adminClient
+        .from('installment_payments')
+        .select('id, amount, reference_type, reference_id, effective_date, verified_at')
+        .eq('status', 'verified')
+        .or(`effective_date.gte.${startDate},and(effective_date.is.null,verified_at.gte.${startDate})`)
+        .or(`effective_date.lte.${endDate},and(effective_date.is.null,verified_at.lte.${endDate})`);
+
+      // 4. To calculate the "Initial Portion" of requests correctly, we need all installments for ALL requests found
+      const parentIds = [...new Set([
+        ...(vPs || []).map(p => p.id),
+        ...(vTs || []).map(t => t.id),
+        ...(vInsts || []).map(i => i.reference_id)
+      ])];
+
+      let allInstallmentsMap = {}; // parentId -> [installment amounts]
+      if (parentIds.length > 0) {
+        const { data: allInsts } = await adminClient
+          .from('installment_payments')
+          .select('reference_id, amount')
+          .eq('status', 'verified')
+          .in('reference_id', parentIds);
+        (allInsts || []).forEach(i => {
+          if (!allInstallmentsMap[i.reference_id]) allInstallmentsMap[i.reference_id] = 0;
+          allInstallmentsMap[i.reference_id] += Number(i.amount || 0);
+        });
+      }
+
+      // 5. Need parent metadata for installments to attribute credit
+      let installmentMetadata = {}; // reference_id -> counselor_id
+      const instPrIds = [...new Set((vInsts || []).filter(i => i.reference_type === 'payment_request').map(i => i.reference_id))];
+      const instStIds = [...new Set((vInsts || []).filter(i => i.reference_type === 'student_topup').map(i => i.reference_id))];
+
+      if (instPrIds.length > 0) {
+        const { data: heads } = await adminClient.from('payment_requests').select('id, leads!inner(counselor_id)').in('id', instPrIds);
+        (heads || []).forEach(h => { installmentMetadata[h.id] = h.leads?.counselor_id; });
+      }
+      if (instStIds.length > 0) {
+        const { data: heads } = await adminClient.from('student_topups').select('id, requested_by').in('id', instStIds);
+        (heads || []).forEach(h => { installmentMetadata[h.id] = h.requested_by; });
+      }
+
       const salesMap = {};
 
-      // Process Initial Payments
-      (verifiedPayments || []).forEach(p => {
+      // Process Initial Requests - Only count the balance remaining after subtracting ALL its installments
+      (vPs || []).forEach(p => {
         const pDateStr = p.effective_date || p.verified_at?.split('T')[0];
         if (pDateStr >= startDate && pDateStr <= endDate) {
           const cId = p.leads?.counselor_id;
           if (cId) {
-            salesMap[cId] = (salesMap[cId] || 0) + Number(p.amount || 0);
+            const installmentTotal = allInstallmentsMap[p.id] || 0;
+            const initialAmount = Math.max(0, Number(p.amount || 0) - installmentTotal);
+            salesMap[cId] = (salesMap[cId] || 0) + initialAmount;
           }
         }
       });
 
-      // Process Topups (Renewals are often requested by the counselor)
-      (verifiedTopups || []).forEach(t => {
+      // Process Topup Requests - Only count initial balance
+      (vTs || []).forEach(t => {
         const tDateStr = t.effective_date || t.verified_at?.split('T')[0];
         if (tDateStr >= startDate && tDateStr <= endDate) {
-          const cId = t.requested_by; // For topups, we attribute sales to the person who requested it
+          const cId = t.requested_by;
           if (cId) {
-            salesMap[cId] = (salesMap[cId] || 0) + Number(t.amount || 0);
+            const installmentTotal = allInstallmentsMap[t.id] || 0;
+            const initialAmount = Math.max(0, Number(t.amount || 0) - installmentTotal);
+            salesMap[cId] = (salesMap[cId] || 0) + initialAmount;
+          }
+        }
+      });
+
+      // Process Installments (Part Payments) - Sum them up on the date they were paid/verified
+      (vInsts || []).forEach(inst => {
+        const iDateStr = inst.effective_date || inst.verified_at?.split('T')[0];
+        if (iDateStr >= startDate && iDateStr <= endDate) {
+          const cId = installmentMetadata[inst.reference_id];
+          if (cId) {
+            salesMap[cId] = (salesMap[cId] || 0) + Number(inst.amount || 0);
           }
         }
       });
