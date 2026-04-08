@@ -681,6 +681,10 @@ export async function handleHR(req, res, url) {
       if (fromParam && toParam) {
         startDate = fromParam.split('T')[0];
         endDate = toParam.split('T')[0];
+      } else if (fromParam === '' && toParam === '') {
+        // Skip date boundaries for "All" selection
+        startDate = '1970-01-01';
+        endDate = '2100-12-31';
       } else {
         startDate = `${year}-${String(month).padStart(2, '0')}-01`;
         endDate = new Date(year, month, 0).toISOString().split('T')[0];

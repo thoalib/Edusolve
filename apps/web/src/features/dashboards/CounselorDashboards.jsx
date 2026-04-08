@@ -260,7 +260,7 @@ export function CounselorDashboardPage({ targetUserId }) {
     return items.filter(lead => {
       if (!lead.created_at) return false;
       const dt = lead.created_at.slice(0, 10);
-      return dt >= dateRange.from && dt <= dateRange.to;
+      return (!dateRange.from || dt >= dateRange.from) && (!dateRange.to || dt <= dateRange.to);
     });
   }, [items, dateRange]);
 
@@ -268,18 +268,9 @@ export function CounselorDashboardPage({ targetUserId }) {
     const defaultLvl = cLevels.length > 0 ? [...cLevels].sort((a, b) => a.level_name.localeCompare(b.level_name))[0] : null;
     const lvl = cProfile?.councilor_levels || defaultLvl;
     const targetAmt = lvl ? Number(lvl.target_amount) : 0;
-    const pct = lvl ? Number(lvl.incentive_percentage) : 0;
     const achieved = salesMap[targetUserId] || 0;
-    const extra = Math.max(0, achieved - targetAmt);
-    const expectedIncentive = Math.round(extra * pct / 100);
-    const progress = targetAmt > 0 ? Math.min(100, Math.round((achieved / targetAmt) * 100)) : 0;
-    let presentDays = 0;
-    if (attendanceData) {
-      presentDays = attendanceData.present + (attendanceData.half_day * 0.5);
-    }
-    const attendanceProgress = workingDays > 0 ? Math.min(100, Math.round((presentDays / workingDays) * 100)) : 0;
-    return { lvl, expectedIncentive, achieved, targetAmt, progress, presentDays, attendanceProgress };
-  }, [cLevels, cProfile, salesMap, targetUserId, attendanceData, workingDays]);
+    return { lvl, achieved, targetAmt, progress: targetAmt > 0 ? Math.min(100, Math.round((achieved / targetAmt) * 100)) : 0 };
+  }, [cLevels, cProfile, salesMap, targetUserId]);
 
   const leaderboard = useMemo(() => {
     if (!counselorsList.length || !cLevels.length) return [];
@@ -297,7 +288,8 @@ export function CounselorDashboardPage({ targetUserId }) {
 
   const metrics = useMemo(() => {
     const total = filteredItems.length;
-    const active = filteredItems.filter(l => l.status !== 'dropped' && l.status !== 'joined').length;
+    const activeArr = filteredItems.filter(l => l.status !== 'dropped' && l.status !== 'joined');
+    const active = activeArr.length;
     const newLeads = filteredItems.filter(l => l.status === 'new').length;
     const contacted = filteredItems.filter(l => l.status === 'contacted').length;
     const demoScheduled = filteredItems.filter(l => l.status === 'demo_scheduled').length;
@@ -321,12 +313,19 @@ export function CounselorDashboardPage({ targetUserId }) {
 
   const trendData = useMemo(() => {
     const days = [];
-    if (!dateRange.from || !dateRange.to) return { sessionsPerDay: [], lineChartData: { path: '', points: [], area: '' } };
-    
-    const start = new Date(dateRange.from + 'T00:00:00');
-    const end = new Date(dateRange.to + 'T00:00:00');
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      days.push(toLocalISO(d));
+    if (!dateRange.from && !dateRange.to) {
+      // If "All" is selected, just show the last 14 days of data to keep chart readable
+      const now = new Date();
+      for (let i = 13; i >= 0; i--) {
+        const d = new Date(now); d.setDate(d.getDate() - i);
+        days.push(toLocalISO(d));
+      }
+    } else {
+      const start = new Date(dateRange.from + 'T00:00:00');
+      const end = new Date(dateRange.to + 'T00:00:00');
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        days.push(toLocalISO(d));
+      }
     }
     
     const displayDays = days.length > 31 ? days.slice(-31) : days;
@@ -366,7 +365,7 @@ export function CounselorDashboardPage({ targetUserId }) {
       {/* Target & Performance Banner */}
       <article className="card counselor-target-banner" style={{ padding: '24px', background: 'linear-gradient(to right, #173b73, #1f4b8f)', color: 'white', border: 'none' }}>
         <div className="cdb-layout" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '20px' }}>
-          <div className="cdb-main" style={{ flex: '1 1 100px' }}>
+          <div className="cdb-main" style={{ flex: '1 1 200px' }}>
             <h3 style={{ margin: '0 0 8px', fontSize: '18px', color: 'rgba(255,255,255,0.9)' }}>
               Target & Performance - {new Date().toLocaleString('default', { month: 'long' })} {new Date().getFullYear()}
               {levelMetrics.lvl && <span style={{ marginLeft: '12px', fontSize: '13px', background: 'rgba(255,255,255,0.2)', padding: '4px 10px', borderRadius: '12px' }}>{levelMetrics.lvl.level_name}</span>}
@@ -381,15 +380,8 @@ export function CounselorDashboardPage({ targetUserId }) {
           </div>
           <div className="cdb-details" style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
             <div className="cdb-detail-box" style={{ background: 'rgba(255,255,255,0.1)', padding: '16px 24px', borderRadius: '12px', textAlign: 'center', minWidth: '150px' }}>
-              <p className="cdb-detail-label" style={{ margin: '0 0 4px', fontSize: '13px', color: 'rgba(255,255,255,0.8)' }}>Incentive Earned</p>
-              <p className="cdb-detail-value" style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: '#10b981' }}>+₹{levelMetrics.expectedIncentive.toLocaleString()}</p>
-            </div>
-            <div className="cdb-detail-box" style={{ background: 'rgba(255,255,255,0.1)', padding: '16px 24px', borderRadius: '12px', textAlign: 'center', minWidth: '150px' }}>
-              <p className="cdb-detail-label" style={{ margin: '0 0 4px', fontSize: '13px', color: 'rgba(255,255,255,0.8)' }}>Attendance Progress</p>
-              <p className="cdb-att-value" style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: 'bold', color: '#ffffff' }}>{levelMetrics.presentDays} / {workingDays} Days</p>
-              <div style={{ background: 'rgba(0,0,0,0.2)', height: '4px', borderRadius: '2px', overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${levelMetrics.attendanceProgress}%`, background: '#60a5fa', transition: 'width 0.5s ease-in-out' }}></div>
-              </div>
+              <p className="cdb-detail-label" style={{ margin: '0 0 4px', fontSize: '13px', color: 'rgba(255,255,255,0.8)' }}>Achievement</p>
+              <p className="cdb-detail-value" style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: '#10b981' }}>{levelMetrics.progress}%</p>
             </div>
           </div>
         </div>
@@ -402,7 +394,7 @@ export function CounselorDashboardPage({ targetUserId }) {
         <StatCard label="Conversion Rate" value={`${metrics.conversionRate}%`} tone="success" />
       </div>
 
-      <div className="flex-row-desktop" style={{ marginBottom: '24px' }}>
+      <div className="flex-row-desktop" style={{ marginBottom: '20px' }}>
         <article className="card flex-2">
           <h3 style={{ margin: '0 0 4px', fontSize: '15px' }}>Lead Inflow Trend</h3>
           <p style={{ margin: '0 0 16px', fontSize: '12px', color: '#64748b' }}>Daily acquisition rate</p>
@@ -476,8 +468,10 @@ export function CounselorDashboardPage({ targetUserId }) {
             </div>
           ))}
         </article>
+      </div>
 
-        <article className="card" style={{ padding: '20px' }}>
+      <div className="flex-row-desktop">
+        <article className="card flex-1" style={{ padding: '20px' }}>
           <h3 style={{ margin: '0 0 16px', fontSize: '15px' }}>Outcomes</h3>
           <div style={{ display: 'flex', gap: '16px', marginBottom: '12px' }}>
             <div style={{ flex: 1, textAlign: 'center', padding: '16px', background: '#dcfce7', borderRadius: '12px' }}>
@@ -491,7 +485,7 @@ export function CounselorDashboardPage({ targetUserId }) {
           </div>
         </article>
 
-        <article className="card" style={{ padding: '20px' }}>
+        <article className="card flex-1" style={{ padding: '20px' }}>
           <h3 style={{ margin: '0 0 12px', fontSize: '15px' }}>Recent Leads</h3>
           {recentLeads.length ? recentLeads.map(lead => (
             <div key={lead.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #f3f4f6', fontSize: '13px' }}>
@@ -508,29 +502,31 @@ export function CounselorDashboardPage({ targetUserId }) {
         </article>
 
         {/* Target Leaderboard */}
-        <article className="card" style={{ padding: '20px' }}>
+        <article className="card flex-1" style={{ padding: '20px' }}>
           <h3 style={{ margin: '0 0 12px', fontSize: '15px' }}>Target Leaderboard</h3>
-          {leaderboard.length ? leaderboard.slice(0, 5).map((l, index) => (
-            <div key={l.id} style={{ padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', borderRadius: '50%',
-                    background: index === 0 ? '#fef08a' : index === 1 ? '#e2e8f0' : index === 2 ? '#fed7aa' : '#f3f4f6',
-                    color: index === 0 ? '#ca8a04' : index === 1 ? '#64748b' : index === 2 ? '#c2410c' : '#9ca3af',
-                    fontSize: '11px', fontWeight: 'bold'
-                  }}>{index + 1}</span>
-                  <span style={{ fontSize: '14px', fontWeight: l.id === targetUserId ? '600' : '500', color: l.id === targetUserId ? '#4f46e5' : 'inherit' }}>
-                    {l.name} {l.id === targetUserId && '(You)'}
-                  </span>
+          <div style={{ maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
+            {leaderboard.length ? leaderboard.map((l, index) => (
+              <div key={l.id} style={{ padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', borderRadius: '50%',
+                      background: index === 0 ? '#fef08a' : index === 1 ? '#e2e8f0' : index === 2 ? '#fed7aa' : '#f3f4f6',
+                      color: index === 0 ? '#ca8a04' : index === 1 ? '#64748b' : index === 2 ? '#c2410c' : '#9ca3af',
+                      fontSize: '11px', fontWeight: 'bold'
+                    }}>{index + 1}</span>
+                    <span style={{ fontSize: '13px', fontWeight: l.id === targetUserId ? '600' : '500', color: l.id === targetUserId ? '#4f46e5' : 'inherit' }}>
+                      {l.name} {l.id === targetUserId && '(You)'}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '12px', fontWeight: 'bold' }}>₹{l.achieved.toLocaleString()} <span style={{ color: l.progress >= 100 ? '#10b981' : '#6366f1' }}>({l.progress}%)</span></span>
                 </div>
-                <span style={{ fontSize: '13px', fontWeight: 'bold' }}>₹{l.achieved.toLocaleString()} / ₹{l.targetAmt.toLocaleString()} <span style={{ color: l.progress >= 100 ? '#10b981' : '#6366f1' }}>({l.progress}%)</span></span>
+                <div style={{ background: '#f3f4f6', height: '4px', borderRadius: '2px', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${l.progress}%`, background: l.progress >= 100 ? '#10b981' : '#6366f1' }}></div>
+                </div>
               </div>
-              <div style={{ background: '#f3f4f6', height: '4px', borderRadius: '2px', overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${l.progress}%`, background: l.progress >= 100 ? '#10b981' : '#6366f1' }}></div>
-              </div>
-            </div>
-          )) : <p className="text-muted" style={{ fontSize: '13px' }}>Loading board...</p>}
+            )) : <p className="text-muted" style={{ fontSize: '13px' }}>Loading board...</p>}
+          </div>
         </article>
 
       </div>

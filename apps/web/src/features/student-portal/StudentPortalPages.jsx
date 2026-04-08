@@ -5,6 +5,22 @@ import { ReceiptModal, getBranding } from '../finance/InvoiceTemplate.jsx';
 const formatTime = (timeStr) => {
   if (!timeStr) return '—';
   if (timeStr.includes('AM') || timeStr.includes('PM')) return timeStr;
+
+  // Handle ISO strings (e.g. 2026-04-08T13:00:00+05:30)
+  if (timeStr.includes('T')) {
+    try {
+      return new Date(timeStr).toLocaleTimeString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      }).toUpperCase();
+    } catch (e) {
+      console.warn("Invalid date string encountered:", timeStr);
+    }
+  }
+
+  // Handle simple HH:MM[:SS] strings (e.g. 13:00)
   const parts = timeStr.split(':');
   if (parts.length < 2) return timeStr;
   let h = parseInt(parts[0], 10);
@@ -652,12 +668,18 @@ export function StudentMaterialsPage() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [captionText, setCaptionText] = useState('');
   const [file, setFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
   const [loading, setLoading] = useState(true);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const chatEndRef = useRef(null);
+
+  // Clean up preview URL on unmount or change
+  useEffect(() => {
+    return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
+  }, [previewUrl]);
 
   useEffect(() => {
     apiFetch('/students/my-teachers')
@@ -703,16 +725,39 @@ export function StudentMaterialsPage() {
       .catch(() => setLoadingHistory(false));
   };
 
+
   const selectSubjectEntry = (entry) => {
     // entry = { subject, teacher_id, teacher_name }
     const teacher = teachers.find(t => t.teacher_id === entry.teacher_id) || { teacher_id: entry.teacher_id, teacher_name: entry.teacher_name, subjects: [entry.subject] };
     setSelectedTeacher(teacher);
     setSelectedSubject(entry.subject);
+    
+    // Clear attachment on subject change
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
     setFile(null);
+    setPreviewUrl(null);
+
     setCaptionText('');
     setMessage({ text: '', type: '' });
     fetchHistory(entry.teacher_id);
     setIsChatOpen(true);
+  };
+
+  const handleFileChange = (e) => {
+    const selected = e.target.files[0];
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    
+    if (selected) {
+      setFile(selected);
+      if (selected.type.startsWith('image/')) {
+        setPreviewUrl(URL.createObjectURL(selected));
+      } else {
+        setPreviewUrl(null);
+      }
+    } else {
+      setFile(null);
+      setPreviewUrl(null);
+    }
   };
 
   const handleBack = () => { setIsChatOpen(false); setSelectedTeacher(null); };
@@ -788,25 +833,46 @@ export function StudentMaterialsPage() {
         <div className={`spm-container ${isChatOpen ? 'chat-open' : ''}`}>
           {/* Left: Subject List (subject-centric) */}
           <div className="spm-sidebar">
-            <div style={{ padding: '16px', background: '#f3f4f6', borderBottom: '1px solid #e5e7eb', fontWeight: 600, fontSize: '15px' }}>📚 My Subjects</div>
+            <div style={{ padding: '16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontWeight: 800, fontSize: '15px', color: '#1f4b8f' }}>📚 My Subjects</div>
             <div style={{ overflowY: 'auto', flex: 1 }}>
               {subjectList.map((entry, idx) => {
                 const isActive = selectedTeacher?.teacher_id === entry.teacher_id && selectedSubject === entry.subject;
+                const initial = (entry.subject || 'S').charAt(0).toUpperCase();
+                // Simple color palette for subject icons
+                const colors = ['#eff6ff', '#ecfdf5', '#fff7ed', '#fef2f2', '#f5f3ff'];
+                const textColors = ['#1e40af', '#065f46', '#9a3412', '#991b1b', '#5b21b6'];
+                const colorIdx = idx % colors.length;
+
                 return (
                   <div
                     key={idx}
                     onClick={() => selectSubjectEntry(entry)}
                     style={{
-                      padding: '14px 16px',
+                      padding: '12px 16px',
                       borderBottom: '1px solid #f1f5f9',
                       cursor: 'pointer',
                       background: isActive ? '#eff6ff' : '#fff',
-                      borderLeft: isActive ? '4px solid #2563eb' : '4px solid transparent',
-                      transition: 'background 0.2s'
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      transition: 'all 0.2s',
+                      position: 'relative'
                     }}
                   >
-                    <div style={{ fontWeight: 700, color: '#111827', fontSize: '14px' }}>{entry.subject}</div>
-                    <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>({entry.teacher_name})</div>
+                    {isActive && <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '4px', background: '#2563eb' }} />}
+                    <div style={{
+                      width: '40px', height: '40px', borderRadius: '50%',
+                      background: colors[colorIdx], color: textColors[colorIdx],
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '16px', fontWeight: 800, flexShrink: 0,
+                      border: '1px solid rgba(0,0,0,0.05)'
+                    }}>
+                      {initial}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: '#111827', fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{entry.subject}</div>
+                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{entry.teacher_name}</div>
+                    </div>
                   </div>
                 );
               })}
@@ -818,10 +884,15 @@ export function StudentMaterialsPage() {
           <div className="spm-main">
             {selectedTeacher ? (
               <>
-                <div style={{ padding: '14px 16px', background: '#f3f4f6', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ padding: '12px 16px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '12px', boxShadow: '0 1px 2px rgba(0,0,0,0.03)', zIndex: 1 }}>
                   <button className="spm-mobile-back" onClick={handleBack}>←</button>
-                  <div className="sp-teacher-avatar" style={{ width: 36, height: 36, fontSize: 14 }}>{selectedTeacher.teacher_name.charAt(0).toUpperCase()}</div>
-                  <div style={{ fontWeight: 600, fontSize: '15px' }}>{selectedTeacher.teacher_name}</div>
+                  <div className="sp-teacher-avatar" style={{ width: 40, height: 40, fontSize: 16 }}>{selectedTeacher.teacher_name.charAt(0).toUpperCase()}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 800, fontSize: '15px', color: '#0f172a' }}>{selectedTeacher.teacher_name}</div>
+                    <div style={{ fontSize: '11px', color: '#1d4ed8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px', marginTop: '1px' }}>
+                      Subject: {selectedSubject}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="spm-history">
@@ -875,15 +946,28 @@ export function StudentMaterialsPage() {
                         <div style={{ flex: 1, padding: '10px 14px', background: '#e5e7eb', borderRadius: '16px', fontSize: '13px', color: '#4b5563' }}>Subject: <strong>{selectedSubject || 'None'}</strong></div>
                       )}
                       <div>
-                        <input type="file" id="sp-file-upload" onChange={e => setFile(e.target.files[0] || null)} style={{ display: 'none' }} accept="image/*,video/*,audio/*,.pdf,.doc,.docx" />
+                        <input type="file" id="sp-file-upload" onChange={handleFileChange} style={{ display: 'none' }} accept="image/*,video/*,audio/*,.pdf,.doc,.docx" />
                         <label htmlFor="sp-file-upload" style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', borderRadius: '16px', background: '#fff', border: '1px solid #d1d5db', cursor: 'pointer', fontSize: '13px', whiteSpace: 'nowrap' }}>{file ? '📎 Change' : '📎 Attach'}</label>
                       </div>
                     </div>
                     {file && (
-                      <div style={{ padding: '6px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
-                        <button type="button" onClick={() => setFile(null)} style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
-                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
-                        <span style={{ fontSize: '11px', color: '#64748b' }}>{(file.size / 1024 / 1024).toFixed(1)}MB</span>
+                      <div style={{ padding: '8px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '10px', position: 'relative' }}>
+                        <button type="button" onClick={() => { if (previewUrl) URL.revokeObjectURL(previewUrl); setFile(null); setPreviewUrl(null); }} style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22, background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', zIndex: 10 }}>×</button>
+                        
+                        {previewUrl ? (
+                          <div style={{ width: 44, height: 44, borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', flexShrink: 0 }}>
+                            <img src={previewUrl} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          </div>
+                        ) : (
+                          <div style={{ width: 44, height: 44, borderRadius: '8px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', flexShrink: 0 }}>
+                            {file.name.toLowerCase().endsWith('.pdf') ? '📄' : '📁'}
+                          </div>
+                        )}
+                        
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
+                          <div style={{ fontSize: '11px', color: '#64748b' }}>{(file.size / 1024 / 1024).toFixed(1)}MB</div>
+                        </div>
                       </div>
                     )}
                     <div style={{ display: 'flex', gap: '6px' }}>
