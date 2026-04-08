@@ -538,8 +538,7 @@ export async function handleFinance(req, res, url) {
           finance_note: payload.finance_note || null,
           effective_date: entryDate,
           verified_by: actor.userId,
-          verified_at: now,
-          updated_at: now
+          verified_at: now
         })
         .eq('id', requestId);
       if (requestUpdateError) throw new Error(requestUpdateError.message);

@@ -410,7 +410,7 @@ function formatPhone(num) {
     return clean;
 }
 
-function LeadCard({ lead, onStatusChange, onReject, onView, onConvert, onAddNote }) {
+function LeadCard({ lead, onStatusChange, onReject, onView, onConvert, onAddNote, onOpenTeacherProfile }) {
     const [expanded, setExpanded] = useState(false);
     const phone = formatPhone(lead.phone);
     const nextStatus = getNextStatus(lead.status);
@@ -555,7 +555,10 @@ function LeadCard({ lead, onStatusChange, onReject, onView, onConvert, onAddNote
                                     Convert to Teacher
                                 </button>
                             ) : (
-                                <p style={{ margin: 0, fontSize: '12px', color: '#15803d', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', flex: 1 }}>
+                                <p 
+                                    style={{ margin: 0, fontSize: '12px', color: '#15803d', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', flex: 1, cursor: 'pointer', textDecoration: 'underline' }}
+                                    onClick={(e) => { e.stopPropagation(); onOpenTeacherProfile && onOpenTeacherProfile(lead.converted_teacher_id); }}
+                                >
                                     <StatusIcon status="approved" size={14} /> Converted to teacher
                                 </p>
                             )}
@@ -599,7 +602,7 @@ function LeadCard({ lead, onStatusChange, onReject, onView, onConvert, onAddNote
 }
 
 /* ═══════ Teacher Leads Pipeline ═══════ */
-export function TeacherLeadsPage({ onNavigate }) {
+export function TeacherLeadsPage({ onNavigate, onOpenTeacherProfile }) {
     const [leads, setLeads] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -797,6 +800,7 @@ export function TeacherLeadsPage({ onNavigate }) {
                         onView={setShowViewModal}
                         onConvert={setShowConvertModal}
                         onAddNote={setShowNoteModal}
+                        onOpenTeacherProfile={onOpenTeacherProfile}
                     />
                 ))}
             </div>

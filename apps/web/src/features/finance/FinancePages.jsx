@@ -1795,7 +1795,12 @@ export function PaymentVerificationPage() {
                   const amount = Number(p.amount) || 0;
                   return (
                     <tr key={p.id} style={{ background: selectedPayment?.id === p.id ? '#f0f4ff' : '' }}>
-                      <td data-label="Date">{p.created_at?.slice(0, 10)}</td>
+                      <td data-label="Date">
+                        <div style={{ fontSize: '12px' }}>{p.created_at?.slice(0, 10)}</div>
+                        {p.status === 'verified' && p.effective_date && (
+                          <div style={{ fontSize: '10px', color: '#15803d', fontWeight: 600 }}>Verified: {p.effective_date}</div>
+                        )}
+                      </td>
                       <td data-label="Lead">
                         <div style={{ fontWeight: 600 }}>{name}</div>
                         <div style={{ fontSize: '11px', color: '#6b7280' }}>{p.leads?.contact_number}</div>
@@ -1850,7 +1855,12 @@ export function PaymentVerificationPage() {
                   const amount = Number(t.amount) || 0;
                   return (
                     <tr key={t.id} style={{ background: selectedTopup?.id === t.id ? '#f0f4ff' : '' }}>
-                      <td data-label="Date">{t.created_at?.slice(0, 10)}</td>
+                      <td data-label="Date">
+                        <div style={{ fontSize: '12px' }}>{t.created_at?.slice(0, 10)}</div>
+                        {t.status === 'verified' && t.effective_date && (
+                          <div style={{ fontSize: '10px', color: '#15803d', fontWeight: 600 }}>Verified: {t.effective_date}</div>
+                        )}
+                      </td>
                       <td data-label="Student">
                         <div style={{ fontWeight: 600 }}>{name}</div>
                         <div style={{ fontSize: '11px', color: '#6b7280' }}>{t.students?.whatsapp_number}</div>

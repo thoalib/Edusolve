@@ -238,10 +238,11 @@ export async function handleTeachers(req, res, url) {
               user_id: authUser.id,
               teacher_code: teacherCode,
               teacher_coordinator_id: actor.userId,
-              experience_level: item.experience_level || 'Intermediate',
+              experience_level: item.experience_level || 'fresher',
+              experience_remark: item.experience_remark || null,
               per_hour_rate: Number(item.per_hour_rate) || 300,
               is_in_pool: true,
-              onboarding_completed: true
+              onboarding_completed: false
             }, { onConflict: 'user_id' })
             .select('*')
             .single();
@@ -775,6 +776,67 @@ export async function handleTeachers(req, res, url) {
         classes: classes || [],
         demos: demos || []
       });
+      return true;
+    }
+
+    if (req.method === 'GET' && parts.length === 3 && parts[0] === 'teachers' && parts[2] === 'students') {
+      const teacherProfileId = parts[1];
+      
+      // First get user_id for this teacher profile
+      const { data: profile } = await adminClient.from('teacher_profiles').select('user_id').eq('id', teacherProfileId).single();
+      if (!profile) return sendJson(res, 404, { ok: false, error: 'teacher profile not found' });
+
+      const { data, error } = await adminClient
+        .from('student_teacher_assignments')
+        .select('id, student_id, subject, students(student_name, student_code, class_level)')
+        .eq('teacher_id', profile.user_id)
+        .eq('is_active', true);
+
+      if (error) throw new Error(error.message);
+
+      const items = (data || []).map(row => ({
+        id: row.students?.id,
+        student_name: row.students?.student_name,
+        student_code: row.students?.student_code,
+        class_level: row.students?.class_level,
+        subject: row.subject
+      }));
+
+      sendJson(res, 200, { ok: true, items });
+      return true;
+    }
+
+    // ── GET /teachers/:id/sessions — session logs for a teacher profile ──
+    if (req.method === 'GET' && parts.length === 3 && parts[0] === 'teachers' && parts[2] === 'sessions') {
+      const teacherProfileId = parts[1];
+
+      // Get user_id for this teacher profile
+      const { data: profile } = await adminClient.from('teacher_profiles').select('user_id').eq('id', teacherProfileId).single();
+      if (!profile) return sendJson(res, 404, { ok: false, error: 'teacher profile not found' });
+
+      const { data, error } = await adminClient
+        .from('academic_sessions')
+        .select('id, session_date, started_at, ended_at, duration_hours, status, subject, students(student_code, student_name), session_verifications(status, reason, verified_at)')
+        .eq('teacher_id', profile.user_id)
+        .order('session_date', { ascending: false })
+        .limit(200);
+
+      if (error) throw new Error(error.message);
+
+      const verificationStatusOf = (item) => {
+        const verifications = item.session_verifications || [];
+        if (verifications.some(v => v.status === 'approved')) return 'approved';
+        if (verifications.some(v => v.status === 'rejected')) return 'rejected';
+        if (verifications.length > 0) return 'pending';
+        return 'pending';
+      };
+
+      const items = (data || []).map(row => ({
+        ...row,
+        verification_status: verificationStatusOf(row)
+      }));
+
+      sendJson(res, 200, { ok: true, items });
       return true;
     }
 

@@ -36,6 +36,7 @@ export const APP_PAGES = [
   { path: '/ac/transfers', title: 'Material Transfers', group: 'Academics', roles: [ROLES.ACADEMIC_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
   { path: '/sessions/logs', title: 'Session Logs', group: 'Academics', roles: [ROLES.SUPER_ADMIN], showInNav: true },
   { path: '/teachers/all', title: 'Teacher Directory', group: 'Academics', roles: [ROLES.SUPER_ADMIN, ROLES.TEACHER_COORDINATOR], showInNav: true },
+  { path: '/teachers/details', title: 'Teacher Details', group: 'Academics', roles: [ROLES.SUPER_ADMIN, ROLES.TEACHER_COORDINATOR, ROLES.ACADEMIC_COORDINATOR], showInNav: false },
   { path: '/teachers/pool', title: 'Teacher Pool', group: 'Academics', roles: [ROLES.ACADEMIC_COORDINATOR, ROLES.COUNSELOR, ROLES.TEACHER_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
   { path: '/topups/manage', title: 'Top-Ups', group: 'Academics', roles: [ROLES.ACADEMIC_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
   { path: '/automation/hub', title: 'Automations', group: 'Academics', roles: [ROLES.ACADEMIC_COORDINATOR, ROLES.SUPER_ADMIN], showInNav: true },
@@ -45,6 +46,7 @@ export const APP_PAGES = [
   /* ── Teacher (Individual) ── */
   { path: '/dashboard/teacher', title: 'Dashboard', group: 'Dashboards', roles: [ROLES.TEACHER], showInNav: true },
   { path: '/teacher/today-sessions', title: 'Today Sessions', group: 'Operations', roles: [ROLES.TEACHER], showInNav: true },
+  { path: '/teacher/approvals', title: 'Approvals', group: 'Operations', roles: [ROLES.TEACHER], showInNav: true },
   { path: '/teacher/timetable', title: 'My Timetable', group: 'Operations', roles: [ROLES.TEACHER], showInNav: true },
   { path: '/teacher/materials', title: 'Send Materials', group: 'Operations', roles: [ROLES.TEACHER], showInNav: true },
   { path: '/teacher/reports', title: 'Reports', group: 'Operations', roles: [ROLES.TEACHER], showInNav: true },
