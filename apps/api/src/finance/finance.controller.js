@@ -103,8 +103,8 @@ export async function handleFinance(req, res, url) {
       let topupsQ = adminClient.from('student_topups').select('status');
 
       if (fromParam && toParam) {
-        const toDate = toParam.includes('T') ? toParam : toParam + 'T23:59:59Z';
-        const fromDate = fromParam.includes('T') ? fromParam : fromParam + 'T00:00:00Z';
+        const toDate = toParam.includes('T') ? toParam : toParam + 'T23:59:59+05:30';
+        const fromDate = fromParam.includes('T') ? fromParam : fromParam + 'T00:00:00+05:30';
         incomeQ = incomeQ.gte('created_at', fromDate).lte('created_at', toDate);
         expensesQ = expensesQ.gte('created_at', fromDate).lte('created_at', toDate);
         payReqsQ = payReqsQ.gte('created_at', fromDate).lte('created_at', toDate);
@@ -172,6 +172,9 @@ export async function handleFinance(req, res, url) {
         .select('*')
         .eq('id', requestId)
         .maybeSingle();
+
+      try {
+
       if (requestError) throw new Error(requestError.message);
       if (!request) {
         sendJson(res, 404, { ok: false, error: 'payment request not found' });
@@ -210,110 +213,121 @@ export async function handleFinance(req, res, url) {
         return true;
       }
 
-      // --- Auto-Assign AC (Round Robin) ---
-      // Get all AC user IDs from user_roles
-      const { data: roleAcData, error: roleError } = await adminClient
-        .from('user_roles')
-        .select('user_id, roles!inner(code)')
-        .eq('roles.code', 'academic_coordinator');
-      if (roleError) throw new Error(roleError.message);
+      const studentCode = await generateStudentCode(adminClient);
+      const now = nowIso();
 
-      const acIds = (roleAcData || []).map(r => r.user_id);
+      // Check for existing student record for this lead (to prevent duplicate key error)
+      const { data: existingStudent } = await adminClient
+        .from('students')
+        .select('*')
+        .eq('lead_id', lead.id)
+        .maybeSingle();
 
-      let acUsers = [];
-      if (acIds.length > 0) {
-        // Fetch their names and emails directly from the users table securely
-        const { data: dbUsers, error: usersError } = await adminClient
-            .from('users')
-            .select('id, full_name, email')
-            .in('id', acIds);
-        if (usersError) throw new Error(usersError.message);
+      let student = existingStudent;
 
-        acUsers = (dbUsers || []).map(u => ({
-            id: u.id,
-            email: u.email,
-            name: u.full_name || u.email || 'Unknown AC'
-        }));
-      }
+      if (!student) {
+        // --- Auto-Assign AC (Round Robin) ---
+        // Get all AC user IDs from user_roles
+        const { data: roleAcData, error: roleError } = await adminClient
+          .from('user_roles')
+          .select('user_id, roles!inner(code)')
+          .eq('roles.code', 'academic_coordinator');
+        if (roleError) throw new Error(roleError.message);
 
-      let assignedAcId = null;
-      let assignedAcName = null;
+        const acIds = (roleAcData || []).map(r => r.user_id);
 
-      if (lead.source === 'AC Direct Onboarding') {
-        assignedAcId = request.requested_by;
-        const assignedAcUser = acUsers.find(u => u.id === assignedAcId);
-        assignedAcName = assignedAcUser ? assignedAcUser.name : 'Unknown AC';
-      } else if (acUsers.length > 0) {
-        const { data: activeStudents } = await adminClient
-          .from('students')
-          .select('academic_coordinator_id')
-          .in('academic_coordinator_id', acUsers.map(u => u.id))
-          .eq('status', 'active');
-        
-        const counts = {};
-        acUsers.forEach(u => counts[u.id] = 0);
-        
-        if (activeStudents) {
-          activeStudents.forEach(s => {
-            if (counts[s.academic_coordinator_id] !== undefined) {
-              counts[s.academic_coordinator_id]++;
-            }
-          });
+        let acUsers = [];
+        if (acIds.length > 0) {
+          const { data: dbUsers, error: usersError } = await adminClient
+              .from('users')
+              .select('id, full_name, email')
+              .in('id', acIds);
+          if (usersError) throw new Error(usersError.message);
+
+          acUsers = (dbUsers || []).map(u => ({
+              id: u.id,
+              email: u.email,
+              name: u.full_name || u.email || 'Unknown AC'
+          }));
         }
-        
-        let lowestAc = acUsers[0];
-        let minCount = counts[lowestAc.id];
 
-        for (let i = 1; i < acUsers.length; i++) {
-          if (counts[acUsers[i].id] < minCount) {
-            minCount = counts[acUsers[i].id];
-            lowestAc = acUsers[i];
+        let assignedAcId = null;
+        let assignedAcName = null;
+
+        if (lead.source === 'AC Direct Onboarding') {
+          assignedAcId = request.requested_by;
+          const assignedAcUser = acUsers.find(u => u.id === assignedAcId);
+          assignedAcName = assignedAcUser ? assignedAcUser.name : 'Unknown AC';
+        } else if (acUsers.length > 0) {
+          const { data: activeStudents } = await adminClient
+            .from('students')
+            .select('academic_coordinator_id')
+            .in('academic_coordinator_id', acUsers.map(u => u.id))
+            .eq('status', 'active');
+          
+          const counts = {};
+          acUsers.forEach(u => counts[u.id] = 0);
+          
+          if (activeStudents) {
+            activeStudents.forEach(s => {
+              if (counts[s.academic_coordinator_id] !== undefined) {
+                counts[s.academic_coordinator_id]++;
+              }
+            });
+          }
+          
+          let lowestAc = acUsers[0];
+          let minCount = counts[lowestAc.id];
+
+          for (let i = 1; i < acUsers.length; i++) {
+            if (counts[acUsers[i].id] < minCount) {
+              minCount = counts[acUsers[i].id];
+              lowestAc = acUsers[i];
+            }
+          }
+          
+          assignedAcId = lowestAc.id;
+          assignedAcName = lowestAc.name;
+        }
+
+        // Check for PIN collision if sharing contact_number
+        let initialPin = '123456';
+        if (lead.contact_number) {
+          const { data: conflict } = await adminClient
+            .from('students')
+            .select('id')
+            .eq('contact_number', lead.contact_number)
+            .eq('login_pin', '123456')
+            .is('deleted_at', null)
+            .maybeSingle();
+          
+          if (conflict) {
+            initialPin = '111111';
           }
         }
-        
-        assignedAcId = lowestAc.id;
-        assignedAcName = lowestAc.name;
-      }
 
-      const studentCode = await generateStudentCode(adminClient);
-
-      // Check for PIN collision if sharing contact_number
-      let initialPin = '123456';
-      if (lead.contact_number) {
-        const { data: conflict } = await adminClient
+        const { data: newStudent, error: studentError } = await adminClient
           .from('students')
-          .select('id')
-          .eq('contact_number', lead.contact_number)
-          .eq('login_pin', '123456')
-          .is('deleted_at', null)
-          .maybeSingle();
-        
-        if (conflict) {
-          // Use a different sequence if 123456 is taken for this phone number
-          initialPin = '111111';
-        }
+          .insert({
+            lead_id: lead.id,
+            academic_coordinator_id: assignedAcId,
+            student_name: lead.student_name,
+            parent_name: lead.parent_name,
+            contact_number: lead.contact_number,
+            class_level: lead.class_level,
+            package_name: lead.package_name,
+            total_hours: request.hours || 0,
+            remaining_hours: request.hours || 0,
+            status: 'active',
+            joined_at: now,
+            student_code: studentCode,
+            login_pin: initialPin
+          })
+          .select('*')
+          .single();
+        if (studentError) throw new Error(studentError.message);
+        student = newStudent;
       }
-
-      const { data: student, error: studentError } = await adminClient
-        .from('students')
-        .insert({
-          lead_id: lead.id,
-          academic_coordinator_id: assignedAcId,
-          student_name: lead.student_name,
-          parent_name: lead.parent_name,
-          contact_number: lead.contact_number,
-          class_level: lead.class_level,
-          package_name: lead.package_name,
-          total_hours: request.hours || 0,
-          remaining_hours: request.hours || 0,
-          status: 'active',
-          joined_at: nowIso(),
-          student_code: studentCode,
-          login_pin: initialPin
-        })
-        .select('*')
-        .single();
-      if (studentError) throw new Error(studentError.message);
 
       const { error: leadUpdateError } = await adminClient
         .from('leads')
@@ -321,20 +335,78 @@ export async function handleFinance(req, res, url) {
           status: 'joined',
           owner_stage: 'academic',
           joined_student_id: student.id,
-          updated_at: nowIso()
+          updated_at: now
         })
         .eq('id', lead.id);
       if (leadUpdateError) throw new Error(leadUpdateError.message);
+
+      // Insert receivable entry (total owed) and income entry (amount paid)
+      const entryDate = payload.entry_date || now;
+      const ledgerTag = `(RID: ${requestId})`;
+
+      // Look for any existing income entry for this request to prevent double-counting
+      const { data: existingLedger } = await adminClient
+        .from('ledger_entries')
+        .select('id')
+        .eq('entry_type', 'income')
+        .ilike('description', `%${ledgerTag}%`)
+        .maybeSingle();
+
+      if (!existingLedger) {
+        // If it's a new verification or a "stuck" one that hasn't reached ledger step yet:
+        
+        // 1. If student already existed (Scenario B), we might need to add hours now
+        // IMPORTANT: To prevent double-counting, we check if the student already has 
+        // any verified income in the ledger. 
+        // - If they have NO income yet, their current 'total_hours' already includes 
+        //   the hours from this onboarding request (set during the 'insert' step).
+        // - If they HAVE income, this is a subsequent payment/installment, so we ADD hours.
+        if (existingStudent) {
+          const { count: incomeCount } = await adminClient
+            .from('ledger_entries')
+            .select('*', { count: 'exact', head: true })
+            .eq('student_id', student.id)
+            .eq('entry_type', 'income');
+
+          if (incomeCount > 0) {
+            await adminClient.from('students').update({
+              total_hours: Number(existingStudent.total_hours || 0) + Number(request.hours || 0),
+              remaining_hours: Number(existingStudent.remaining_hours || 0) + Number(request.hours || 0),
+              updated_at: now
+            }).eq('id', student.id);
+          }
+        }
+
+        // 2. Insert ledger entries
+        await adminClient.from('ledger_entries').insert([
+          {
+            entry_date: entryDate,
+            entry_type: 'receivable',
+            amount: request.total_amount || request.amount || 0,
+            description: `Receivable: Onboarding Fee — ${student.student_name} ${ledgerTag}`,
+            student_id: student.id,
+            posted_by: actor.userId
+          },
+          {
+            entry_date: entryDate,
+            entry_type: 'income',
+            amount: request.amount || 0,
+            description: `Income: Onboarding Payment — ${student.student_name} ${ledgerTag}`,
+            student_id: student.id,
+            posted_by: actor.userId
+          }
+        ]);
+      }
 
       const { error: paymentUpdateError } = await adminClient
         .from('payment_requests')
         .update({
           status: 'verified',
           finance_note: payload.finance_note || null,
-          effective_date: entryDate, // Save Actual Payment Date
+          effective_date: entryDate,
           verified_by: actor.userId,
-          verified_at: nowIso(),
-          updated_at: nowIso()
+          verified_at: now,
+          updated_at: now
         })
         .eq('id', requestId);
       if (paymentUpdateError) throw new Error(paymentUpdateError.message);
@@ -344,40 +416,17 @@ export async function handleFinance(req, res, url) {
         from_status: lead.status,
         to_status: 'joined',
         changed_by: actor.userId,
-        reason: assignedAcId ? `payment verified, student created, and auto-assigned to AC (${assignedAcName})` : 'payment verified and student created'
+        reason: `payment verified and state synchronized ${ledgerTag}`
       });
 
-      // Insert receivable entry (total owed) and income entry (amount paid)
-      const entryDate = payload.entry_date || nowIso().slice(0, 10);
-      await adminClient.from('ledger_entries').insert([
-        {
-          entry_date: entryDate,
-          entry_type: 'receivable',
-          amount: request.total_amount || request.amount || 0,
-          description: `Receivable: Onboarding Fee — ${student.student_name}`,
-          student_id: student.id,
-          posted_by: actor.userId
-        },
-        {
-          entry_date: entryDate,
-          entry_type: 'income',
-          amount: request.amount || 0,
-          description: `Payment Received: ${student.student_name} (Onboarding)`,
-          student_id: student.id,
-          account_id: payload.account_id || null,
-          posted_by: actor.userId
-        }
-      ]);
-
-      if (payload.account_id) {
-        adminClient.from('finance_accounts').select('balance').eq('id', payload.account_id).single().then(({ data: acc }) => {
-          if (acc) adminClient.from('finance_accounts').update({ balance: Number(acc.balance) + Number(request.amount), updated_at: nowIso() }).eq('id', payload.account_id);
-        }).catch(() => { });
-      }
-
-      sendJson(res, 200, { ok: true, status: 'verified', student });
+      sendJson(res, 200, { ok: true, student_id: student.id, student_code: student.student_code });
+      return true;
+    } catch (e) {
+      console.error('[VerifyPayment] Error:', e);
+      sendJson(res, 500, { ok: false, error: e.message });
       return true;
     }
+  }
 
     if (req.method === 'POST' && parts.length === 4 && parts[1] === 'topup-requests' && parts[3] === 'verify') {
       const requestId = parts[2];
@@ -424,18 +473,62 @@ export async function handleFinance(req, res, url) {
         return true;
       }
 
-      const totalHours = Number(student.total_hours || 0) + Number(request.hours_added || 0);
-      const remainingHours = Number(student.remaining_hours || 0) + Number(request.hours_added || 0);
+      const now = nowIso();
+      const entryDate = payload.entry_date || now.slice(0, 10);
+      const ledgerTag = `(TID: ${requestId})`;
 
-      const { error: studentUpdateError } = await adminClient
-        .from('students')
-        .update({
-          total_hours: totalHours,
-          remaining_hours: remainingHours,
-          updated_at: nowIso()
-        })
-        .eq('id', student.id);
-      if (studentUpdateError) throw new Error(studentUpdateError.message);
+      // Look for any existing income entry for this request to prevent double-counting
+      const { data: existingLedger } = await adminClient
+        .from('ledger_entries')
+        .select('id')
+        .eq('entry_type', 'income')
+        .ilike('description', `%${ledgerTag}%`)
+        .maybeSingle();
+
+      if (!existingLedger) {
+        // If it's a new verification or a "stuck" one that hasn't reached ledger step yet:
+        
+        // 1. Update Student hours
+        const totalHours = Number(student.total_hours || 0) + Number(request.hours_added || 0);
+        const remainingHours = Number(student.remaining_hours || 0) + Number(request.hours_added || 0);
+
+        const { error: studentUpdateError } = await adminClient
+          .from('students')
+          .update({
+            total_hours: totalHours,
+            remaining_hours: remainingHours,
+            updated_at: now
+          })
+          .eq('id', student.id);
+        if (studentUpdateError) throw new Error(studentUpdateError.message);
+
+        // 2. Insert ledger entries
+        await adminClient.from('ledger_entries').insert([
+          {
+            entry_date: entryDate,
+            entry_type: 'receivable',
+            amount: request.total_amount || request.amount || 0,
+            description: `Receivable: Top-Up Fee — ${student.student_name} ${ledgerTag}`,
+            student_id: student.id,
+            posted_by: actor.userId
+          },
+          {
+            entry_date: entryDate,
+            entry_type: 'income',
+            amount: request.amount || 0,
+            description: `Income: Top-Up Payment — ${student.student_name} ${ledgerTag}`,
+            student_id: student.id,
+            account_id: payload.account_id || null,
+            posted_by: actor.userId
+          }
+        ]);
+
+        if (payload.account_id) {
+          adminClient.from('finance_accounts').select('balance').eq('id', payload.account_id).single().then(({ data: acc }) => {
+            if (acc) adminClient.from('finance_accounts').update({ balance: Number(acc.balance) + Number(request.amount), updated_at: now }).eq('id', payload.account_id);
+          }).catch(() => { });
+        }
+      }
 
       const { error: requestUpdateError } = await adminClient
         .from('student_topups')
@@ -443,40 +536,13 @@ export async function handleFinance(req, res, url) {
           status: 'verified',
           payment_verified: true,
           finance_note: payload.finance_note || null,
-          effective_date: entryDate, // Save Actual Payment Date
+          effective_date: entryDate,
           verified_by: actor.userId,
-          verified_at: nowIso()
+          verified_at: now,
+          updated_at: now
         })
         .eq('id', requestId);
       if (requestUpdateError) throw new Error(requestUpdateError.message);
-
-      // Insert receivable entry (total owed) and income entry (amount paid)
-      const entryDate = payload.entry_date || nowIso().slice(0, 10);
-      await adminClient.from('ledger_entries').insert([
-        {
-          entry_date: entryDate,
-          entry_type: 'receivable',
-          amount: request.total_amount || request.amount || 0,
-          description: `Receivable: Top-Up Fee — ${student.student_name}`,
-          student_id: student.id,
-          posted_by: actor.userId
-        },
-        {
-          entry_date: entryDate,
-          entry_type: 'income',
-          amount: request.amount || 0,
-          description: `Payment Received: ${student.student_name} (Top-Up)`,
-          student_id: student.id,
-          account_id: payload.account_id || null,
-          posted_by: actor.userId
-        }
-      ]);
-
-      if (payload.account_id) {
-        adminClient.from('finance_accounts').select('balance').eq('id', payload.account_id).single().then(({ data: acc }) => {
-          if (acc) adminClient.from('finance_accounts').update({ balance: Number(acc.balance) + Number(request.amount), updated_at: nowIso() }).eq('id', payload.account_id);
-        }).catch(() => { });
-      }
 
       sendJson(res, 200, { ok: true, status: 'verified' });
       return true;

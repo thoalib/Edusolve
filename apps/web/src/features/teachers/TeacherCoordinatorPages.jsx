@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { apiFetch } from '../../lib/api.js';
+import { toLocalISO } from '../../lib/dateUtils.js';
 import { getSession } from '../../lib/auth.js';
 import DateTimePicker from '../../components/DateTimePicker.jsx';
 import { MultiSelectDropdown } from '../../components/ui/MultiSelectDropdown.jsx';
@@ -11,8 +12,8 @@ import { BulkImportModal } from '../common/BulkImportModal.jsx';
 function getThisMonthRange() {
   const now = new Date();
   return {
-    from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10),
-    to: now.toISOString().slice(0, 10)
+    from: toLocalISO(new Date(now.getFullYear(), now.getMonth(), 1)),
+    to: toLocalISO(now)
   };
 }
 
@@ -221,18 +222,22 @@ export function TCDashboardPage({ targetUserId }) {
         })();
     }, [targetUserId, dateRange]);
 
-    const totalLeads = Object.values(stats).reduce((a, b) => a + b, 0);
-    const pipelineActive = (stats.new || 0) + (stats.contacted || 0) + (stats.first_interview || 0) + (stats.first_interview_done || 0) + (stats.second_interview || 0) + (stats.second_interview_done || 0) + (stats.approved || 0);
-    const conversionRate = totalLeads > 0 ? Math.round(((stats.onboarded || 0) / totalLeads) * 100) : 0;
-
-    // Recent 5 leads
-    const recentLeads = leads.slice(0, 5);
-
-    if (loading) return <section className="panel"><p>Loading dashboard...</p></section>;
-
     return (
         <section className="panel">
             <DashboardDateFilter onChange={setDateRange} />
+
+            {loading && !stats ? (
+                <p style={{ marginTop: '16px' }}>Loading dashboard...</p>
+            ) : (() => {
+                const totalLeads = Object.values(stats).reduce((a, b) => a + b, 0);
+                const pipelineActive = (stats.new || 0) + (stats.contacted || 0) + (stats.first_interview || 0) + (stats.first_interview_done || 0) + (stats.second_interview || 0) + (stats.second_interview_done || 0) + (stats.approved || 0);
+                const conversionRate = totalLeads > 0 ? Math.round(((stats.onboarded || 0) / totalLeads) * 100) : 0;
+
+                // Recent 5 leads
+                const recentLeads = leads.slice(0, 5);
+
+                return (
+                    <>
             <div className="grid-four" style={{ marginTop: '16px' }}>
                 <StatCard label="Total Teacher Leads" value={totalLeads} />
                 <StatCard label="Pipeline Active" value={pipelineActive} />
@@ -295,9 +300,12 @@ export function TCDashboardPage({ targetUserId }) {
                         </div>
                     )) : <p className="text-muted" style={{ fontSize: '13px' }}>No teacher leads yet</p>}
                 </article>
-            </div>
-        </section>
-    );
+                    </div>
+                </>
+            );
+        })()}
+    </section>
+);
 }
 
 function StatCard({ label, value, tone }) {

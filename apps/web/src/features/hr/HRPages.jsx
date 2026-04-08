@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { apiFetch } from '../../lib/api.js';
+import { toLocalISO } from '../../lib/dateUtils.js';
 import { PhoneInput, isValidEmail } from '../../components/PhoneInput.jsx';
 
 /* ═══════ HR DASHBOARD ═══════ */
@@ -71,44 +72,49 @@ export function HRDashboardPage() {
         apiFetch('/hr/stats').then(r => setStats(r.stats)).catch(() => { }).finally(() => setLoading(false));
     }, []);
 
-    if (loading) return <section className="panel"><p>Loading system overview...</p></section>;
-
-    const s = stats || {};
-    const total = s.totalEmployees || 0;
-    const totalStaff = s.totalStaff || 0;
-    const pending = s.pendingPaymentRequests || 0;
-
-    // Top cards always show today
-    const present = s.todayPresent || 0;
-    const absent = s.todayAbsent || 0;
-    const halfDay = s.todayHalfDay || 0;
-    const attendanceRate = totalStaff > 0 ? Math.round((present / totalStaff) * 100) : 0;
-
-    // Period-based breakdown (staff only)
-    const periodData = s.periods?.[period] || { present: 0, absent: 0, half_day: 0, total_staff: totalStaff };
-    const pPresent = periodData.present || 0;
-    const pAbsent = periodData.absent || 0;
-    const pHalfDay = periodData.half_day || 0;
-    // For week/month we compare against total possible days × staff
-    const periodMax = Math.max(pPresent + pAbsent + pHalfDay, 1);
-
-    const donutSegments = [
-        { value: pPresent, color: 'var(--success)', label: 'Present' },
-        { value: pAbsent, color: 'var(--danger)', label: 'Absent' },
-        { value: pHalfDay, color: '#e8a000', label: 'Half Day' },
-    ];
-
-    const periods = [
-        { key: 'today', label: 'Today' },
-        { key: 'week', label: 'This Week' },
-        { key: 'month', label: 'This Month' },
-        { key: 'last_month', label: 'Last Month' },
-    ];
-
     return (
         <section className="panel">
-            {/* Top stat cards — always today */}
-            <div className="hr-stats-grid">
+            {loading && !stats ? (
+                <p>Loading system overview...</p>
+            ) : !stats ? (
+                <p className="error">Failed to load system stats</p>
+            ) : (() => {
+                const s = stats || {};
+                const total = s.totalEmployees || 0;
+                const totalStaff = s.totalStaff || 0;
+                const pending = s.pendingPaymentRequests || 0;
+
+                // Top cards always show today
+                const present = s.todayPresent || 0;
+                const absent = s.todayAbsent || 0;
+                const halfDay = s.todayHalfDay || 0;
+                const attendanceRate = totalStaff > 0 ? Math.round((present / totalStaff) * 100) : 0;
+
+                // Period-based breakdown (staff only)
+                const periodData = s.periods?.[period] || { present: 0, absent: 0, half_day: 0, total_staff: totalStaff };
+                const pPresent = periodData.present || 0;
+                const pAbsent = periodData.absent || 0;
+                const pHalfDay = periodData.half_day || 0;
+                // For week/month we compare against total possible days × staff
+                const periodMax = Math.max(pPresent + pAbsent + pHalfDay, 1);
+
+                const donutSegments = [
+                    { value: pPresent, color: 'var(--success)', label: 'Present' },
+                    { value: pAbsent, color: 'var(--danger)', label: 'Absent' },
+                    { value: pHalfDay, color: '#e8a000', label: 'Half Day' },
+                ];
+
+                const periodsList = [
+                    { key: 'today', label: 'Today' },
+                    { key: 'week', label: 'This Week' },
+                    { key: 'month', label: 'This Month' },
+                    { key: 'last_month', label: 'Last Month' },
+                ];
+
+                return (
+                    <>
+                        {/* Top stat cards — always today */}
+                        <div className="hr-stats-grid">
 
                 {/* Total Employees */}
                 <article className="card" style={{ padding: '16px 18px' }}>
@@ -194,7 +200,7 @@ export function HRDashboardPage() {
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
                         <p className="eyebrow">Attendance Breakdown</p>
                         <div className="tabs-row" style={{ gap: 6 }}>
-                            {periods.map(p => (
+                            {periodsList.map(p => (
                                 <button key={p.key}
                                     onClick={() => setPeriod(p.key)}
                                     className={`tab-btn${period === p.key ? ' active' : ''}`}
@@ -251,6 +257,9 @@ export function HRDashboardPage() {
                 </article>
 
             </div>
+                    </>
+                );
+            })()}
         </section>
     );
 }
@@ -349,7 +358,7 @@ function MobileAttendanceCard({ emp, currentStatus, onUpdateStatus, statuses, st
 
 export function AttendancePage() {
     const [viewReport, setViewReport] = useState(false);
-    const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+    const [date, setDate] = useState(toLocalISO(new Date()));
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -441,14 +450,14 @@ export function AttendancePage() {
                 </div>
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <button onClick={() => setDate(prev => { const d = new Date(prev); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })}
+                        <button onClick={() => setDate(prev => { const d = new Date(prev); d.setDate(d.getDate() - 1); return toLocalISO(d); })}
                             className="secondary small">←</button>
                         <input type="date" value={date} onChange={e => setDate(e.target.value)}
                             style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--line)', background: '#fff', color: 'var(--text)', fontSize: 14 }} />
-                        <button onClick={() => setDate(prev => { const d = new Date(prev); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })}
+                        <button onClick={() => setDate(prev => { const d = new Date(prev); d.setDate(d.getDate() + 1); return toLocalISO(d); })}
                             className="secondary small">→</button>
                         {!isToday && (
-                            <button onClick={() => setDate(new Date().toISOString().slice(0, 10))}
+                            <button onClick={() => setDate(toLocalISO(new Date()))}
                                 className="secondary" style={{ padding: '6px 14px', fontSize: 13 }}>Today</button>
                         )}
                     </div>

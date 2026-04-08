@@ -1,12 +1,119 @@
 import { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../../lib/api.js';
+import { toLocalISO } from '../../lib/dateUtils.js';
+
+/* ═══════ Styles ═══════ */
+const CHART_STYLES = `
+  .dashboard-charts .flex-row-desktop {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-top: 20px;
+  }
+  .dashboard-charts .flex-2 { flex: 2; min-width: 300px; }
+  .dashboard-charts .flex-1 { flex: 1; min-width: 250px; }
+  
+  .dashboard-charts .chart-container {
+    height: 220px;
+    padding: 20px 0 35px;
+    position: relative;
+    margin-top: 10px;
+  }
+  .dashboard-charts .line-chart-svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .dashboard-charts .chart-val-tooltip-floating {
+    position: absolute;
+    background: #1e293b;
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transform: translate(-50%, -100%);
+    margin-top: -12px;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  .dashboard-charts .chart-val-tooltip-floating::after {
+    content: '';
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 6px solid #1e293b;
+  }
+  .dashboard-charts .chart-tooltip-date {
+    display: block;
+    font-size: 10px;
+    color: #94a3b8;
+    margin-bottom: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .dashboard-charts .chart-tooltip-val {
+    display: block;
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .dashboard-charts .chart-point {
+    fill: #4338ca;
+    stroke: #fff;
+    stroke-width: 2px;
+    transition: r 0.2s;
+    cursor: pointer;
+  }
+  .dashboard-charts .chart-point:hover {
+    r: 6;
+  }
+  .dashboard-charts .chart-line {
+    fill: none;
+    stroke: #4338ca;
+    stroke-width: 3px;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .dashboard-charts .chart-area {
+    fill: url(#cHeadGradient);
+    opacity: 0.2;
+  }
+  
+  .dashboard-charts .chart-label-x {
+    position: absolute;
+    bottom: -10px;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: #64748b;
+    font-weight: 500;
+  }
+  
+  .dashboard-charts .chart-axis-x {
+    stroke: #e5e7eb;
+    stroke-width: 2px;
+  }
+  .dashboard-charts .chart-grid-line {
+    stroke: #e5e7eb;
+    stroke-width: 1px;
+    stroke-dasharray: 4;
+  }
+
+  @media (max-width: 768px) {
+    .dashboard-charts .flex-2, .dashboard-charts .flex-1 { flex: 1 1 100%; }
+  }
+`;
 
 /* ═══════ Helpers ═══════ */
 function getThisMonthRange() {
   const now = new Date();
   return {
-    from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10),
-    to: now.toISOString().slice(0, 10)
+    from: toLocalISO(new Date(now.getFullYear(), now.getMonth(), 1)),
+    to: toLocalISO(now)
   };
 }
 
@@ -27,19 +134,18 @@ export function DashboardDateFilter({ onChange, initial }) {
 
   function handleMode(m) {
     setMode(m);
+    const now = new Date();
     if (m === 'all') {
       onChange({ from: '', to: '' });
     } else if (m === 'this_month') {
-      const now = new Date();
       onChange({
-        from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10),
-        to: now.toISOString().slice(0, 10)
+        from: toLocalISO(new Date(now.getFullYear(), now.getMonth(), 1)),
+        to: toLocalISO(now)
       });
     } else if (m === 'last_month') {
-      const now = new Date();
       onChange({
-        from: new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10),
-        to: new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10)
+        from: toLocalISO(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+        to: toLocalISO(new Date(now.getFullYear(), now.getMonth(), 0))
       });
     }
   }
@@ -107,6 +213,7 @@ export function CounselorDashboardPage({ targetUserId }) {
   const [workingDays, setWorkingDays] = useState(26);
   const [counselorsList, setCounselorsList] = useState([]);
   const [dateRange, setDateRange] = useState(getThisMonthRange);
+  const [hoveredPoint, setHoveredPoint] = useState(null);
 
   // Initial load of static config
   useEffect(() => {
@@ -212,8 +319,48 @@ export function CounselorDashboardPage({ targetUserId }) {
     return [...filteredItems].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 5);
   }, [filteredItems]);
 
+  const trendData = useMemo(() => {
+    const days = [];
+    if (!dateRange.from || !dateRange.to) return { sessionsPerDay: [], lineChartData: { path: '', points: [], area: '' } };
+    
+    const start = new Date(dateRange.from + 'T00:00:00');
+    const end = new Date(dateRange.to + 'T00:00:00');
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      days.push(toLocalISO(d));
+    }
+    
+    const displayDays = days.length > 31 ? days.slice(-31) : days;
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    
+    const sessionsPerDay = displayDays.map(date => ({
+      date,
+      label: displayDays.length <= 14
+        ? dayNames[new Date(date + 'T00:00:00').getDay()]
+        : `${new Date(date + 'T00:00:00').getDate()}/${new Date(date + 'T00:00:00').getMonth() + 1}`,
+      count: filteredItems.filter(l => l.created_at?.slice(0, 10) === date).length
+    }));
+
+    const maxVal = Math.max(...sessionsPerDay.map(d => d.count), 1);
+    const len = sessionsPerDay.length;
+    const w = 1000;
+    const h = 200;
+    const paddingX = len > 1 ? 0 : 500;
+    
+    const points = sessionsPerDay.map((d, i) => {
+      const x = len > 1 ? (i / (len - 1)) * w : paddingX;
+      const y = h - (d.count / maxVal) * (h * 0.8) - 10;
+      return { x, y, count: d.count, label: d.label };
+    });
+
+    const path = points.map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(' ');
+    const area = points.length ? `${path} L ${points[points.length-1].x} ${h} L ${points[0].x} ${h} Z` : '';
+    
+    return { sessionsPerDay, lineChartData: { path, points, area } };
+  }, [filteredItems, dateRange]);
+
   return (
-    <section className="panel">
+    <section className="panel dashboard-charts">
+      <style dangerouslySetInnerHTML={{ __html: CHART_STYLES }} />
       <DashboardDateFilter onChange={setDateRange} />
 
       {/* Target & Performance Banner */}
@@ -255,9 +402,62 @@ export function CounselorDashboardPage({ targetUserId }) {
         <StatCard label="Conversion Rate" value={`${metrics.conversionRate}%`} tone="success" />
       </div>
 
-      {/* Status Breakdown */}
-      <div className="grid-three" style={{ marginTop: '16px' }}>
-        <article className="card" style={{ padding: '20px' }}>
+      <div className="flex-row-desktop" style={{ marginBottom: '24px' }}>
+        <article className="card flex-2">
+          <h3 style={{ margin: '0 0 4px', fontSize: '15px' }}>Lead Inflow Trend</h3>
+          <p style={{ margin: '0 0 16px', fontSize: '12px', color: '#64748b' }}>Daily acquisition rate</p>
+          <div className="chart-container">
+            {hoveredPoint && (
+              <div 
+                className="chart-val-tooltip-floating"
+                style={{ 
+                  left: `${(hoveredPoint.x / 1000) * 100}%`, 
+                  top: `${(hoveredPoint.y / 200) * 100}%` 
+                }}
+              >
+                <span className="chart-tooltip-date">{hoveredPoint.label}</span>
+                <span className="chart-tooltip-val">{hoveredPoint.count} Leads</span>
+              </div>
+            )}
+            <svg viewBox="0 0 1000 200" className="line-chart-svg" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="cHeadGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#4338ca" />
+                  <stop offset="100%" stopColor="#4338ca" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <line x1="0" y1="40" x2="1000" y2="40" className="chart-grid-line" />
+              <line x1="0" y1="80" x2="1000" y2="80" className="chart-grid-line" />
+              <line x1="0" y1="120" x2="1000" y2="120" className="chart-grid-line" />
+              <line x1="0" y1="160" x2="1000" y2="160" className="chart-grid-line" />
+              
+              <path d={trendData.lineChartData.area} className="chart-area" />
+              <path d={trendData.lineChartData.path} className="chart-line" />
+              
+              {trendData.lineChartData.points.map((p, i) => (
+                <circle 
+                  key={i} 
+                  cx={p.x} cy={p.y} r="4" 
+                  className="chart-point"
+                  onMouseEnter={() => setHoveredPoint(p)}
+                  onMouseLeave={() => setHoveredPoint(null)}
+                />
+              ))}
+              <line x1="0" y1="198" x2="1000" y2="198" className="chart-axis-x" />
+            </svg>
+            {trendData.lineChartData.points.filter((_, i) => {
+              const len = trendData.sessionsPerDay.length;
+              if (len <= 15) return true;
+              return i % Math.ceil(len / 10) === 0;
+            }).map((p, i) => (
+              <span key={i} className="chart-label-x" style={{ left: `${(p.x / 1000) * 100}%` }}>
+                {p.label}
+              </span>
+            ))}
+          </div>
+        </article>
+
+        <article className="card flex-1" style={{ padding: '20px' }}>
           <h3 style={{ margin: '0 0 16px', fontSize: '15px' }}>Pipeline Breakdown</h3>
           {[
             { label: 'New', count: metrics.newLeads, color: '#6366f1' },

@@ -547,8 +547,8 @@ export async function handleStudents(req, res, url) {
       const fromParam = url.searchParams.get('from');
       const toParam = url.searchParams.get('to');
       if (fromParam && toParam) {
-        query = query.gte('created_at', fromParam.includes('T') ? fromParam : fromParam + 'T00:00:00Z')
-                     .lte('created_at', toParam.includes('T') ? toParam : toParam + 'T23:59:59Z');
+        query = query.gte('created_at', fromParam.includes('T') ? fromParam : fromParam + 'T00:00:00+05:30')
+                     .lte('created_at', toParam.includes('T') ? toParam : toParam + 'T23:59:59+05:30');
       }
 
       const { data, error } = await query;
@@ -566,13 +566,13 @@ export async function handleStudents(req, res, url) {
             .from('student_topups')
             .select('student_id, total_amount, amount')
             .in('student_id', studentIds)
-            .neq('status', 'rejected'),
+            .eq('status', 'approved'),
           leadIds.length > 0
             ? adminClient
               .from('payment_requests')
               .select('lead_id, total_amount, amount')
               .in('lead_id', leadIds)
-              .neq('status', 'rejected')
+              .eq('status', 'verified')
             : Promise.resolve({ data: [] })
         ]);
 
@@ -706,6 +706,13 @@ export async function handleStudents(req, res, url) {
         .select('*, students(student_code,student_name), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(id,type,status,reason,verified_at)')
         .order('session_date', { ascending: false })
         .limit(2000);
+
+      const from = url.searchParams.get('from');
+      const to = url.searchParams.get('to');
+      if (from && to) {
+        query = query.gte('session_date', from).lte('session_date', to);
+      }
+
       if (actor.role === 'teacher') query = query.eq('teacher_id', actor.userId);
       const { data, error } = await query;
       if (error) throw new Error(error.message);
@@ -838,8 +845,8 @@ export async function handleStudents(req, res, url) {
       const fromParam = url.searchParams.get('from');
       const toParam = url.searchParams.get('to');
       if (fromParam && toParam) {
-        query = query.gte('created_at', fromParam.includes('T') ? fromParam : fromParam + 'T00:00:00Z')
-                     .lte('created_at', toParam.includes('T') ? toParam : toParam + 'T23:59:59Z');
+        query = query.gte('created_at', fromParam.includes('T') ? fromParam : fromParam + 'T00:00:00+05:30')
+                     .lte('created_at', toParam.includes('T') ? toParam : toParam + 'T23:59:59+05:30');
       }
 
       const { data, error } = await query;
@@ -1393,8 +1400,8 @@ export async function handleStudents(req, res, url) {
       if (!payload) return true;
       const { teacher_id, start_date, end_date, days_of_week, started_at, duration_hours, subject } = payload;
 
-      const start = new Date(`${start_date}T00:00:00Z`);
-      const end = new Date(`${end_date}T00:00:00Z`);
+      const start = new Date(`${start_date}T00:00:00+05:30`);
+      const end = new Date(`${end_date}T00:00:00+05:30`);
       const DAY_MAP = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
       // Collect all target dates

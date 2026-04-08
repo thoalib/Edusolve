@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../../lib/api.js';
+import { toLocalISO } from '../../lib/dateUtils.js';
 import { ReceiptModal, PaySlipModal, CompanyBrandingSettings } from './InvoiceTemplate.jsx';
 import { DashboardDateFilter } from '../dashboards/CounselorDashboards.jsx';
 
 function getThisMonthRange() {
   const now = new Date();
   return {
-    from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10),
-    to: now.toISOString().slice(0, 10)
+    from: toLocalISO(new Date(now.getFullYear(), now.getMonth(), 1)),
+    to: toLocalISO(now)
   };
 }
 
@@ -48,19 +49,24 @@ export function FinanceDashboardPage() {
     }).finally(() => setLoading(false));
   }, [dateRange]);
 
-  if (loading && !stats) return <section className="panel"><p>Loading dashboard...</p></section>;
-  if (!stats) return <section className="panel"><p className="error">Failed to load stats</p></section>;
-
-  const income = Number(stats.totalIncome) || 0;
-  const expense = Number(stats.totalExpenses) || 0;
-  const net = Number(stats.netProfit) || 0;
-  const balance = Number(stats.totalBalance) || 0;
-  const maxBar = Math.max(income, expense, 1);
-  const profitMargin = income > 0 ? Math.round((net / income) * 100) : 0;
-
   return (
     <section className="panel">
       <DashboardDateFilter onChange={setDateRange} />
+
+      {loading && !stats ? (
+        <p style={{ marginTop: '16px' }}>Loading dashboard...</p>
+      ) : !stats ? (
+        <p className="error" style={{ marginTop: '16px' }}>Failed to load stats</p>
+      ) : (() => {
+        const income = Number(stats.totalIncome) || 0;
+        const expense = Number(stats.totalExpenses) || 0;
+        const net = Number(stats.netProfit) || 0;
+        const balance = Number(stats.totalBalance) || 0;
+        const maxBar = Math.max(income, expense, 1);
+        const profitMargin = income > 0 ? Math.round((net / income) * 100) : 0;
+
+        return (
+          <>
       {/* ── KPI Cards ── */}
       <div className="grid-four" style={{ marginTop: '16px' }}>
         <article className="card stat-card success">
@@ -235,6 +241,9 @@ export function FinanceDashboardPage() {
           ) : <p className="text-muted" style={{ fontSize: '12px' }}>No expenses yet</p>}
         </div>
       </div>
+          </>
+        );
+      })()}
     </section>
   );
 }
@@ -1975,7 +1984,7 @@ export function PaymentVerificationPage() {
 function InstallmentVerifyModal({ item, accounts, onClose, onDone }) {
   const [financeNote, setFinanceNote] = useState(item.finance_note || '');
   const [accountId, setAccountId] = useState('');
-  const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10));
+  const [entryDate, setEntryDate] = useState(toLocalISO(new Date()));
   const [saving, setSaving] = useState(false);
 
   const studentName = item.parent?.leads?.student_name || item.parent?.students?.student_name || 'Unknown Student';
@@ -2052,7 +2061,7 @@ function InstallmentVerifyModal({ item, accounts, onClose, onDone }) {
 function PaymentVerifyModal({ payment, accounts, onClose, onDone }) {
   const [financeNote, setFinanceNote] = useState(payment.finance_note || '');
   const [accountId, setAccountId] = useState('');
-  const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10));
+  const [entryDate, setEntryDate] = useState(toLocalISO(new Date()));
   const [saving, setSaving] = useState(false);
 
   async function handle(approved) {
@@ -2153,7 +2162,7 @@ function PaymentVerifyModal({ payment, accounts, onClose, onDone }) {
 function TopupVerifyModal({ topup, accounts, onClose, onDone }) {
   const [financeNote, setFinanceNote] = useState(topup.finance_note || '');
   const [accountId, setAccountId] = useState('');
-  const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10));
+  const [entryDate, setEntryDate] = useState(toLocalISO(new Date()));
   const [saving, setSaving] = useState(false);
 
   async function handle(approved) {
@@ -2256,7 +2265,7 @@ function TopupVerifyModal({ topup, accounts, onClose, onDone }) {
 function AddEntryModal({ type, accounts, editItem, onClose, onDone }) {
   const [form, setForm] = useState(() => {
     if (editItem) return { amount: String(editItem.amount || ''), description: editItem.description || '', entry_date: (editItem.entry_date || editItem.expense_date || new Date().toISOString()).slice(0, 10), account_id: editItem.account_id || '' };
-    return { amount: '', description: '', entry_date: new Date().toISOString().slice(0, 10), account_id: '' };
+    return { amount: '', description: '', entry_date: toLocalISO(new Date()), account_id: '' };
   });
   const [partyType, setPartyType] = useState(() => {
     if (editItem) {
@@ -2334,7 +2343,7 @@ function AddEntryModal({ type, accounts, editItem, onClose, onDone }) {
 function AddExpenseModal({ accounts, categories, editItem, onClose, onDone }) {
   const [form, setForm] = useState(() => {
     if (editItem) return { amount: String(editItem.amount || ''), description: editItem.description || '', expense_date: (editItem.expense_date || new Date().toISOString()).slice(0, 10), account_id: editItem.account_id || '' };
-    return { amount: '', description: '', expense_date: new Date().toISOString().slice(0, 10), account_id: '' };
+    return { amount: '', description: '', expense_date: toLocalISO(new Date()), account_id: '' };
   });
   const [partyType, setPartyType] = useState(() => {
     // If the category matches a partyType

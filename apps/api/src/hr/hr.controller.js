@@ -47,7 +47,8 @@ export async function handleHR(req, res, url) {
   try {
     // ═══════ DASHBOARD STATS ═══════
     if (req.method === 'GET' && url.pathname === '/hr/stats') {
-      const today = new Date().toISOString().slice(0, 10);
+      const istNow = new Date(new Date().getTime() + 5.5 * 60 * 60 * 1000);
+      const today = istNow.toISOString().slice(0, 10);
 
       // Date helpers
       const todayDate = new Date();
@@ -60,9 +61,9 @@ export async function handleHR(req, res, url) {
       const monthStart = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, '0')}-01`;
       const monthEnd = today;
       // Last month
-      const lastMonthDate = new Date(todayDate.getFullYear(), todayDate.getMonth() - 1, 1);
+      const lastMonthDate = new Date(istNow.getFullYear(), istNow.getMonth() - 1, 1);
       const lastMonthStart = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}-01`;
-      const lastMonthEnd = new Date(todayDate.getFullYear(), todayDate.getMonth(), 0).toISOString().slice(0, 10);
+      const lastMonthEnd = new Date(istNow.getFullYear(), istNow.getMonth(), 0).toISOString().slice(0, 10);
 
       // Fetch all active staff employees
       const { data: allEmployees } = await adminClient.from('employees').select('id, is_active, employee_type').eq('is_active', true);
@@ -139,7 +140,7 @@ export async function handleHR(req, res, url) {
         employee_type: payload.employee_type || 'staff',
         user_id: payload.user_id || null,
         is_active: true,
-        joined_date: payload.joined_date || new Date().toISOString().slice(0, 10)
+        joined_date: payload.joined_date || new Date(new Date().getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10)
       }).select('*').single();
       if (error) throw new Error(error.message);
       sendJson(res, 201, { ok: true, employee: data });
@@ -196,7 +197,8 @@ export async function handleHR(req, res, url) {
 
     // ═══════ ATTENDANCE ═══════
     if (req.method === 'GET' && url.pathname === '/hr/attendance') {
-      const date = url.searchParams.get('date') || new Date().toISOString().slice(0, 10);
+      const todayIST = new Date(new Date().getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const date = url.searchParams.get('date') || todayIST;
       const { data: employees } = await adminClient
         .from('employees')
         .select('id, full_name, designation, department, employee_type')
@@ -652,8 +654,9 @@ export async function handleHR(req, res, url) {
       if (error) throw new Error(error.message);
 
       if (finalAmount > 0) {
+        const todayIST = new Date(new Date().getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
         await adminClient.from('ledger_entries').insert([{
-          entry_date: new Date().toISOString().slice(0, 10),
+          entry_date: todayIST,
           entry_type: 'payable',
           amount: finalAmount,
           description: `Salary Payable (Teacher) — ${payload.year}/${String(payload.month).padStart(2, '0')}`,
@@ -1009,8 +1012,9 @@ export async function handleHR(req, res, url) {
       if (error) throw new Error(error.message);
 
       if (finalAmount > 0) {
+        const todayIST = new Date(new Date().getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
         await adminClient.from('ledger_entries').insert([{
-          entry_date: new Date().toISOString().slice(0, 10),
+          entry_date: todayIST,
           entry_type: 'payable',
           amount: finalAmount,
           description: `Salary Payable (Employee) — ${payload.year}/${String(payload.month).padStart(2, '0')}`,
