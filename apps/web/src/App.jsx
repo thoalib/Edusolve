@@ -41,10 +41,11 @@ import { CounselorReportsPage } from './features/counselors/CounselorReportsPage
 import { TicketDashboardPage } from './features/tickets/TicketPages.jsx';
 import { NotificationBell } from './components/NotificationBell.jsx';
 import { VerificationQueuePage, SessionLogsPage } from './features/sessions/SessionPages.jsx';
+import { TeacherDetailsPage } from './features/teachers/TeacherDetailsPage.jsx';
 import { TeacherProfilePage } from './features/teachers/TeacherPages.jsx';
 import { TCDashboardPage, TeacherLeadsPage, TCAllLeadsPage, TCTeacherPoolPage, TeacherPerformancePage } from './features/teachers/TeacherCoordinatorPages.jsx';
 import { TeacherSalesReportsPage } from './features/teachers/TeacherSalesReportsPage.jsx';
-import { TeacherDashboardPage, TeacherTodaySessionsPage, TeacherTimetablePage, TeacherMyProfilePage, TeacherStudentsPage, TeacherReportsPage, TeacherInvoicesPage, TeacherMaterialsPage } from './features/teachers/TeacherDashboardPages.jsx';
+import { TeacherDashboardPage, TeacherTodaySessionsPage, TeacherApprovalsPage, TeacherTimetablePage, TeacherMyProfilePage, TeacherStudentsPage, TeacherReportsPage, TeacherInvoicesPage, TeacherMaterialsPage } from './features/teachers/TeacherDashboardPages.jsx';
 import { MaterialTransfersPage } from './features/academic/MaterialTransfersPage.jsx';
 import { HRDashboardPage, AttendancePage, EmployeesPage, SalaryCalculatorPage, HRPaymentRequestsPage, CouncilorLevelsPage, ACIncentiveConfigPage } from './features/hr/HRPages.jsx';
 import { StudentDashboardPage, StudentHistoryPage, StudentMaterialsPage, StudentProfilePage } from './features/student-portal/StudentPortalPages.jsx';
@@ -160,6 +161,11 @@ export default function App() {
     onNavigate('/teachers/profile');
   }
 
+  function openTeacherDetails(teacherProfileId, tab = 'profile') {
+    setSelectedTeacherProfileId(teacherProfileId);
+    onNavigate('/teachers/details');
+  }
+
   function navigateToPipeline(leadId) {
     setPipelineLeadId(leadId);
     onNavigate('/leads/mine');
@@ -217,8 +223,8 @@ export default function App() {
     if (page.path === '/sessions/logs') return <SessionLogsPage />;
 
     /* Teacher Pool (AC) */
-    if (page.path === '/teachers/pool') return <TeacherPoolPage />;
-    if (page.path === '/teachers/all') return <TeacherDirectoryPage />;
+    if (page.path === '/teachers/pool') return <TeacherPoolPage onOpenProfile={openTeacherDetails} />;
+    if (page.path === '/teachers/all') return <TeacherDirectoryPage onOpenProfile={openTeacherDetails} />;
 
     /* Team (Counselor Head) */
     if (page.path === '/team/counselors') return <CounselorTeamPage />;
@@ -227,12 +233,14 @@ export default function App() {
     /* Tickets */
     if (page.path === '/tickets') return <TicketDashboardPage role={role} userId={user?.id} />;
 
-    /* Teacher Profile (shared view) */
+    /* Teacher Details (shared view) */
+    if (page.path === '/teachers/details') return <TeacherDetailsPage teacherProfileId={selectedTeacherProfileId} actorRole={role} />;
     if (page.path === '/teachers/profile') return <TeacherProfilePage teacherProfileId={selectedTeacherProfileId} />;
 
     /* Teacher Pages */
     if (page.path === '/dashboard/teacher') return <TeacherDashboardPage />;
     if (page.path === '/teacher/today-sessions') return <TeacherTodaySessionsPage />;
+    if (page.path === '/teacher/approvals') return <TeacherApprovalsPage />;
     if (page.path === '/teacher/timetable') return <TeacherTimetablePage />;
     if (page.path === '/teacher/profile') return <TeacherMyProfilePage />;
     if (page.path === '/teacher/students') return <TeacherStudentsPage />;
@@ -243,7 +251,7 @@ export default function App() {
     /* Teacher Coordinator */
     if (page.path === '/dashboard/tc') return <TCDashboardPage />;
     if (page.path === '/tc/leads') return <TCAllLeadsPage onNavigate={onNavigate} />;
-    if (page.path === '/tc/teacher-leads') return <TeacherLeadsPage onNavigate={onNavigate} />;
+    if (page.path === '/tc/teacher-leads') return <TeacherLeadsPage onNavigate={onNavigate} onOpenTeacherProfile={openTeacherDetails} />;
 
     if (page.path === '/tc/teacher-pool') return <TeacherPoolPage />;
     if (page.path === '/tc/performance') return <TeacherPerformancePage />;

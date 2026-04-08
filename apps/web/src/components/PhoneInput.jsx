@@ -18,14 +18,23 @@ export function PhoneInput({ name = 'phone', required = false, value = '', onCha
     const getInitState = (val) => {
         if (!val) return { cc: '+91', num: '' };
         let clean = val.replace(/[^0-9+]/g, '');
+        
+        // Handle variations of India code (91)
+        if (!clean.startsWith('+')) {
+            if (clean.startsWith('91') && clean.length > 10) {
+                return { cc: '+91', num: clean.slice(2) };
+            }
+            if (clean.length === 10) {
+                return { cc: '+91', num: clean };
+            }
+        }
+
         for (const c of COUNTRY_CODES) {
             if (clean.startsWith(c.code)) {
                 return { cc: c.code, num: clean.slice(c.code.length) };
             }
         }
-        if (clean.length === 10 && !clean.startsWith('+')) {
-            return { cc: '+91', num: clean };
-        }
+        
         return { cc: '+91', num: clean.replace(/^\+/, '') };
     }
 

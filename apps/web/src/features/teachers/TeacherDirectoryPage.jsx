@@ -4,13 +4,12 @@ import { getSession } from '../../lib/auth.js';
 import { ViewTeacherModal } from '../academic/AcademicPages.jsx';
 import { Pagination } from '../../components/ui/Pagination.jsx';
 
-export function TeacherDirectoryPage() {
+export function TeacherDirectoryPage({ onOpenProfile }) {
     const [teachers, setTeachers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
     const [tcFilter, setTcFilter] = useState('all');
-    const [viewTeacher, setViewTeacher] = useState(null);
     const [page, setPage] = useState(1);
 
     const userRole = getSession()?.user?.role || '';
@@ -330,7 +329,7 @@ export function TeacherDirectoryPage() {
                                     <td style={{ textAlign: 'center' }}>
                                         <button
                                             title="View Profile"
-                                            onClick={() => setViewTeacher(t)}
+                                            onClick={() => onOpenProfile(t.id)}
                                             style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '6px', color: '#6b7280' }}
                                         >👁</button>
                                     </td>
@@ -352,7 +351,6 @@ export function TeacherDirectoryPage() {
             {filtered.length > 10 && (
                 <Pagination page={page} limit={10} total={filtered.length} onPageChange={setPage} />
             )}
-            {viewTeacher && <ViewTeacherModal teacher={viewTeacher} onClose={() => setViewTeacher(null)} />}
             {deleteTarget && (
                 <DeleteConfirmModal
                     entityName={deleteTarget.name}
@@ -401,9 +399,9 @@ function ImportOldTeachersModal({ onClose }) {
 
     const downloadSample = () => {
         const csv = [
-            ['Email', 'Name', 'Phone', 'Code', 'Experience', 'Rate'],
-            ['teacher1@example.com', 'Amit Kumar', '+919876543210', 'TCR000001', 'Intermediate', '350'],
-            ['teacher2@example.com', 'Sana Shaikh', '+919123456789', '', 'Beginner', '300']
+            ['Email', 'Name', 'Phone', 'Code', 'Experience'],
+            ['teacher1@example.com', 'Amit Kumar', '+919876543210', 'TCR000001', 'Intermediate'],
+            ['teacher2@example.com', 'Sana Shaikh', '+919123456789', '', 'Beginner']
         ].map(r => r.join(',')).join('\n');
         const blob = new Blob([csv], { type: 'text/csv' });
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
@@ -421,8 +419,7 @@ function ImportOldTeachersModal({ onClose }) {
                 full_name: parts[1]?.trim() || '',
                 phone: parts[2]?.trim() || '',
                 teacher_code: parts[3]?.trim() || '',
-                experience_level: parts[4]?.trim() || '',
-                per_hour_rate: parts[5]?.trim() || ''
+                experience_remark: parts[4]?.trim() || ''
             };
         }).filter(p => p.email && p.full_name);
     };
@@ -486,7 +483,7 @@ function ImportOldTeachersModal({ onClose }) {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', background: '#f8fafc', borderRadius: '8px', marginBottom: '16px', border: '1px solid #e2e8f0' }}>
                             <div style={{ flex: 1 }}>
                                 <p style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#0f172a' }}>Upload a CSV file</p>
-                                <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>Columns: <strong>Email*</strong>, <strong>Name*</strong>, Phone, Code, Experience, Rate/hr</p>
+                                <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>Columns: <strong>Email*</strong>, <strong>Name*</strong>, Phone, Code, Experience</p>
                             </div>
                             <button type="button" onClick={downloadSample} style={{ padding: '8px 14px', background: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', fontWeight: 600, color: '#475569', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                                 ⬇ Sample CSV
@@ -502,13 +499,13 @@ function ImportOldTeachersModal({ onClose }) {
                                 <p style={{ fontSize: '13px', color: '#16a34a', marginBottom: '8px', fontWeight: 600 }}>✓ {parsed.length} rows parsed — preview below:</p>
                                 <div style={{ maxHeight: '280px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', marginBottom: '16px' }}>
                                     <table className="data-table" style={{ fontSize: '12px', width: '100%' }}>
-                                        <thead><tr><th>Email</th><th>Name</th><th>Phone</th><th>Code</th><th>Exp</th><th>Rate</th></tr></thead>
+                                        <thead><tr><th>Email</th><th>Name</th><th>Phone</th><th>Code</th><th>Experience</th></tr></thead>
                                         <tbody>
                                             {parsed.map((p, i) => (
                                                 <tr key={i}>
                                                     <td>{p.email}</td><td>{p.full_name}</td>
                                                     <td>{p.phone || '—'}</td><td>{p.teacher_code || '—'}</td>
-                                                    <td>{p.experience_level || '—'}</td><td>{p.per_hour_rate || '—'}</td>
+                                                    <td>{p.experience_remark || '—'}</td>
                                                 </tr>
                                             ))}
                                         </tbody>

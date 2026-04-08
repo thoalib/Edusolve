@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { MultiSelectDropdown } from '../../components/ui/MultiSelectDropdown.jsx';
+import { PhoneInput } from '../../components/PhoneInput.jsx';
 
 export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
     const [step, setStep] = useState(1);
@@ -241,7 +242,7 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
                             </div>
                             <div>
                                 <label style={labelStyle}>Phone Number {requiredStar}</label>
-                                <input value={formData.phone} onChange={e => updateField('phone', e.target.value)} style={inputStyle} />
+                                <PhoneInput value={formData.phone} onChange={v => updateField('phone', v)} style={inputStyle} />
                             </div>
                         </div>
                         <label style={labelStyle}>Address {requiredStar}</label>
@@ -279,7 +280,6 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
                                 value={formData.subjects_taught} 
                                 onChange={v => updateField('subjects_taught', v)}
                                 options={allSubjects}
-                                onCreate={createSubject}
                                 placeholder="Select subjects..."
                             />
                         </div>
@@ -291,7 +291,6 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
                                     value={formData.syllabus} 
                                     onChange={v => updateField('syllabus', v)}
                                     options={allSyllabus}
-                                    onCreate={createSyllabus}
                                     placeholder="Select syllabus..."
                                 />
                             </div>
@@ -301,7 +300,6 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
                                     value={formData.languages} 
                                     onChange={v => updateField('languages', v)}
                                     options={allLanguages}
-                                    onCreate={createLanguage}
                                     placeholder="Select languages..."
                                 />
                             </div>
@@ -313,7 +311,6 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
                                 value={formData.classes_taught} 
                                 onChange={v => updateField('classes_taught', v)}
                                 options={allClasses}
-                                onCreate={createClass}
                                 placeholder="Select classes..."
                             />
                         </div>

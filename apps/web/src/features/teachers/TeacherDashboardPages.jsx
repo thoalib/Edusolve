@@ -20,6 +20,28 @@ export function isSessionVerified(session) {
     return svArr.some(v => v.type === 'approval' && v.status === 'approved');
 }
 
+export function isSessionEnded(s) {
+    if (!s.started_at || !s.duration_hours || !s.session_date) return false;
+    try {
+        let startTime;
+        if (typeof s.started_at === 'string' && s.started_at.includes('T')) {
+            startTime = new Date(s.started_at);
+        } else if (typeof s.started_at === 'string') {
+            startTime = new Date(`${s.session_date}T${s.started_at.slice(0, 5)}:00+05:30`);
+        } else {
+            return false;
+        }
+        
+        if (isNaN(startTime.getTime())) return false;
+
+        const dur = Number(s.duration_hours);
+        const endTime = new Date(startTime.getTime() + dur * 60 * 60 * 1000);
+        return new Date() >= endTime;
+    } catch (e) {
+        return false;
+    }
+}
+
 export function getSessionDisplayStatus(session) {
     // Forward to the shared logic in AcademicPages if needed, or keep local if they differ
     // For consistency, let's use a similar mapping.
@@ -269,12 +291,6 @@ export function TeacherTodaySessionsPage() {
         setApproving(false);
     }
 
-    function isSessionEnded(s) {
-        if (!s.started_at || !s.duration_hours) return false;
-        const startTime = new Date(s.started_at);
-        const endTime = new Date(startTime.getTime() + s.duration_hours * 60 * 60 * 1000);
-        return new Date() >= endTime;
-    }
 
     const statusColors = {
         scheduled: '#6366f1',
@@ -337,7 +353,9 @@ export function TeacherTodaySessionsPage() {
                     const sv = s.session_verifications || [];
                     const svArr = Array.isArray(sv) ? sv : [sv];
                     const hasPendingReschedule = svArr.some(v => v.type === 'reschedule' && v.status === 'pending');
-                    const hasPendingApproval = svArr.some(v => v.type === 'approval' && v.status === 'pending');
+                    const approvalVer = svArr.find(v => v.type === 'approval'); // Latest one
+                    const hasPendingApproval = approvalVer?.status === 'pending';
+                    const isRejected = approvalVer?.status === 'rejected';
                     return (
                         <div key={s.id} className="card today-lead-card" style={{
                             padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px',
@@ -385,12 +403,43 @@ export function TeacherTodaySessionsPage() {
                                 </div>
                             </div>
 
+                            {/* Verification Info */}
+                            {approvalVer && (
+                                <div style={{ 
+                                    padding: '8px 12px', 
+                                    background: isRejected ? '#fef2f2' : '#f0f9ff', 
+                                    borderRadius: '8px', 
+                                    fontSize: '12px',
+                                    marginTop: '4px',
+                                    border: isRejected ? '1px solid #fee2e2' : '1px solid #e0f2fe'
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontWeight: 600, color: isRejected ? '#991b1b' : '#0369a1' }}>
+                                            {isRejected ? '❌ Rejected' : '📤 Sent Approval'}
+                                        </span>
+                                        {approvalVer.new_duration !== undefined && approvalVer.new_duration !== null ? (
+                                            <span style={{ fontWeight: 700 }}>{approvalVer.new_duration} Hours</span>
+                                        ) : (
+                                            <span style={{ fontWeight: 700 }}>{s.duration_hours} Hours</span>
+                                        )}
+                                    </div>
+                                    {isRejected && approvalVer.reason && (
+                                        <p style={{ margin: '4px 0 0', color: '#b91c1c', fontSize: '11px', fontStyle: 'italic' }}>
+                                            "{approvalVer.reason}"
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
                             {/* Actions */}
                             {isScheduled && ended && !hasPendingReschedule && !hasPendingApproval ? (
                                 <div style={{ display: 'flex', gap: '8px' }}>
                                     <button className="small primary" style={{ flex: 1, fontSize: '12px' }}
-                                        onClick={() => setConfirmSession(s)}>
-                                        ✅ Send Approval
+                                        onClick={() => {
+                                            setConfirmSession(s);
+                                            setActualHours(approvalVer?.new_duration || s.duration_hours || '');
+                                        }}>
+                                        {isRejected ? '🔄 Resubmit Approval' : '✅ Send Approval'}
                                     </button>
                                 </div>
                             ) : null}
@@ -2827,6 +2876,259 @@ export function TeacherMaterialsPage() {
                     )}
                 </div>
             </div>
+        </section>
+    );
+}
+
+/* ═══════ Approvals Management Page ═══════ */
+export function TeacherApprovalsPage() {
+    const [sessions, setSessions] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [activeTab, setActiveTab] = useState('not_done'); // 'not_done', 'waiting', 'verified'
+    const [page, setPage] = useState(1);
+    const [itemsPerPage] = useState(10);
+    
+    const [confirmSession, setConfirmSession] = useState(null);
+    const [approvalReason, setApprovalReason] = useState('');
+    const [actualHours, setActualHours] = useState('');
+    const [approving, setApproving] = useState(false);
+
+    const loadData = async () => {
+        setLoading(true);
+        try {
+            // Fetch a larger set of history to filter through
+            const d = await apiFetch('/students/sessions/history?limit=500');
+            setSessions(d.items || []);
+        } catch (e) { setError(e.message); }
+        setLoading(false);
+    };
+
+    useEffect(() => { loadData(); }, []);
+
+    const filteredSessions = useMemo(() => {
+        return sessions.filter(s => {
+            const svs = Array.isArray(s.session_verifications) ? s.session_verifications : (s.session_verifications ? [s.session_verifications] : []);
+            const approvalVer = svs.find(v => v.type === 'approval');
+            const ended = isSessionEnded(s);
+
+            if (activeTab === 'not_done') {
+                // Ended AND (no approval sent OR rejected)
+                return ended && (!approvalVer || approvalVer.status === 'rejected');
+            }
+            if (activeTab === 'waiting') {
+                // Pending approval
+                return approvalVer?.status === 'pending';
+            }
+            if (activeTab === 'verified') {
+                // Approved
+                return approvalVer?.status === 'approved';
+            }
+            return false;
+        });
+    }, [sessions, activeTab]);
+
+    const paginatedSessions = useMemo(() => {
+        const start = (page - 1) * itemsPerPage;
+        return filteredSessions.slice(start, start + itemsPerPage);
+    }, [filteredSessions, page, itemsPerPage]);
+
+    const totalPages = Math.ceil(filteredSessions.length / itemsPerPage);
+
+    async function handleConfirmApproval() {
+        if (!confirmSession) return;
+        setApproving(true);
+        try {
+            await apiFetch(`/teachers/sessions/${confirmSession.id}/request-approval`, {
+                method: 'POST',
+                body: JSON.stringify({ 
+                    reason: approvalReason.trim() || undefined,
+                    actual_hours: actualHours ? Number(actualHours) : undefined
+                })
+            });
+            setConfirmSession(null);
+            setApprovalReason('');
+            setActualHours('');
+            await loadData();
+        } catch (e) { setError(e.message); }
+        setApproving(false);
+    }
+
+    return (
+        <section className="panel">
+
+            {/* Sub-tabs */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', paddingBottom: '4px', overflowX: 'auto' }}>
+                <button 
+                    onClick={() => { setActiveTab('not_done'); setPage(1); }}
+                    style={{
+                        padding: '8px 16px', border: 'none', background: 'none', fontSize: '14px', fontWeight: 600,
+                        color: activeTab === 'not_done' ? '#2563eb' : '#64748b',
+                        borderBottom: activeTab === 'not_done' ? '2px solid #2563eb' : '2px solid transparent',
+                        cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap'
+                    }}
+                >
+                    Not Done ({sessions.filter(s => {
+                        const svs = Array.isArray(s.session_verifications) ? s.session_verifications : (s.session_verifications ? [s.session_verifications] : []);
+                        const approval = svs.find(v => v.type === 'approval');
+                        return isSessionEnded(s) && (!approval || approval.status === 'rejected');
+                    }).length})
+                </button>
+                <button 
+                    onClick={() => { setActiveTab('waiting'); setPage(1); }}
+                    style={{
+                        padding: '8px 16px', border: 'none', background: 'none', fontSize: '14px', fontWeight: 600,
+                        color: activeTab === 'waiting' ? '#2563eb' : '#64748b',
+                        borderBottom: activeTab === 'waiting' ? '2px solid #2563eb' : '2px solid transparent',
+                        cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap'
+                    }}
+                >
+                    Waiting ({sessions.filter(s => {
+                        const svs = Array.isArray(s.session_verifications) ? s.session_verifications : (s.session_verifications ? [s.session_verifications] : []);
+                        return svs.some(v => v.type === 'approval' && v.status === 'pending');
+                    }).length})
+                </button>
+                <button 
+                    onClick={() => { setActiveTab('verified'); setPage(1); }}
+                    style={{
+                        padding: '8px 16px', border: 'none', background: 'none', fontSize: '14px', fontWeight: 600,
+                        color: activeTab === 'verified' ? '#10b981' : '#64748b',
+                        borderBottom: activeTab === 'verified' ? '2px solid #10b981' : '2px solid transparent',
+                        cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap'
+                    }}
+                >
+                    Verified ({sessions.filter(s => {
+                        const svs = Array.isArray(s.session_verifications) ? s.session_verifications : (s.session_verifications ? [s.session_verifications] : []);
+                        return svs.some(v => v.type === 'approval' && v.status === 'approved');
+                    }).length})
+                </button>
+            </div>
+
+            {error && <p className="error">{error}</p>}
+
+            <div className="today-leads-grid">
+                {paginatedSessions.map(s => {
+                    const svArr = Array.isArray(s.session_verifications) ? s.session_verifications : [s.session_verifications].filter(Boolean);
+                    const approvalVer = svArr.find(v => v.type === 'approval');
+                    const isRejected = approvalVer?.status === 'rejected';
+
+                    return (
+                        <div key={s.id} className="card today-lead-card" style={{
+                            padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px',
+                            borderLeft: `4px solid ${activeTab === 'verified' ? '#10b981' : activeTab === 'waiting' ? '#f59e0b' : isRejected ? '#ef4444' : '#6b7280'}`,
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                <div>
+                                    <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>{s.students?.student_name || 'Student'}</h3>
+                                    <p className="text-muted" style={{ margin: '2px 0 0', fontSize: '12px' }}>
+                                        {s.subject || 'General'} • {s.session_date}
+                                    </p>
+                                </div>
+                                <span style={{
+                                    padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 600,
+                                    background: activeTab === 'verified' ? '#dcfce7' : activeTab === 'waiting' ? '#fef3c7' : isRejected ? '#fee2e2' : '#f3f4f6',
+                                    color: activeTab === 'verified' ? '#15803d' : activeTab === 'waiting' ? '#92400e' : isRejected ? '#991b1b' : '#4b5563'
+                                }}>
+                                    {activeTab === 'verified' ? 'Verified' : activeTab === 'waiting' ? 'Pending' : isRejected ? 'Rejected' : 'Not Sent'}
+                                </span>
+                            </div>
+
+                            <div className="today-lead-details" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))', gap: '8px' }}>
+                                <div>
+                                    <span className="text-muted" style={{ fontSize: '11px' }}>Time</span>
+                                    <p style={{ margin: 0, fontSize: '12px', fontWeight: 500 }}>
+                                        {s.started_at ? new Date(s.started_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : 'TBD'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <span className="text-muted" style={{ fontSize: '11px' }}>
+                                        {activeTab === 'verified' ? 'Verified Hrs' : 'Sched. Hrs'}
+                                    </span>
+                                    <p style={{ margin: 0, fontSize: '12px', fontWeight: 500 }}>{s.duration_hours}h</p>
+                                </div>
+                                {activeTab !== 'verified' && approvalVer && (
+                                    <div>
+                                        <span className="text-muted" style={{ fontSize: '11px' }}>Sent Hours</span>
+                                        <p style={{ margin: 0, fontSize: '12px', fontWeight: 700, color: '#1d4ed8' }}>
+                                            {approvalVer.new_duration ?? s.duration_hours}h
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {isRejected && approvalVer.reason && (
+                                <div style={{ padding: '8px', background: '#fef2f2', borderRadius: '6px', fontSize: '11px', color: '#991b1b', border: '1px solid #fee2e2' }}>
+                                    <strong>Reason:</strong> {approvalVer.reason}
+                                </div>
+                            )}
+
+                            {activeTab === 'not_done' && (
+                                <button className="small primary" style={{ width: '100%', fontSize: '12px' }}
+                                    onClick={() => {
+                                        setConfirmSession(s);
+                                        setActualHours(approvalVer?.new_duration || s.duration_hours || '');
+                                    }}>
+                                    {isRejected ? '🔄 Resubmit Approval' : '✅ Send Approval'}
+                                </button>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+
+            {filteredSessions.length > itemsPerPage && (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '16px', marginTop: '24px' }}>
+                    <button className="small secondary" disabled={page === 1} onClick={() => setPage(p => p - 1)}>Previous</button>
+                    <span style={{ fontSize: '13px', color: '#64748b' }}>Page {page} of {totalPages}</span>
+                    <button className="small secondary" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>Next</button>
+                </div>
+            )}
+
+            {/* Reuse the confirm modal from TodaySessions if possible, or re-implement here */}
+            {confirmSession && (
+                <div className="modal-overlay" onClick={() => !approving && setConfirmSession(null)}>
+                    <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+                        <h3 style={{ margin: '0 0 12px' }}>Confirm Approval</h3>
+                        <div style={{ background: '#f9fafb', borderRadius: '8px', padding: '12px', marginBottom: '16px' }}>
+                            <p style={{ margin: 0, fontSize: '13px' }}><strong>{confirmSession.students?.student_name}</strong> · {confirmSession.subject || 'Class'}</p>
+                            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#6b7280' }}>{confirmSession.session_date}</p>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>Actual Hours Taken</label>
+                                <input
+                                    type="number"
+                                    step="0.25"
+                                    min="0.25"
+                                    value={actualHours}
+                                    onChange={e => setActualHours(e.target.value)}
+                                    placeholder={confirmSession.duration_hours}
+                                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                                />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+                                <p style={{ margin: 0, fontSize: '11px', color: '#6b7280' }}>Scheduled: {confirmSession.duration_hours}h</p>
+                            </div>
+                        </div>
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '4px' }}>Session Note (Optional)</label>
+                            <textarea
+                                value={approvalReason}
+                                onChange={e => setApprovalReason(e.target.value)}
+                                placeholder="e.g. Class ran 15 mins over"
+                                rows={2}
+                                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                            />
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                            <button type="button" className="secondary" onClick={() => setConfirmSession(null)} disabled={approving}>Cancel</button>
+                            <button type="button" onClick={handleConfirmApproval} disabled={approving}>
+                                {approving ? 'Sending...' : 'Yes, Send Approval'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </section>
     );
 }

@@ -676,9 +676,15 @@ export async function handleStudents(req, res, url) {
 
       let query = adminClient
         .from('academic_sessions')
-        .select('*, students!inner(student_code,student_name,class_level,academic_coordinator_id), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(id,type,status)')
+        .select(`
+            *, 
+            students!inner(student_code,student_name,class_level,academic_coordinator_id), 
+            users!academic_sessions_teacher_id_fkey(id,full_name,email), 
+            session_verifications(id,type,status,new_duration,reason,created_at)
+        `)
         .eq('session_date', targetDate)
-        .order('started_at', { ascending: true });
+        .order('started_at', { ascending: true })
+        .order('created_at', { foreignTable: 'session_verifications', ascending: false });
 
       const requestedUserId = url.searchParams.get('user_id');
       if (actor.role === 'teacher') {
@@ -703,8 +709,14 @@ export async function handleStudents(req, res, url) {
       }
       let query = adminClient
         .from('academic_sessions')
-        .select('*, students(student_code,student_name), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(id,type,status,reason,verified_at)')
+        .select(`
+            *, 
+            students(student_code,student_name), 
+            users!academic_sessions_teacher_id_fkey(id,full_name,email), 
+            session_verifications(id,type,status,reason,new_duration,verified_at,created_at)
+        `)
         .order('session_date', { ascending: false })
+        .order('created_at', { foreignTable: 'session_verifications', ascending: false })
         .limit(2000);
 
       const from = url.searchParams.get('from');
@@ -1400,13 +1412,13 @@ export async function handleStudents(req, res, url) {
       if (!payload) return true;
       const { teacher_id, start_date, end_date, days_of_week, started_at, duration_hours, subject } = payload;
 
-      const start = new Date(`${start_date}T00:00:00+05:30`);
-      const end = new Date(`${end_date}T00:00:00+05:30`);
+      const start = new Date(`${start_date}T00:00:00Z`);
+      const end = new Date(`${end_date}T00:00:00Z`);
       const DAY_MAP = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
       // Collect all target dates
       const targetDates = [];
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
         const dayName = DAY_MAP[d.getUTCDay()];
         if (days_of_week.includes(dayName)) {
           targetDates.push(d.toISOString().split('T')[0]);

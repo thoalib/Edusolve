@@ -5120,7 +5120,7 @@ function formatTime12(t) {
   return `${hour12}:${m} ${ampm}`;
 }
 
-export function TeacherPoolPage() {
+export function TeacherPoolPage({ onOpenProfile }) {
   const [teachers, setTeachers] = useState([]);
   const [error, setError] = useState('');
   const [view, setView] = useState('table');
@@ -5133,7 +5133,6 @@ export function TeacherPoolPage() {
   const [fStartTime, setFStartTime] = useState('');
   const [fEndTime, setFEndTime] = useState('');
   const [selectedMapDay, setSelectedMapDay] = useState(new Date().getDay()); // Default to today
-  const [viewTeacher, setViewTeacher] = useState(null);
   const [showSlotsFor, setShowSlotsFor] = useState(null);
   const [fSearch, setFSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -5316,7 +5315,7 @@ export function TeacherPoolPage() {
 
       {view === 'table' ? (
         <>
-          <article className="card desktop-only"><div className="table-wrap mobile-friendly-table"><table><thead><tr><th>Code</th><th>Name</th><th>Exp</th><th>Subjects</th><th>Languages</th><th>Syllabus</th><th>Pref. Time</th></tr></thead><tbody>{filtered.slice((page - 1) * 10, page * 10).map(t => <tr key={t.id}><td data-label="Code">{t.teacher_code}</td><td data-label="Name">
+          <article className="card desktop-only"><div className="table-wrap mobile-friendly-table"><table><thead><tr><th>Code</th><th>Name</th><th>Exp</th><th>Subjects</th><th>Languages</th><th>Syllabus</th><th>Pref. Time</th><th>Profile</th></tr></thead><tbody>{filtered.slice((page - 1) * 10, page * 10).map(t => <tr key={t.id}><td data-label="Code">{t.teacher_code}</td><td data-label="Name">
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               {t.users?.full_name || '—'}
               {t.phone && (
@@ -5366,7 +5365,20 @@ export function TeacherPoolPage() {
                   </div>
                 )}
               </div>
-            </td></tr>)}{!filtered.length ? <tr><td colSpan="8">No teachers match filters.</td></tr> : null}</tbody></table></div>
+            </td>
+            <td data-label="Profile">
+              <button type="button" className="secondary small" onClick={() => onOpenProfile(t.id)}>Open</button>
+            </td>
+          </tr>
+        )}
+        {!filtered.length ? (
+          <tr>
+            <td colSpan="8">No teachers match filters.</td>
+          </tr>
+        ) : null}
+      </tbody>
+    </table>
+  </div>
             {filtered.length > 10 && <Pagination page={page} limit={10} total={filtered.length} onPageChange={setPage} />}
           </article>
 
@@ -5400,8 +5412,9 @@ export function TeacherPoolPage() {
                     <div><span className="text-muted">Syllabus:</span> {(t.syllabus || []).join(', ') || '—'}</div>
                   </div>
                 }
-                actions={
-                  <div style={{ display: 'flex', gap: '8px', background: '#f9fafb', padding: '12px', borderRadius: '8px' }}>
+                 actions={
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: '#f9fafb', padding: '12px', borderRadius: '8px' }}>
+                    <button className="primary small" style={{ width: '100%' }} onClick={() => onOpenProfile(t.id)}>View Full Profile</button>
                     <div style={{ width: '100%' }}>
                       <strong style={{ fontSize: '12px', marginBottom: '6px', display: 'block', color: '#4b5563' }}>Availability</strong>
                       {(t.teacher_availability && t.teacher_availability.length > 0) ? (
@@ -5482,9 +5495,13 @@ export function TeacherPoolPage() {
               });
 
               return <tr key={t.id}>
-                <td style={{ width: '150px', whiteSpace: 'nowrap', fontWeight: 600, fontSize: 13, textAlign: 'left', padding: '4px 8px', position: 'sticky', left: 0, background: 'white', zIndex: 9, borderRight: '1px solid #eee', overflow: 'hidden', textOverflow: 'ellipsis' }} title={t.users?.full_name}>
-                  {t.users?.full_name || t.teacher_code}
-                  <br /><span className="muted" style={{ fontWeight: 400, fontSize: 11, textTransform: 'capitalize' }}>{t.experience_level || 'N/A'}</span>
+                <td 
+                  onClick={() => onOpenProfile(t.id)}
+                  style={{ width: '150px', whiteSpace: 'nowrap', fontWeight: 600, fontSize: 13, textAlign: 'left', padding: '4px 8px', position: 'sticky', left: 0, background: 'white', zIndex: 9, borderRight: '1px solid #eee', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }} 
+                  title={`View details of ${t.users?.full_name}`}
+                >
+                  <div style={{ color: '#2563eb' }}>{t.users?.full_name || t.teacher_code}</div>
+                  <span className="muted" style={{ fontWeight: 400, fontSize: 11, textTransform: 'capitalize' }}>{t.experience_level || 'N/A'}</span>
                 </td>
                 {hours.map(h => {
                   return [0, 15, 30, 45].map(m => {
@@ -5558,7 +5575,8 @@ export function TeacherPoolPage() {
         {filtered.length > 10 && <Pagination page={page} limit={10} total={filtered.length} onPageChange={setPage} />}
       </article> : null}
 
-      {viewTeacher && <ViewTeacherModal teacher={viewTeacher} onClose={() => setViewTeacher(null)} />}
+
+      {/* ViewTeacherModal removed in favor of full page TeacherDetailsPage */}
     </section>
   );
 }
@@ -6841,7 +6859,12 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
                 <CustomDropdown
                   value={formData.experience_remark}
                   onChange={v => updateField('experience_remark', v)}
-                  options={[{ value: 'Fresher', label: 'Fresher' }, { value: 'Intermediate', label: 'Intermediate' }, { value: 'Experienced', label: 'Experienced' }]}
+                  options={[
+                    { value: 'Fresher', label: 'Fresher' },
+                    { value: 'Beginner', label: 'Beginner' },
+                    { value: 'Intermediate', label: 'Intermediate' },
+                    { value: 'Experienced', label: 'Experienced' }
+                  ]}
                   placeholder="Select remark"
                 />
               </div>
