@@ -1,19 +1,19 @@
+export const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-role, x-user-id, Accept, Origin',
+  'Access-Control-Max-Age': '86400'
+};
+
 export function sendJson(res, status, payload) {
   if (status === 204) {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-role, x-user-id',
-      'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-      'Access-Control-Max-Age': '86400'
-    });
+    res.writeHead(204, CORS_HEADERS);
     return res.end();
   }
 
   res.writeHead(status, {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-role, x-user-id, Accept, Origin',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS'
+    ...CORS_HEADERS,
+    'Content-Type': 'application/json'
   });
   res.end(JSON.stringify(payload));
 }
