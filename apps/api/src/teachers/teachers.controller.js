@@ -483,12 +483,24 @@ export async function handleTeachers(req, res, url) {
         sendJson(res, 403, { ok: false, error: 'teacher role required' });
         return true;
       }
-      const { data, error } = await adminClient
+      let query = adminClient
         .from('demo_sessions')
         .select('*, leads(student_name, subject, class_level, contact_number)')
         .eq('teacher_id', actor.userId)
-        .in('status', ['scheduled'])
         .order('scheduled_at', { ascending: true });
+
+      const from = url.searchParams.get('from');
+      const to = url.searchParams.get('to');
+      if (from && to) {
+        query = query.gte('scheduled_at', from + 'T00:00:00')
+                     .lte('scheduled_at', to + 'T23:59:59');
+      } else {
+        // Default to showing upcoming/current demos if no range specified?
+        // Actually, for the dashboard history it passes from/to. 
+        // If no range, maybe keep it as is (all scheduled).
+        query = query.in('status', ['scheduled']);
+      }
+      const { data, error } = await query;
       if (error) throw new Error(error.message);
       sendJson(res, 200, { ok: true, items: data || [] });
       return true;
@@ -617,8 +629,8 @@ export async function handleTeachers(req, res, url) {
       const from = url.searchParams.get('from');
       const to = url.searchParams.get('to');
       if (from && to) {
-        query = query.gte('created_at', from.includes('T') ? from : from + 'T00:00:00Z')
-                     .lte('created_at', to.includes('T') ? to : to + 'T23:59:59Z');
+        query = query.gte('created_at', from.includes('T') ? from : from + 'T00:00:00+05:30')
+                     .lte('created_at', to.includes('T') ? to : to + 'T23:59:59+05:30');
       }
 
       const { data, error } = await query;

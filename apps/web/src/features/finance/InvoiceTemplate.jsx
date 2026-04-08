@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { toLocalISO } from '../../lib/dateUtils.js';
 
 /* ═══════════════════════════════════════════════
    COMPANY BRANDING HELPERS
@@ -87,7 +88,7 @@ export function GenerateInvoiceModal({ onClose }) {
     ratePerHour: '',
     totalAmount: '',
     note: '',
-    date: new Date().toISOString().slice(0, 10),
+    date: toLocalISO(new Date()),
   });
   const [showPreview, setShowPreview] = useState(false);
   function upd(k, v) { setForm(f => ({ ...f, [k]: v })); }
@@ -269,7 +270,7 @@ export function ReceiptModal({ payment, type = 'payment', onClose }) {
       status="paid"
       company={company}
       docNumber={docNumber}
-      docDate={payment.created_at ? new Date(payment.created_at).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)}
+      docDate={payment.created_at ? toLocalISO(new Date(payment.created_at)) : toLocalISO(new Date())}
       paidDate={payment.updated_at ? new Date(payment.updated_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null}
       party={{ name: studentName, phone }}
       items={items}
@@ -305,7 +306,7 @@ export function PaySlipModal({ request, onClose }) {
       status="paid"
       company={company}
       docNumber={docNumber}
-      docDate={new Date().toISOString().slice(0, 10)}
+      docDate={toLocalISO(new Date())}
       paidDate={request.updated_at ? new Date(request.updated_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null}
       party={{ name, role: request.target_type === 'teacher' ? 'Teacher' : 'Employee', period }}
       items={items}

@@ -1,6 +1,7 @@
 import { ALL_ROLES } from '../common/roles.js';
 import { sendJson } from '../common/http.js';
 import { getSupabaseAdminClient } from '../config/supabase.js';
+import { getRate, getRateConfig, classToLevel } from '../hr/salary.service.js';
 
 export async function handleDashboard(req, res) {
   if (req.method === 'GET' && req.url.startsWith('/dashboard/')) {
@@ -27,6 +28,12 @@ export async function handleDashboard(req, res) {
         let teacherPayableQ = adminClient.from('ledger_entries').select('teacher_id, amount').eq('entry_type', 'payable').not('teacher_id', 'is', null);
         let teacherExpenseQ = adminClient.from('expenses').select('teacher_id, amount').not('teacher_id', 'is', null);
         let studentLedgerQ = adminClient.from('ledger_entries').select('student_id, amount, entry_type').in('entry_type', ['receivable', 'income']).not('student_id', 'is', null);
+        
+        let estimatedPaySessionsQ = adminClient
+          .from('session_verifications')
+          .select('session_id, academic_sessions!inner(id, teacher_id, duration_hours, session_date, subject, students(class_level, board))')
+          .eq('type', 'approval')
+          .eq('status', 'approved');
 
         // Apply date filters
         if (from) {
@@ -34,18 +41,12 @@ export async function handleDashboard(req, res) {
           newLeadsQ = newLeadsQ.gte('created_at', from);
           incomeQ = incomeQ.gte('created_at', from);
           expenseQ = expenseQ.gte('created_at', from);
-          teacherPayableQ = teacherPayableQ.gte('created_at', from);
-          teacherExpenseQ = teacherExpenseQ.gte('created_at', from);
-          studentLedgerQ = studentLedgerQ.gte('created_at', from);
         }
         if (toDate) {
           totalLeadsQ = totalLeadsQ.lte('created_at', toDate);
           newLeadsQ = newLeadsQ.lte('created_at', toDate);
           incomeQ = incomeQ.lte('created_at', toDate);
           expenseQ = expenseQ.lte('created_at', toDate);
-          teacherPayableQ = teacherPayableQ.lte('created_at', toDate);
-          teacherExpenseQ = teacherExpenseQ.lte('created_at', toDate);
-          studentLedgerQ = studentLedgerQ.lte('created_at', toDate);
         }
 
         const [
@@ -58,6 +59,10 @@ export async function handleDashboard(req, res) {
           { data: teacherPayableEntries },
           { data: teacherExpenseEntries },
           { data: studentLedgerData },
+          { data: estimatedPaySessionsData },
+          { data: teachersData },
+          rateConfig,
+          { data: billedPayrollsData }
         ] = await Promise.all([
           totalLeadsQ,
           newLeadsQ,
@@ -68,6 +73,10 @@ export async function handleDashboard(req, res) {
           teacherPayableQ,
           teacherExpenseQ,
           studentLedgerQ,
+          estimatedPaySessionsQ,
+          adminClient.from('teacher_profiles').select('*').eq('is_in_pool', true),
+          getRateConfig(),
+          adminClient.from('hr_payment_requests').select('teacher_id, year, month').eq('target_type', 'teacher')
         ]);
 
         const totalIncome = (incomeData || []).reduce((sum, r) => sum + Number(r.amount || 0), 0);
@@ -87,6 +96,35 @@ export async function handleDashboard(req, res) {
         const pendingIncoming = Object.values(studentLedger)
           .reduce((sum, s) => sum + (s.receivable - s.income), 0);
 
+        // Calculate Estimated Payroll
+        const teacherMap = new Map();
+        (teachersData || []).forEach(t => teacherMap.set(t.user_id, t));
+
+        // Map of already-billed (Teacher, Year, Month) buckets
+        const billedBuckets = new Set();
+        (billedPayrollsData || []).forEach(b => {
+          if (b.teacher_id) billedBuckets.add(`${b.teacher_id}_${b.year}_${b.month}`);
+        });
+
+        let estimatedPayable = 0;
+        (estimatedPaySessionsData || []).forEach(sv => {
+          const sess = sv.academic_sessions;
+          if (!sess) return;
+          const t = teacherMap.get(sess.teacher_id);
+          if (!t) return;
+
+          // Check if this session's bucket is already billed
+          const sDate = new Date(sess.session_date);
+          const sYear = sDate.getFullYear();
+          const sMonth = sDate.getMonth() + 1;
+          const bucketKey = `${sess.teacher_id}_${sYear}_${sMonth}`;
+          if (billedBuckets.has(bucketKey)) return;
+
+          const level = classToLevel(sess.students?.class_level);
+          const rate = getRate(t, sess.students?.board, sess.subject, level, rateConfig);
+          estimatedPayable += (Number(sess.duration_hours || 0) * rate);
+        });
+
         const stats = {
           leads: { total: totalLeads || 0, new: newLeads || 0 },
           students: { total: totalStudents || 0 },
@@ -96,7 +134,8 @@ export async function handleDashboard(req, res) {
             expenses: totalExpenses,
             net: totalIncome - totalExpenses,
             teacherPayable,
-            pendingIncoming
+            pendingIncoming,
+            estimatedPayable: Math.round(estimatedPayable * 100) / 100
           }
         };
 

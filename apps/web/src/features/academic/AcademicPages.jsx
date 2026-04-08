@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef, Fragment } from 'react';
 import { apiFetch, API_BASE_URL } from '../../lib/api.js';
+import { toLocalISO } from '../../lib/dateUtils.js';
 import { PhoneInput } from '../../components/PhoneInput.jsx';
 import { ReceiptModal } from '../finance/InvoiceTemplate.jsx';
 import { MultiSelectDropdown } from '../../components/ui/MultiSelectDropdown.jsx';
@@ -96,11 +97,178 @@ function isSessionOverdue(s) {
 
 import { DashboardDateFilter } from '../dashboards/CounselorDashboards.jsx';
 
+/* ═══════ Styles ═══════ */
+const AC_DASHBOARD_STYLES = `
+  .ac-dashboard .flex-row-desktop {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-top: 20px;
+  }
+  .ac-dashboard .flex-2 { flex: 2; min-width: 300px; }
+  .ac-dashboard .flex-1 { flex: 1; min-width: 250px; }
+  
+  .ac-dashboard .chart-container {
+    height: 220px;
+    padding: 20px 0 35px;
+    position: relative;
+    margin-top: 10px;
+  }
+  .ac-dashboard .line-chart-svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .ac-dashboard .chart-point {
+    fill: #4338ca;
+    stroke: #fff;
+    stroke-width: 2px;
+    transition: r 0.2s;
+    cursor: pointer;
+  }
+  .ac-dashboard .chart-point:hover {
+    r: 6;
+  }
+  .ac-dashboard .chart-line {
+    fill: none;
+    stroke: #4338ca;
+    stroke-width: 3px;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .ac-dashboard .chart-area {
+    fill: url(#chartGradient);
+    opacity: 0.2;
+  }
+  
+  .ac-dashboard .chart-label-x {
+    position: absolute;
+    bottom: -10px;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: #64748b;
+    font-weight: 500;
+  }
+  
+  /* Axis lines */
+  .ac-dashboard .chart-axis-x {
+    stroke: #e5e7eb;
+    stroke-width: 2px;
+  }
+  .ac-dashboard .chart-grid-line {
+    stroke: #e5e7eb;
+    stroke-width: 1px;
+    stroke-dasharray: 4;
+  }
+
+  .ac-dashboard .chart-val-tooltip-floating {
+    position: absolute;
+    background: #1e293b;
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transform: translate(-50%, -100%);
+    margin-top: -12px;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  .ac-dashboard .chart-val-tooltip-floating::after {
+    content: '';
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 6px solid #1e293b;
+  }
+  .ac-dashboard .chart-tooltip-date {
+    display: block;
+    font-size: 10px;
+    color: #94a3b8;
+    margin-bottom: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .ac-dashboard .chart-tooltip-val {
+    display: block;
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .ac-dashboard .teacher-stat-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .ac-dashboard .teacher-stat-info {
+    width: 100px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ac-dashboard .teacher-stat-bar-bg {
+    flex: 1;
+    height: 8px;
+    background: #f1f5f9;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .ac-dashboard .teacher-stat-bar {
+    height: 100%;
+    background: #4338ca;
+    border-radius: 4px;
+  }
+  .ac-dashboard .teacher-stat-val {
+    width: 35px;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: right;
+  }
+  .ac-dashboard .donut-container {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 10px 0;
+  }
+  .ac-dashboard .donut-svg {
+    transform: rotate(-90deg);
+    flex-shrink: 0;
+  }
+  .ac-dashboard .donut-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .ac-dashboard .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .ac-dashboard .legend-bullet {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  @media (max-width: 768px) {
+    .ac-dashboard .flex-2, .ac-dashboard .flex-1 { flex: 1 1 100%; }
+  }
+`;
+
 function getThisMonthRange() {
   const now = new Date();
   return {
-    from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10),
-    to: now.toISOString().slice(0, 10)
+    from: toLocalISO(new Date(now.getFullYear(), now.getMonth(), 1)),
+    to: toLocalISO(now)
   };
 }
 
@@ -108,9 +276,10 @@ function getThisMonthRange() {
 export function AcademicCoordinatorDashboardPage({ targetUserId }) {
   const [dateRange, setDateRange] = useState(getThisMonthRange);
   const [s, setS] = useState({ students: 0, active: 0, vacation: 0, inactive: 0, today: 0, queue: 0, topups: 0 });
-  const [weekSessions, setWeekSessions] = useState([]);
+  const [rangeSessions, setRangeSessions] = useState([]);
   const [overdueCount, setOverdueCount] = useState(0);
   const [error, setError] = useState('');
+  const [hoveredPoint, setHoveredPoint] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -119,12 +288,12 @@ export function AcademicCoordinatorDashboardPage({ targetUserId }) {
         const uQAnd = targetUserId ? `&user_id=${targetUserId}` : '';
         const { from, to } = dateRange;
 
-        const [a, b, c, d, w, allSched] = await Promise.all([
+        const [a, b, c, d, rangeSess, allSched] = await Promise.all([
           apiFetch(`/students${uQ}`),
           apiFetch(`/students/sessions/today${uQ}`),
           apiFetch(`/sessions/verification-queue?from=${from}&to=${to}${uQAnd}`),
           apiFetch(`/students/topup-requests?status=pending_finance&from=${from}&to=${to}${uQAnd}`),
-          apiFetch(`/students/sessions/week?offset=0${uQAnd}`),
+          apiFetch(`/sessions/all?start_date=${from}&end_date=${to}${uQAnd}`),
           apiFetch(`/sessions/all?status=scheduled${uQAnd}`)
         ]);
         const allStudents = a.items || [];
@@ -138,51 +307,98 @@ export function AcademicCoordinatorDashboardPage({ targetUserId }) {
           queue: (c.items || []).length, 
           topups: (d.items || []).length 
         });
-        setWeekSessions(w.items || []);
+        setRangeSessions(rangeSess.items || []);
         setOverdueCount((allSched.items || []).filter(isSessionOverdue).length);
       } catch (e) { setError(e.message); }
     })();
   }, [targetUserId, dateRange]);
 
-  /* Prepare Chart Data */
+  /* Prepare Chart Data — based on selected date range */
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const todayDate = new Date();
-  const last7Days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(todayDate); d.setDate(d.getDate() - (6 - i));
-    return d.toISOString().slice(0, 10);
-  });
-  const sessionsPerDay = last7Days.map(date => ({
-    date,
-    day: dayNames[new Date(date).getDay()],
-    count: weekSessions.filter(sess => sess.session_date === date).length
-  }));
+
+  const sessionsPerDay = useMemo(() => {
+    // Build array of all dates in the selected range
+    const days = [];
+    const start = new Date(dateRange.from + 'T00:00:00');
+    const end = new Date(dateRange.to + 'T00:00:00');
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      days.push(toLocalISO(d));
+    }
+    // If range is too large (>31 days), show only the last 31 days
+    const displayDays = days.length > 31 ? days.slice(-31) : days;
+    return displayDays.map(date => ({
+      date,
+      day: dayNames[new Date(date + 'T00:00:00').getDay()],
+      label: displayDays.length <= 14
+        ? dayNames[new Date(date + 'T00:00:00').getDay()]
+        : `${new Date(date + 'T00:00:00').getDate()}/${new Date(date + 'T00:00:00').getMonth() + 1}`,
+      count: rangeSessions.filter(sess => sess.session_date === date).length
+    }));
+  }, [rangeSessions, dateRange]);
   const maxSess = Math.max(...sessionsPerDay.map(d => d.count), 1);
 
   const teacherStats = useMemo(() => {
     const map = {};
-    weekSessions.forEach(sess => {
+    rangeSessions.forEach(sess => {
       const tid = sess.teacher_id;
       const name = sess.users?.full_name || tid;
       if (!map[tid]) map[tid] = { name, hours: 0 };
       map[tid].hours += Number(sess.duration_hours) || 0;
     });
     return Object.values(map).sort((a, b) => b.hours - a.hours).slice(0, 5);
-  }, [weekSessions]);
+  }, [rangeSessions]);
   const maxHours = Math.max(...teacherStats.map(t => t.hours), 1);
 
   const subjectStats = useMemo(() => {
     const map = {};
-    weekSessions.forEach(sess => {
+    rangeSessions.forEach(sess => {
       const subj = sess.subject || 'Unknown';
       if (!map[subj]) map[subj] = { name: subj, count: 0 };
       map[subj].count += 1;
     });
     return Object.values(map).sort((a, b) => b.count - a.count).slice(0, 5);
-  }, [weekSessions]);
+  }, [rangeSessions]);
   const maxSubj = Math.max(...subjectStats.map(s => s.count), 1);
 
+  const statusStats = useMemo(() => {
+    const counts = { completed: 0, scheduled: 0, cancelled: 0, other: 0 };
+    rangeSessions.forEach(sess => {
+      if (counts[sess.status] !== undefined) counts[sess.status]++;
+      else counts.other++;
+    });
+    const total = rangeSessions.length || 1;
+    return [
+      { label: 'Completed', count: counts.completed, color: '#10b981', pct: (counts.completed / total) * 100 },
+      { label: 'Scheduled', count: counts.scheduled, color: '#6366f1', pct: (counts.scheduled / total) * 100 },
+      { label: 'Cancelled', count: counts.cancelled, color: '#ef4444', pct: (counts.cancelled / total) * 100 },
+      { label: 'Other', count: counts.other, color: '#94a3b8', pct: (counts.other / total) * 100 }
+    ].filter(s => s.count > 0);
+  }, [rangeSessions]);
+
+  const lineChartData = useMemo(() => {
+    const len = sessionsPerDay.length;
+    if (len === 0) return { path: '', points: [], area: '' };
+    
+    // SVG viewBox is 1000x200
+    const w = 1000;
+    const h = 200;
+    const paddingX = len > 1 ? 0 : 500;
+    
+    const points = sessionsPerDay.map((d, i) => {
+      const x = len > 1 ? (i / (len - 1)) * w : paddingX;
+      const y = h - (d.count / maxSess) * (h * 0.8) - 10;
+      return { x, y, count: d.count, label: d.label };
+    });
+
+    const path = points.map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(' ');
+    const area = `${path} L ${points[len-1].x} ${h} L ${points[0].x} ${h} Z`;
+    
+    return { path, points, area };
+  }, [sessionsPerDay, maxSess]);
+
   return (
-    <section className="panel">
+    <section className="panel ac-dashboard">
+      <style dangerouslySetInnerHTML={{ __html: AC_DASHBOARD_STYLES }} />
       {error ? <p className="error">{error}</p> : null}
       <DashboardDateFilter onChange={setDateRange} />
       <div className="grid-four" style={{ marginTop: '16px' }}>
@@ -207,26 +423,113 @@ export function AcademicCoordinatorDashboardPage({ targetUserId }) {
         </div>
       ) : null}
 
-      <div className="grid-three">
-        <article className="card">
-          <h3>Sessions Last 7 Days</h3>
+      <div className="flex-row-desktop">
+        <article className="card flex-2">
+          <h3>Session Distribution</h3>
           <div className="chart-container">
-            {sessionsPerDay.map((d, i) => (
-              <div key={i} className="chart-bar-group">
-                <div className="chart-bar" style={{ height: `${(d.count / maxSess) * 100}%` }}>
-                  <div className="chart-val-tooltip">{d.count}</div>
-                </div>
-                <span className="chart-label">{d.day}</span>
+            {hoveredPoint && (
+              <div 
+                className="chart-val-tooltip-floating"
+                style={{ 
+                  left: `${(hoveredPoint.x / 1000) * 100}%`, 
+                  top: `${(hoveredPoint.y / 200) * 100}%` 
+                }}
+              >
+                <span className="chart-tooltip-date">{hoveredPoint.label}</span>
+                <span className="chart-tooltip-val">{hoveredPoint.count} Sessions</span>
               </div>
+            )}
+            <svg viewBox="0 0 1000 200" className="line-chart-svg" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#4338ca" />
+                  <stop offset="100%" stopColor="#4338ca" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              {/* Grid Lines */}
+              <line x1="0" y1="40" x2="1000" y2="40" className="chart-grid-line" />
+              <line x1="0" y1="80" x2="1000" y2="80" className="chart-grid-line" />
+              <line x1="0" y1="120" x2="1000" y2="120" className="chart-grid-line" />
+              <line x1="0" y1="160" x2="1000" y2="160" className="chart-grid-line" />
+              
+              <path d={lineChartData.area} className="chart-area" />
+              <path d={lineChartData.path} className="chart-line" />
+              
+              {lineChartData.points.map((p, i) => (
+                <circle 
+                  key={i} 
+                  cx={p.x} cy={p.y} r="4" 
+                  className="chart-point"
+                  onMouseEnter={() => setHoveredPoint(p)}
+                  onMouseLeave={() => setHoveredPoint(null)}
+                />
+              ))}
+              
+              <line x1="0" y1="198" x2="1000" y2="198" className="chart-axis-x" />
+            </svg>
+            {/* X-Axis labels */}
+            {lineChartData.points.filter((_, i) => {
+              if (sessionsPerDay.length <= 15) return true;
+              return i % Math.ceil(sessionsPerDay.length / 10) === 0;
+            }).map((p, i) => (
+              <span key={i} className="chart-label-x" style={{ left: `${(p.x / 1000) * 100}%` }}>
+                {p.label}
+              </span>
             ))}
-            <div className="chart-grid-line" style={{ bottom: '25%' }}></div>
-            <div className="chart-grid-line" style={{ bottom: '50%' }}></div>
-            <div className="chart-grid-line" style={{ bottom: '75%' }}></div>
           </div>
         </article>
 
+        <article className="card flex-1">
+          <h3>Session Status ({rangeSessions.length})</h3>
+          <div className="donut-container">
+            <svg width="100" height="100" className="donut-svg">
+              {statusStats.length === 0 ? (
+                <circle cx="50" cy="50" r="35" fill="none" stroke="#f1f5f9" strokeWidth="15" />
+              ) : (
+                (() => {
+                  let currentOffset = 0;
+                  const radius = 35;
+                  const circumference = 2 * Math.PI * radius;
+                  return statusStats.map((s, i) => {
+                    const strokeDasharray = `${(s.pct * circumference) / 100} ${circumference}`;
+                    const strokeDashoffset = -currentOffset;
+                    currentOffset += (s.pct * circumference) / 100;
+                    return (
+                      <circle
+                        key={i}
+                        cx="50" cy="50" r={radius}
+                        fill="none"
+                        stroke={s.color}
+                        strokeWidth="15"
+                        strokeDasharray={strokeDasharray}
+                        strokeDashoffset={strokeDashoffset}
+                      />
+                    );
+                  });
+                })()
+              )}
+              <text x="50" y="-50" transform="rotate(90)" textAnchor="middle" dominantBaseline="middle" style={{ fontSize: '14px', fontWeight: 800, fill: '#1e293b' }}>
+                {rangeSessions.length}
+              </text>
+            </svg>
+            <div className="donut-legend">
+              {statusStats.map((s, i) => (
+                <div key={i} className="legend-item">
+                  <div className="legend-bullet" style={{ background: s.color }}></div>
+                  <span style={{ color: '#64748b' }}>{s.label}:</span>
+                  <span style={{ fontWeight: 700, color: '#1e293b' }}>{s.count}</span>
+                </div>
+              ))}
+              {statusStats.length === 0 && <p className="muted" style={{ fontSize: '11px' }}>No session data</p>}
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div className="grid-two" style={{ marginTop: '20px' }}>
+
         <article className="card">
-          <h3>Top Teachers (This Week)</h3>
+          <h3>Top Teachers</h3>
           {!teacherStats.length ? <p className="muted" style={{ marginTop: 20 }}>No data yet.</p> :
             <div className="top-teachers-list">
               {teacherStats.map((t, i) => (
@@ -242,7 +545,7 @@ export function AcademicCoordinatorDashboardPage({ targetUserId }) {
           }
         </article>
         <article className="card">
-          <h3>Top Subjects (This Week)</h3>
+          <h3>Top Subjects</h3>
           {!subjectStats.length ? <p className="muted" style={{ marginTop: 20 }}>No data yet.</p> :
             <div className="top-teachers-list">
               {subjectStats.map((s, i) => (
@@ -345,7 +648,7 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
   }, [teachers, assignedTeacherIds]);
 
   // Bulk Form State
-  const today = new Date().toISOString().slice(0, 10);
+  const today = toLocalISO(new Date());
   const [showForm, setShowForm] = useState(false);
   const [fStart, setFStart] = useState(today);
   const [fEnd, setFEnd] = useState('');
@@ -373,8 +676,8 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
 
-    const st = monday.toISOString().slice(0, 10);
-    const en = sunday.toISOString().slice(0, 10);
+    const st = toLocalISO(monday);
+    const en = toLocalISO(sunday);
     setWeekStart(st);
     setWeekEnd(en);
 
@@ -2099,14 +2402,17 @@ function StudentOnboardingForm({ onDone }) {
         })
       });
       setMsg('Student created and payment submitted to finance successfully!');
+      
+      // Note: We intentionally DO NOT setSaving(false) here so the button stays disabled
+      // during the transition to closing the modal.
+      
       setTimeout(() => {
         if (onDone) onDone();
       }, 1500);
     } catch (err) {
       setUploading(false);
+      setSaving(false); // Only allow retry on error
       setError(err.message);
-    } finally {
-      setSaving(false);
     }
   }
 

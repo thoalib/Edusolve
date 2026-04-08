@@ -3,12 +3,13 @@ import { apiFetch } from '../../lib/api.js';
 import { getSessionStatusStyles } from '../academic/AcademicPages.jsx';
 import { TeacherOnboardingModal } from './TeacherOnboardingModal.jsx';
 import { DashboardDateFilter } from '../dashboards/CounselorDashboards.jsx';
+import { toLocalISO } from '../../lib/dateUtils.js';
 
 function getThisMonthRange() {
   const now = new Date();
   return {
-    from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10),
-    to: now.toISOString().slice(0, 10)
+    from: `${toLocalISO(new Date(now.getFullYear(), now.getMonth(), 1))}`,
+    to: toLocalISO(now)
   };
 }
 
@@ -84,15 +85,13 @@ export function TeacherDashboardPage() {
     }, [dateRange]);
 
     const metrics = useMemo(() => {
-        const currentMonth = new Date().getMonth();
-        const currentYear = new Date().getFullYear();
-
-        const completed = allSessions.filter(s => s.status === 'completed' || s.status === 'verified').length;
+        // Use the 'to' date from dateRange to determine which month we are viewing
         const monthlyCompleted = allSessions.filter(s => {
             if (s.status !== 'completed' && s.status !== 'verified') return false;
-            const d = new Date(s.started_at || s.created_at);
-            return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+            const d = new Date(s.started_at || s.created_at).toISOString().split('T')[0];
+            return d >= dateRange.from && d <= dateRange.to;
         }).length;
+        const completed = monthlyCompleted;
 
         const pending = todaySessions.filter(s => s.status === 'scheduled' || s.status === 'in_progress').length;
         const rescheduled = allSessions.filter(s => s.status === 'rescheduled').length;
@@ -102,115 +101,113 @@ export function TeacherDashboardPage() {
         const monthlyReceivables = salary.total_earned || 0;
 
         return { completed, monthlyCompleted, pending, rescheduled, uniqueStudents, monthlyHours, monthlyReceivables };
-    }, [todaySessions, allSessions, salary, profile]);
-
-    if (loading) return <section className="panel"><p>Loading dashboard...</p></section>;
+    }, [todaySessions, allSessions, salary, profile, dateRange]);
 
     return (
         <section className="panel">
             <DashboardDateFilter onChange={setDateRange} />
-            {/* Salary Summary (Counselor Banner Style) */}
-            <article className="card counselor-target-banner" style={{ padding: '24px', background: 'linear-gradient(to right, #173b73, #1f4b8f)', color: 'white', border: 'none', marginBottom: '16px' }}>
-                <div className="cdb-layout" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '20px' }}>
-
-                    <div className="cdb-main" style={{ flex: '1 1 100px' }}>
-                        <h3 style={{ margin: '0 0 8px', fontSize: '18px', color: 'rgba(255,255,255,0.9)' }}>
-                            Salary Summary -
-                            {salary.month ? (
-                                ` ${new Date(salary.year, salary.month - 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' })}`
-                            ) : (
-                                ` ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}`
-                            )}
-                        </h3>
-
-                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', marginTop: '16px' }}>
-                            <h2 className="cdb-amount" style={{ margin: 0, fontSize: '32px' }}>₹{(salary.total_earned || 0).toLocaleString('en-IN')}</h2>
-                            <p className="cdb-target-label" style={{ margin: '0 0 6px 0', fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>Total Earned</p>
-                        </div>
-
-                        <div style={{ marginTop: '16px', background: 'rgba(0,0,0,0.2)', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: `100%`, background: '#10b981', transition: 'width 0.5s ease-in-out' }}></div>
-                        </div>
-                    </div>
-
-                    <div className="cdb-details" style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-                        <div className="cdb-detail-box" style={{ background: 'rgba(255,255,255,0.1)', padding: '16px 24px', borderRadius: '12px', textAlign: 'center', flex: '1 1 auto' }}>
-                            <p className="cdb-detail-label" style={{ margin: '0 0 4px', fontSize: '13px', color: 'rgba(255,255,255,0.8)' }}>Working Hours</p>
-                            <p className="cdb-att-value" style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#ffffff' }}>{salary.total_hours || 0} Hours</p>
-                        </div>
-                        <div className="cdb-detail-box" style={{ background: 'rgba(255,255,255,0.1)', padding: '16px 24px', borderRadius: '12px', textAlign: 'center', flex: '1 1 auto' }}>
-                            <p className="cdb-detail-label" style={{ margin: '0 0 4px', fontSize: '13px', color: 'rgba(255,255,255,0.8)' }}>Old Receivables</p>
-                            <p className="cdb-detail-value" style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: '#fef08a' }}>₹{(salary.payable || 0).toLocaleString('en-IN')}</p>
-                        </div>
-                    </div>
-                </div>
-            </article>
-
-            <div className="dash-stats-grid">
-                <DashCard label="Monthly Hours" value={`${metrics.monthlyHours}h`} tone="info" />
-                <DashCard label="Monthly Sessions" value={metrics.monthlyCompleted} tone="success" />
-                <DashCard label="Sessions Today" value={todaySessions.length} />
-                <DashCard label="My Students" value={metrics.uniqueStudents} />
-            </div>
-
-            <div className="grid-three" style={{ marginTop: '16px' }}>
-                {/* Today's Schedule */}
-                <article className="card" style={{ padding: '20px' }}>
-                    <h3 style={{ margin: '0 0 12px', fontSize: '15px' }}>Today's Sessions</h3>
-                    {todaySessions.length ? todaySessions.map(s => (
-                        <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
-                            <div>
-                                <p style={{ margin: 0, fontWeight: 600, fontSize: '13px' }}>{s.students?.student_name || 'Student'}</p>
-                                <p className="text-muted" style={{ margin: '2px 0 0', fontSize: '11px' }}>
-                                    {s.started_at ? new Date(s.started_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : 'TBD'}
-                                    {s.subject ? ` · ${s.subject}` : ''}
-                                </p>
+            
+            {loading && !profile ? (
+                <p>Loading dashboard...</p>
+            ) : (
+                <>
+                    {/* Salary Summary (Counselor Banner Style) */}
+                    <article className="card counselor-target-banner" style={{ padding: '24px', background: 'linear-gradient(to right, #173b73, #1f4b8f)', color: 'white', border: 'none', marginBottom: '16px' }}>
+                        <div className="cdb-layout" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '20px' }}>
+                            <div className="cdb-main" style={{ flex: '1 1 100px' }}>
+                                <h3 style={{ margin: '0 0 8px', fontSize: '18px', color: 'rgba(255,255,255,0.9)' }}>
+                                    Salary Summary -
+                                    {salary.month ? (
+                                        ` ${new Date(salary.year, salary.month - 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' })}`
+                                    ) : (
+                                        ` ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}`
+                                    )}
+                                </h3>
+                                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', marginTop: '16px' }}>
+                                    <h2 className="cdb-amount" style={{ margin: 0, fontSize: '32px' }}>₹{(salary.total_earned || 0).toLocaleString('en-IN')}</h2>
+                                    <p className="cdb-target-label" style={{ margin: '0 0 6px 0', fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>Total Earned</p>
+                                </div>
+                                <div style={{ marginTop: '16px', background: 'rgba(0,0,0,0.2)', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
+                                    <div style={{ height: '100%', width: `100%`, background: '#10b981', transition: 'width 0.5s ease-in-out' }}></div>
+                                </div>
                             </div>
-                            {(() => {
-                                const st = getSessionStatusStyles(s.status, s.verification_status);
-                                return (
-                                    <span style={{
-                                        padding: '3px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: 600,
-                                        background: st.bg, color: st.color
-                                    }}>{st.label}</span>
-                                );
-                            })()}
+                            <div className="cdb-details" style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                                <div className="cdb-detail-box" style={{ background: 'rgba(255,255,255,0.1)', padding: '16px 24px', borderRadius: '12px', textAlign: 'center', flex: '1 1 auto' }}>
+                                    <p className="cdb-detail-label" style={{ margin: '0 0 4px', fontSize: '13px', color: 'rgba(255,255,255,0.8)' }}>Working Hours</p>
+                                    <p className="cdb-att-value" style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#ffffff' }}>{salary.total_hours || 0} Hours</p>
+                                </div>
+                                <div className="cdb-detail-box" style={{ background: 'rgba(255,255,255,0.1)', padding: '16px 24px', borderRadius: '12px', textAlign: 'center', flex: '1 1 auto' }}>
+                                    <p className="cdb-detail-label" style={{ margin: '0 0 4px', fontSize: '13px', color: 'rgba(255,255,255,0.8)' }}>Old Receivables</p>
+                                    <p className="cdb-detail-value" style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: '#fef08a' }}>₹{(salary.payable || 0).toLocaleString('en-IN')}</p>
+                                </div>
+                            </div>
                         </div>
-                    )) : <p className="text-muted" style={{ fontSize: '13px' }}>No sessions today</p>}
-                </article>
+                    </article>
 
-                {/* Hours Summary */}
-                <article className="card" style={{ padding: '20px' }}>
-                    <h3 style={{ margin: '0 0 16px', fontSize: '15px' }}>Hours Summary</h3>
-                    <div style={{ textAlign: 'center', padding: '20px', background: '#eff6ff', borderRadius: '12px', marginBottom: '12px' }}>
-                        <p style={{ margin: 0, fontSize: '32px', fontWeight: 700, color: '#1d4ed8' }}>{salary.total_hours}h</p>
-                        <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#1d4ed8' }}>Total Teaching Hours</p>
+                    <div className="dash-stats-grid">
+                        <DashCard label="Range Hours" value={`${metrics.monthlyHours}h`} tone="info" />
+                        <DashCard label="Range Sessions" value={metrics.monthlyCompleted} tone="success" />
+                        <DashCard label="Sessions Today" value={todaySessions.length} />
+                        <DashCard label="My Students" value={metrics.uniqueStudents} />
                     </div>
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                        <div style={{ flex: 1, textAlign: 'center', padding: '12px', background: '#dcfce7', borderRadius: '12px' }}>
-                            <p style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#15803d' }}>{metrics.completed}</p>
-                            <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#15803d' }}>Completed</p>
-                        </div>
-                        <div style={{ flex: 1, textAlign: 'center', padding: '12px', background: '#fef9c3', borderRadius: '12px' }}>
-                            <p style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#a16207' }}>{metrics.pending}</p>
-                            <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#a16207' }}>Pending</p>
-                        </div>
-                    </div>
-                </article>
 
-                {/* Profile Summary */}
-                <article className="card" style={{ padding: '20px' }}>
-                    <h3 style={{ margin: '0 0 12px', fontSize: '15px' }}>My Profile</h3>
-                    {profile ? (
-                        <>
-                            <p style={{ fontSize: '13px' }}><strong>Code:</strong> {profile.teacher_code || '—'}</p>
-                            <p style={{ fontSize: '13px' }}><strong>Name:</strong> {profile.users?.full_name || '—'}</p>
-                            <p style={{ fontSize: '13px' }}><strong>Experience:</strong> {profile.experience_remark || profile.experience_level || '—'}</p>
-                            <p style={{ fontSize: '13px' }}><strong>Availability Slots:</strong> {(profile.teacher_availability || []).length}</p>
-                        </>
-                    ) : <p className="text-muted" style={{ fontSize: '13px' }}>Profile not found</p>}
-                </article>
-            </div>
+                    <div className="grid-three" style={{ marginTop: '16px' }}>
+                        <article className="card" style={{ padding: '20px' }}>
+                            <h3 style={{ margin: '0 0 12px', fontSize: '15px' }}>Today's Sessions</h3>
+                            {todaySessions.length ? todaySessions.map(s => (
+                                <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+                                    <div>
+                                        <p style={{ margin: 0, fontWeight: 600, fontSize: '13px' }}>{s.students?.student_name || 'Student'}</p>
+                                        <p className="text-muted" style={{ margin: '2px 0 0', fontSize: '11px' }}>
+                                            {s.started_at ? new Date(s.started_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : 'TBD'}
+                                            {s.subject ? ` · ${s.subject}` : ''}
+                                        </p>
+                                    </div>
+                                    {(() => {
+                                        const st = getSessionStatusStyles(s.status, s.verification_status);
+                                        return (
+                                            <span style={{
+                                                padding: '3px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: 600,
+                                                background: st.bg, color: st.color
+                                            }}>{st.label}</span>
+                                        );
+                                    })()}
+                                </div>
+                            )) : <p className="text-muted" style={{ fontSize: '13px' }}>No sessions today</p>}
+                        </article>
+
+                        <article className="card" style={{ padding: '20px' }}>
+                            <h3 style={{ margin: '0 0 16px', fontSize: '15px' }}>Hours Summary</h3>
+                            <div style={{ textAlign: 'center', padding: '20px', background: '#eff6ff', borderRadius: '12px', marginBottom: '12px' }}>
+                                <p style={{ margin: 0, fontSize: '32px', fontWeight: 700, color: '#1d4ed8' }}>{salary.total_hours}h</p>
+                                <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#1d4ed8' }}>Total Teaching Hours</p>
+                            </div>
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                                <div style={{ flex: 1, textAlign: 'center', padding: '12px', background: '#dcfce7', borderRadius: '12px' }}>
+                                    <p style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#15803d' }}>{metrics.completed}</p>
+                                    <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#15803d' }}>Completed</p>
+                                </div>
+                                <div style={{ flex: 1, textAlign: 'center', padding: '12px', background: '#fef9c3', borderRadius: '12px' }}>
+                                    <p style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#a16207' }}>{metrics.pending}</p>
+                                    <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#a16207' }}>Pending</p>
+                                </div>
+                            </div>
+                        </article>
+
+                        <article className="card" style={{ padding: '20px' }}>
+                            <h3 style={{ margin: '0 0 12px', fontSize: '15px' }}>My Profile</h3>
+                            {profile ? (
+                                <>
+                                    <p style={{ fontSize: '13px' }}><strong>Code:</strong> {profile.teacher_code || '—'}</p>
+                                    <p style={{ fontSize: '13px' }}><strong>Name:</strong> {profile.users?.full_name || '—'}</p>
+                                    <p style={{ fontSize: '13px' }}><strong>Experience:</strong> {profile.experience_remark || profile.experience_level || '—'}</p>
+                                    <p style={{ fontSize: '13px' }}><strong>Availability Slots:</strong> {(profile.teacher_availability || []).length}</p>
+                                </>
+                            ) : <p className="text-muted" style={{ fontSize: '13px' }}>Profile not found</p>}
+                        </article>
+                    </div>
+                </>
+            )}
         </section>
     );
 }
