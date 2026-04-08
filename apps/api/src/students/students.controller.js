@@ -353,23 +353,48 @@ export async function handleStudents(req, res, url) {
         return true;
       }
 
-      // Validate assignment exists
-      const { data: assignment } = await adminClient
+      // 1. Validate assignment exists (removed is_active check as per request)
+      const { data: assignment, error: aErr } = await adminClient
         .from('student_teacher_assignments')
-        .select('id, students(id, academic_coordinator_id, student_name), users!student_teacher_assignments_teacher_id_fkey(id, contact_number)')
+        .select('id, student_id, teacher_id, subject')
         .eq('student_id', studentId)
         .eq('teacher_id', payload.teacher_id)
-        .eq('subject', payload.subject)
-        .eq('is_active', true)
+        .ilike('subject', payload.subject?.trim() || '')
+        .limit(1)
         .maybeSingle();
 
-      if (!assignment || !assignment.students) {
-        sendJson(res, 403, { ok: false, error: 'No active assignment found for this teacher and subject.' });
+      if (aErr || !assignment) {
+        console.error('[UPLOAD ERROR] Assignment not found:', aErr, { studentId, teacher_id: payload.teacher_id, subject: payload.subject });
+        sendJson(res, 403, { ok: false, error: 'No assignment found for this teacher and subject.' });
         return true;
       }
 
-      const student = assignment.students;
-      const teacher = assignment.users;
+      // 2. Fetch Student & Teacher details for WhatsApp
+      // Fetch student info
+      const { data: student } = await adminClient
+        .from('students')
+        .select('id, student_name, academic_coordinator_id')
+        .eq('id', studentId)
+        .is('deleted_at', null)
+        .maybeSingle();
+
+      // Fetch teacher info (teachers are users, phone is in 'phone' or 'contact_number' column)
+      // Most of our system uses 'phone' for users, but let's select both if possible or just phone.
+      const { data: teacherUser } = await adminClient
+        .from('users')
+        .select('id, full_name, phone')
+        .eq('id', payload.teacher_id)
+        .maybeSingle();
+
+      const teacherPhone = teacherUser?.phone;
+
+      if (!student || !teacherUser || !teacherPhone) {
+        console.error('[UPLOAD ERROR] Failed to resolve contact details:', { student: !!student, teacher: !!teacherUser, phone: !!teacherPhone });
+        sendJson(res, 400, { ok: false, error: 'Could not resolve student/teacher details or teacher contact number is missing.' });
+        return true;
+      }
+
+      const teacher = { ...teacherUser, contact_number: teacherPhone };
 
       if (!teacher || !teacher.contact_number) {
         sendJson(res, 400, { ok: false, error: 'This teacher does not have a contact number registered for WhatsApp delivery.' });
@@ -417,8 +442,8 @@ export async function handleStudents(req, res, url) {
       const WAAPPA_KEY = acSession.api_key || process.env.WAAPPA_API_KEY || 'yoursecretkey';
       
       // Route directly to teacher's personal phone
-      const teacherPhone = teacher.contact_number.replace(/\D/g, '');
-      const destinationJid = `${teacherPhone}@c.us`;
+      const cleanTeacherPhone = teacher.contact_number.replace(/\D/g, '');
+      const destinationJid = `${cleanTeacherPhone}@c.us`;
 
       try {
         if (!payload.file_url) {

@@ -94,6 +94,14 @@ export class AuthService {
   async me(accessToken) {
     if (!accessToken) return { ok: false, error: 'missing token' };
 
+    // 1. Try student login token first (base64 JSON)
+    try {
+      const studentUser = await this.studentMe(accessToken);
+      if (studentUser && studentUser.ok) return studentUser;
+    } catch (e) {
+      // Ignore student decoding errors and proceed to standard auth
+    }
+
     const adminClient = getSupabaseAdminClient();
     if (adminClient) {
       const { data, error } = await adminClient.auth.getUser(accessToken);
@@ -170,9 +178,9 @@ export class AuthService {
     // Search for a student by contact_number, alternative_number or parent_phone
     const { data: students, error } = await adminClient
       .from('students')
-      .select('id, student_name, student_code, contact_number, alternative_number, parent_phone, login_pin, status, remaining_hours, total_hours, class_level, board, medium, country, academic_coordinator_id')
+      .select('id, student_name, student_code, contact_number, login_pin, status, remaining_hours, total_hours, class_level, board, medium, country, academic_coordinator_id')
       .is('deleted_at', null)
-      .or(`contact_number.ilike.%${cleanPhone}%,alternative_number.ilike.%${cleanPhone}%,parent_phone.ilike.%${cleanPhone}%`);
+      .ilike('contact_number', `%${cleanPhone}%`);
 
     if (error) return { ok: false, error: 'database error' };
     if (!students || students.length === 0) return { ok: false, error: 'No student found with this phone number' };
