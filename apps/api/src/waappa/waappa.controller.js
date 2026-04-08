@@ -173,14 +173,14 @@ export class WaappaController {
         try {
             const body = await readJson(req);
             const displayName = body.sessionName || 'coordinator'; // Coordinator email slug (for display)
-            const webhookUrl = body.webhookUrl || `http://${req.headers.host}/waappa/webhook`;
+            const webhookUrl = body.webhookUrl || (process.env.API_BASE_URL ? `${process.env.API_BASE_URL}/waappa/webhook` : `https://${req.headers.host}/waappa/webhook`);
 
             const sessionData = await waappaService.createSession(displayName, webhookUrl);
             // Waappa returns the REAL session id (e.g. Q2BQ8RRZ) — this is what webhooks identify sessions by
             const waappaSessionId = sessionData.session_id || sessionData.name || displayName;
             const apiKey = sessionData.api_key;
 
-            console.log('[createSession] Waappa response:', JSON.stringify(sessionData));
+            // console.log('[createSession] Waappa response:', JSON.stringify(sessionData));
 
             // session_name = real Waappa ID (used in all API calls + webhook matching)
             // display_name = coordinator email (for UI)
@@ -525,7 +525,7 @@ export class WaappaController {
                         ack: ackVal,
                         ack_name: ackName
                     }).in('id', idsToUpdate);
-                    console.log(`[webhook ack] Updated ${idsToUpdate.length} message(s) to ack=${ackVal} (${ackName})`);
+                    // console.log(`[webhook ack] Updated ${idsToUpdate.length} message(s)`);
                 }
                 return sendJson(res, 200, { ok: true });
             }
@@ -543,7 +543,7 @@ export class WaappaController {
                 if (hasMedia) {
                     waappaService.downloadAndStoreMedia(id).then(async (uploadRes) => {
                         if (uploadRes && uploadRes.url) {
-                            console.log(`[webhook async] Successfully downloaded media for ${id}`);
+                            // console.log(`[webhook async] Successfully downloaded media for ${id}`);
                             await supabase.from('whatsapp_messages').update({
                                 media_url: uploadRes.url,
                                 media_type: uploadRes.mimetype
@@ -603,7 +603,7 @@ export class WaappaController {
                 }
 
                 if (!finalPhone) {
-                    console.log(`[webhook msg] SKIPPED - ${skipReason}`);
+                    // console.log(`[webhook msg] SKIPPED - ${skipReason}`);
                     return sendJson(res, 200, { ok: true, skipped: skipReason });
                 }
 
@@ -662,11 +662,11 @@ export class WaappaController {
 
                 // Strictly skip if it's neither a known student group nor a known teacher
                 if (!contactType) {
-                    console.log(`[webhook msg] SKIPPED - Contact is neither a known student group nor a teacher: ${finalPhone}`);
+                    // console.log(`[webhook msg] SKIPPED - Unrecognized contact`);
                     return sendJson(res, 200, { ok: true, skipped: 'unauthorized contact type' });
                 }
 
-                console.log(`[webhook msg] STORING message from/to ${contactPhoneToStore} (${contactType})`);
+                // console.log(`[webhook msg] STORING message from/to ${contactPhoneToStore} (${contactType})`);
 
                 // Upsert Message
                 const upsertData = {
@@ -695,8 +695,7 @@ export class WaappaController {
 
                 if (upsertErr) {
                     console.error('[webhook msg] DB UPSERT FAILED:', upsertErr);
-                } else {
-                    console.log(`[webhook msg] DB UPSERT SUCCESS for message ID: ${id}`);
+                    // console.log(`[webhook msg] DB UPSERT SUCCESS for message ID: ${id}`);
                 }
 
                 return sendJson(res, 200, { ok: true });

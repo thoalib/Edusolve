@@ -1,5 +1,5 @@
 export const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': process.env.WEB_ORIGIN || '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-role, x-user-id, Accept, Origin',
   'Access-Control-Max-Age': '86400'
