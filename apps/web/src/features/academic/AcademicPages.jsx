@@ -1792,6 +1792,16 @@ function StudentDetailPage({ studentId, onBack }) {
     finally { setEditSaving(false); }
   }
 
+  async function handleResetPin() {
+    if (!window.confirm("Are you sure you want to reset this student's login PIN to 123456?")) return;
+    try {
+      const res = await apiFetch(`/students/${studentId}/reset-pin`, { method: 'PATCH' });
+      alert(res.message || 'PIN reset successfully!');
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
   const messagingLabel = { contact: 'Contact Number', alternative: 'Alternative Number', parent: 'Parent Phone' };
   const activeSubjects = (assignments || []).filter(a => a.is_active).map(a => a.subject).filter(Boolean);
   const uniqueSubjects = [...new Set(activeSubjects)];
@@ -1834,7 +1844,10 @@ function StudentDetailPage({ studentId, onBack }) {
         <article className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 style={{ margin: 0 }}>Info</h3>
-            <button type="button" className="secondary small" onClick={openEditModal}>✏️ Edit Details</button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button type="button" className="secondary small" onClick={openEditModal}>✏️ Edit Details</button>
+              <button type="button" className="secondary small" style={{ borderColor: '#ef4444', color: '#dc2626' }} onClick={handleResetPin}>🔑 Reset PIN</button>
+            </div>
           </div>
           <div className="detail-grid" style={{ marginTop: 12 }}>
             <div><span className="eyebrow">Code</span><p><strong>{student.student_code || '—'}</strong></p></div>

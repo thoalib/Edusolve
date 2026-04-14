@@ -276,7 +276,7 @@ export async function handleHR(req, res, url) {
       // Get attendance records for the month
       const { data: attendance } = await adminClient
         .from('attendance_records')
-        .select('employee_id, status')
+        .select('employee_id, status, attendance_date')
         .gte('attendance_date', startDate)
         .lte('attendance_date', endDate);
 
@@ -284,9 +284,15 @@ export async function handleHR(req, res, url) {
       const attendanceMap = {};
       (attendance || []).forEach(a => {
         if (!attendanceMap[a.employee_id]) {
-          attendanceMap[a.employee_id] = { present: 0, absent: 0, half_day: 0 };
+          attendanceMap[a.employee_id] = { present: 0, absent: 0, half_day: 0, leave: 0 };
         }
-        if (a.status !== 'leave') {
+        if (a.status === 'leave') {
+          // Only count as holiday if it's not a Sunday
+          const d = new Date(a.attendance_date);
+          if (d.getDay() !== 0) {
+            attendanceMap[a.employee_id].leave++;
+          }
+        } else {
           attendanceMap[a.employee_id][a.status]++;
         }
       });
@@ -858,11 +864,21 @@ export async function handleHR(req, res, url) {
         }
       }
 
-      let present = 0, half_day = 0;
+      let present = 0, half_day = 0, holidayCount = 0, absent = 0;
+      const holidayDates = new Set();
       attList.forEach(a => {
         if (a.status === 'present') present++;
         else if (a.status === 'half_day') half_day++;
+        else if (a.status === 'leave') {
+          // Only count as holiday if it's not a Sunday (to avoid double subtraction)
+          const d = new Date(a.attendance_date);
+          if (d.getDay() !== 0) {
+            holidayDates.add(a.attendance_date);
+          }
+        }
+        else if (a.status === 'absent') absent++;
       });
+      holidayCount = holidayDates.size;
 
       let baseSalary = sal ? Number(sal.base_salary) : 0;
       // Override basic salary from counselor level if applicable
@@ -871,17 +887,19 @@ export async function handleHR(req, res, url) {
       }
 
       const totalAllowances = sal ? Number(sal.hra) + Number(sal.transport_allowance) + Number(sal.other_allowance) : 0;
-      const totalDeductions = sal ? Number(sal.pf_deduction) + Number(sal.tax_deduction) + Number(sal.other_deduction) : 0;
-      const grossSalary = baseSalary + totalAllowances;
+      const monthlyQuota = sal ? Number(sal.monthly_paid_leave_quota || 0) : 0;
+      const coveredByQuota = Math.min(absent, monthlyQuota);
 
-      const effectiveDays = present + (half_day * 0.5);
+      // Subtraction Method: Reduce workingDays by holidayCount, exclude leave from effectiveDays
+      const finalWorkingDays = Math.max(1, workingDays - holidayCount);
+      const effectiveDays = present + (half_day * 0.5) + coveredByQuota;
       let proRatedGross = 0;
       let calcNet = 0;
 
-      if (effectiveDays === 0) {
+      if (effectiveDays === 0 && absent === 0 && holidayCount === 0) {
         calcNet = Math.round(grossSalary - totalDeductions);
       } else {
-        proRatedGross = workingDays > 0 ? (grossSalary * effectiveDays / workingDays) : 0;
+        proRatedGross = finalWorkingDays > 0 ? (grossSalary * effectiveDays / finalWorkingDays) : 0;
         calcNet = Math.round(proRatedGross - totalDeductions);
       }
 
@@ -999,9 +1017,12 @@ export async function handleHR(req, res, url) {
           base_calculated: calcNet - acTotalIncentive, // calcNet includes incentive now, so base_calculated is without it
           adjustment,
           details: {
-            working_days: workingDays,
+            working_days: finalWorkingDays,
             present_days: present,
             half_days: half_day,
+            leave_days: holidayCount,
+            absent_days: absent,
+            quota_covered_leaves: coveredByQuota,
             base_salary: baseSalary,
             total_allowances: totalAllowances,
             total_deductions: totalDeductions,

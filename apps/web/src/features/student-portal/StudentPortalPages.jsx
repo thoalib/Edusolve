@@ -139,6 +139,14 @@ const STUDENT_STYLES = `
   .spm-history { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:8px; -webkit-overflow-scrolling:touch; }
   .spm-mobile-back { display:none; background:none; border:none; font-size:20px; cursor:pointer; padding:0 10px 0 0; color:#374151; }
 
+  /* Student Support Support Chat Styles */
+  .sp-ticket-chat { display:flex; flex-direction:column; height: 60vh; min-height: 400px; background: #ece5dd; }
+  .sp-ticket-history { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .sp-ticket-msg { padding: 10px 14px; border-radius: 12px; font-size: 13px; color: #1e293b; max-width: 85%; width: fit-content; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+  .sp-ticket-msg.mine { background: #dcf8c6; align-self: flex-end; border-bottom-right-radius: 4px; }
+  .sp-ticket-msg.theirs { background: #fff; align-self: flex-start; border-bottom-left-radius: 4px; }
+  .sp-ticket-input { display: flex; gap: 8px; padding: 12px; background: #f0f2f5; border-top: 1px solid #e2e8f0; align-items: center; }
+
   @media (max-width:1023px) {
     .sp-page { padding:12px 8px; }
     .spm-container { flex-direction:column; height:calc(100dvh - 140px); border-radius:0; border:none; }
@@ -181,6 +189,7 @@ const ICONS = {
 // ─────────────────────────────────────────────────
 // STUDENT DASHBOARD PAGE
 // ─────────────────────────────────────────────────
+
 export function StudentDashboardPage({ onNavigate }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -221,7 +230,6 @@ export function StudentDashboardPage({ onNavigate }) {
           <p>{s.class_level || ''} {s.board ? `• ${s.board}` : ''} {s.medium ? `• ${s.medium}` : ''}</p>
           <span className="sp-code">ID: {s.student_code || '—'}</span>
         </div>
-
         <div className="sp-overview-grid">
           {/* Hours Summary */}
           <div className="sp-card">
@@ -999,6 +1007,300 @@ export function StudentMaterialsPage() {
 // ─────────────────────────────────────────────────
 // STUDENT PROFILE PAGE (Tabbed: Remarks + Teachers)
 // ─────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────
+// STUDENT SUPPORT/TICKETS PAGE
+// ─────────────────────────────────────────────────
+export function StudentSupportPage() {
+  const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTicket, setActiveTicket] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [replyText, setReplyText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const chatContainerRef = useRef(null);
+
+  const [newTicket, setNewTicket] = useState({ title: '', description: '', category: 'academic' });
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTicketData, setEditTicketData] = useState({ title: '', description: '', category: '' });
+
+  const loadTickets = () => {
+    setLoading(true);
+    apiFetch('/tickets?scope=mine')
+      .then(res => { setTickets(res.items || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  };
+
+  useEffect(() => { loadTickets(); }, []);
+
+  useEffect(() => {
+    if (activeTicket) {
+      setIsEditing(false);
+      apiFetch(`/tickets/${activeTicket.id}`)
+        .then(res => setMessages(res.messages || []))
+        .catch(console.error);
+    }
+  }, [activeTicket]);
+
+  useEffect(() => {
+    if (chatContainerRef.current) {
+       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    if (!newTicket.title.trim() || !newTicket.description.trim()) return setErrorMsg('All fields are required');
+    setSubmitting(true);
+    setErrorMsg('');
+    try {
+      await apiFetch('/tickets', {
+        method: 'POST',
+        // Students route to their academic coordinator, backend handles also copying super_admin
+        body: JSON.stringify({ ...newTicket, target_role: 'academic_coordinator' })
+      });
+      setShowNew(false);
+      setNewTicket({ title: '', description: '', category: 'academic' });
+      loadTickets();
+    } catch (err) {
+      setErrorMsg(err.message);
+    }
+    setSubmitting(false);
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    if (!editTicketData.title.trim() || !editTicketData.description.trim()) return setErrorMsg('All fields are required');
+    setSubmitting(true);
+    setErrorMsg('');
+    try {
+      await apiFetch(`/tickets/${activeTicket.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(editTicketData)
+      });
+      setIsEditing(false);
+      setActiveTicket({ ...activeTicket, ...editTicketData });
+      loadTickets(); // Refresh list to reflect title updates
+    } catch (err) {
+      setErrorMsg(err.message);
+    }
+    setSubmitting(false);
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm('Are you sure you want to delete this support request? This action cannot be undone.')) return;
+    try {
+      await apiFetch(`/tickets/${activeTicket.id}`, { method: 'DELETE' });
+      setActiveTicket(null);
+      loadTickets();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleReply = async (e) => {
+    e.preventDefault();
+    if (!replyText.trim() || sending) return;
+    setSending(true);
+    try {
+      const res = await apiFetch(`/tickets/${activeTicket.id}/messages`, {
+        method: 'POST', body: JSON.stringify({ message: replyText })
+      });
+      setMessages(prev => [...prev, res]);
+      setReplyText('');
+    } catch (err) {
+      alert(err.message);
+    }
+    setSending(false);
+  };
+
+  const getStatusBadge = (status) => {
+    switch (status) {
+      case 'open': return <span className="sp-badge sp-badge-blue">Open</span>;
+      case 'in_progress': return <span className="sp-badge sp-badge-yellow">In Progress</span>;
+      case 'resolved': return <span className="sp-badge sp-badge-green">Resolved</span>;
+      case 'closed': return <span className="sp-badge sp-badge-gray">Closed</span>;
+      case 'waiting_for_response': return <span className="sp-badge sp-badge-orange">Waiting</span>;
+      default: return <span className="sp-badge sp-badge-gray">{status}</span>;
+    }
+  };
+
+  if (loading && !tickets.length) return <><style dangerouslySetInnerHTML={{ __html: STUDENT_STYLES }} /><div className="sp-page"><div className="sp-card"><p className="sp-empty">Loading tickets...</p></div></div></>;
+
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: STUDENT_STYLES }} />
+      <div className="sp-page">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h2 style={{ fontSize: '20px', margin: 0, color: '#0f172a' }}>🎟️ Help & Support</h2>
+          {!showNew && !activeTicket && (
+            <button onClick={() => setShowNew(true)} style={{ background: '#1f4b8f', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>
+              + New Request
+            </button>
+          )}
+        </div>
+
+        {showNew ? (
+          <div className="sp-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div className="sp-card-header" style={{ marginBottom: 0 }}>Create Support Request</div>
+              <button className="spm-mobile-back" style={{ display: 'block', padding: 0 }} onClick={() => setShowNew(false)}>×</button>
+            </div>
+            {errorMsg && <div style={{ background: '#fee2e2', color: '#dc2626', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '13px' }}>{errorMsg}</div>}
+            
+            <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>Category</label>
+                <select value={newTicket.category} onChange={e => setNewTicket({...newTicket, category: e.target.value})} style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }}>
+                  <option value="academic">Academic Issue</option>
+                  <option value="payment">Payment / Fees</option>
+                  <option value="materials">Materials / Links</option>
+                  <option value="complaint">General Complaint</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>Subject Title</label>
+                <input type="text" value={newTicket.title} onChange={e => setNewTicket({...newTicket, title: e.target.value})} placeholder="Brief summary of the issue..." required style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>Description</label>
+                <textarea value={newTicket.description} onChange={e => setNewTicket({...newTicket, description: e.target.value})} placeholder="Provide more details..." rows="4" required style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', resize: 'vertical' }} />
+              </div>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                <button type="button" onClick={() => setShowNew(false)} style={{ flex: 1, padding: '12px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                <button type="submit" disabled={submitting} style={{ flex: 1, padding: '12px', background: '#1f4b8f', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer' }}>
+                  {submitting ? 'Submitting...' : 'Submit Request'}
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : activeTicket ? (
+          <div className="sp-card" style={{ padding: 0 }}>
+             {/* Ticket Header */}
+            <div style={{ padding: '16px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+               <button onClick={() => setActiveTicket(null)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#64748b', marginTop: '2px' }}>←</button>
+               <div style={{ flex: 1 }}>
+                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                   <div>
+                     <div style={{ display: 'flex', gap: '8px', marginBottom: '6px' }}>
+                        {getStatusBadge(activeTicket.status)}
+                        <span className="sp-badge sp-badge-gray" style={{ background: '#e2e8f0' }}>{activeTicket.category}</span>
+                     </div>
+                     <div style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>{activeTicket.title}</div>
+                     <div style={{ fontSize: '12px', color: '#64748b' }}>Submitted: {new Date(activeTicket.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                   </div>
+                   
+                   {/* Edit/Delete Actions available if open and 0 replies */}
+                   {activeTicket.status === 'open' && messages.length === 0 && !isEditing && (
+                     <div style={{ display: 'flex', gap: '6px' }}>
+                       <button onClick={() => { setEditTicketData({ title: activeTicket.title, description: activeTicket.description, category: activeTicket.category }); setIsEditing(true); }} style={{ background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}>Edit</button>
+                       <button onClick={handleDelete} style={{ background: '#fee2e2', color: '#ef4444', border: '1px solid #fecaca', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}>Delete</button>
+                     </div>
+                   )}
+                 </div>
+               </div>
+            </div>
+            
+            {isEditing ? (
+              <div style={{ padding: '16px' }}>
+                <div style={{ fontWeight: 600, marginBottom: '16px', fontSize: '14px', color: '#1e293b' }}>Edit Request</div>
+                {errorMsg && <div style={{ background: '#fee2e2', color: '#dc2626', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '13px' }}>{errorMsg}</div>}
+                <form onSubmit={handleEditSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>Category</label>
+                    <select value={editTicketData.category} onChange={e => setEditTicketData({...editTicketData, category: e.target.value})} style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }}>
+                      <option value="academic">Academic Issue</option>
+                      <option value="payment">Payment / Fees</option>
+                      <option value="materials">Materials / Links</option>
+                      <option value="complaint">General Complaint</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>Subject Title</label>
+                    <input type="text" value={editTicketData.title} onChange={e => setEditTicketData({...editTicketData, title: e.target.value})} required style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>Description</label>
+                    <textarea value={editTicketData.description} onChange={e => setEditTicketData({...editTicketData, description: e.target.value})} rows="4" required style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', resize: 'vertical' }} />
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                    <button type="button" onClick={() => { setIsEditing(false); setErrorMsg(''); }} style={{ flex: 1, padding: '12px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                    <button type="submit" disabled={submitting} style={{ flex: 1, padding: '12px', background: '#1f4b8f', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer' }}>
+                      {submitting ? 'Saving...' : 'Save Changes'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            ) : (
+              <>
+                <div className="sp-ticket-chat">
+              <div className="sp-ticket-history" ref={chatContainerRef}>
+                {/* Original Description */}
+                <div className="sp-ticket-msg mine">
+                  <div style={{ whiteSpace: 'pre-wrap' }}>{activeTicket.description}</div>
+                  <div style={{ fontSize: '10px', opacity: 0.8, textAlign: 'right', marginTop: '4px' }}>{new Date(activeTicket.created_at).toLocaleTimeString([], { hour: '2-digit', minute:'2-digit' })}</div>
+                </div>
+                
+                {/* Replies */}
+                {messages.map(m => {
+                  const isMine = m.sender_id === activeTicket.created_by;
+                  return (
+                    <div key={m.id} className={`sp-ticket-msg ${isMine ? 'mine' : 'theirs'}`}>
+                      {!isMine && <div style={{ fontSize: '11px', color: '#2563eb', fontWeight: 700, marginBottom: '2px' }}>{m.sender?.full_name || 'Support'}</div>}
+                      <div style={{ whiteSpace: 'pre-wrap' }}>{m.message}</div>
+                      <div style={{ fontSize: '10px', opacity: isMine ? 0.8 : 0.6, textAlign: 'right', marginTop: '4px' }}>{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute:'2-digit' })}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {/* Input */}
+              {(activeTicket.status === 'open' || activeTicket.status === 'in_progress' || activeTicket.status === 'waiting_for_response') ? (
+                <form className="sp-ticket-input" onSubmit={handleReply}>
+                  <input type="text" value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="Type a message..." style={{ flex: 1, padding: '10px 14px', borderRadius: '20px', border: '1px solid #d1d5db', outline: 'none' }} />
+                  <button type="submit" disabled={sending || !replyText.trim()} style={{ width: '40px', height: '40px', borderRadius: '50%', background: replyText.trim() ? '#1f4b8f' : '#cbd5e1', color: '#fff', border: 'none', cursor: replyText.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>➤</button>
+                </form>
+              ) : (
+                <div style={{ padding: '12px', textAlign: 'center', background: '#f1f5f9', color: '#64748b', fontSize: '13px', borderTop: '1px solid #e2e8f0' }}>This request has been {activeTicket.status}.</div>
+              )}
+            </div>
+            </>
+            )}
+          </div>
+        ) : (
+          /* Ticket List */
+          tickets.length === 0 ? (
+            <div className="sp-card"><p className="sp-empty">No support requests yet</p></div>
+          ) : (
+            <div className="sp-grid-2">
+              {tickets.map(t => (
+                <div key={t.id} className="sp-card" onClick={() => setActiveTicket(t)} style={{ cursor: 'pointer', transition: 'transform 0.2s', marginBottom: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                     {getStatusBadge(t.status)}
+                     <span style={{ fontSize: '11px', color: '#94a3b8' }}>{new Date(t.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+                  </div>
+                  <div style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a', marginBottom: '8px', lineHeight: 1.3 }}>{t.title}</div>
+                  <div style={{ fontSize: '13px', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                    {t.description}
+                  </div>
+                  {(t.message_count > 0 || t.status === 'waiting_for_response') && (
+                     <div style={{ marginTop: '12px', fontSize: '12px', color: t.status === 'waiting_for_response' ? '#ef4444' : '#3b82f6', fontWeight: 600 }}>
+                        {t.status === 'waiting_for_response' ? 'Action Required' : 'Updates Available'}
+                     </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )
+        )}
+      </div>
+    </>
+  );
+}
 export function StudentProfilePage() {
   const [data, setData] = useState(null);
   const [remarks, setRemarks] = useState([]);

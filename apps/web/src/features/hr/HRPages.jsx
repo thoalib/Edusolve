@@ -408,13 +408,13 @@ export function AttendancePage() {
         }
     }
 
-    const statuses = ['present', 'absent', 'half_day'];
-    const statusLabels = { present: 'Present', absent: 'Absent', half_day: 'Half Day' };
-    const statusIcons = { present: '✓', absent: '✗', half_day: '½' };
-    const statusColors = { present: '#22c55e', absent: '#ef4444', half_day: '#f59e0b' };
+    const statuses = ['present', 'absent', 'half_day', 'leave'];
+    const statusLabels = { present: 'Present', absent: 'Absent', half_day: 'Half Day', leave: 'Holiday' };
+    const statusIcons = { present: '✓', absent: '✗', half_day: '½', leave: 'H' };
+    const statusColors = { present: '#22c55e', absent: '#ef4444', half_day: '#f59e0b', leave: '#6366f1' };
 
     const summary = useMemo(() => {
-        const counts = { present: 0, absent: 0, half_day: 0, unmarked: 0 };
+        const counts = { present: 0, absent: 0, half_day: 0, leave: 0, unmarked: 0 };
         items.forEach(emp => {
             const s = changes[emp.id]?.status || emp.attendance?.status;
             if (s && counts[s] !== undefined) counts[s]++;
@@ -475,6 +475,7 @@ export function AttendancePage() {
                     { label: 'Present', count: summary.present, modifier: 'success', filterKey: 'present' },
                     { label: 'Absent', count: summary.absent, modifier: 'danger', filterKey: 'absent' },
                     { label: 'Half Day', count: summary.half_day, modifier: 'warning', filterKey: 'half_day' },
+                    { label: 'Holiday', count: summary.leave, modifier: 'indigo', filterKey: 'leave' },
                     { label: 'Unmarked', count: summary.unmarked, modifier: '', filterKey: 'unmarked' },
                 ].map(card => (
                     <article key={card.label} onClick={() => setFilter(filter === card.filterKey ? 'all' : card.filterKey)}
@@ -496,6 +497,10 @@ export function AttendancePage() {
                 <button onClick={() => markAllAs('present')}
                     style={{ padding: '4px 12px', borderRadius: 6, background: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0', cursor: 'pointer', fontSize: 12 }}>
                     Mark all Present
+                </button>
+                <button onClick={() => markAllAs('leave')}
+                    style={{ padding: '4px 12px', borderRadius: 6, background: '#e0e7ff', color: '#3730a3', border: '1px solid #c7d2fe', cursor: 'pointer', fontSize: 12 }}>
+                    Mark all Holiday
                 </button>
                 <button onClick={() => markAllAs('absent')}
                     style={{ padding: '4px 12px', borderRadius: 6, background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', cursor: 'pointer', fontSize: 12 }}>
@@ -719,8 +724,9 @@ function AttendanceReportPage({ onBack }) {
                                 <tr>
                                     <th>#</th>
                                     <th>Employee</th>
-                                    <th>Department</th>
-                                    <th>Type</th>
+                                    <th style={{ textAlign: 'center' }}>Attendance</th>
+                                    <th style={{ textAlign: 'center' }}>Leve Adj.</th>
+                                    <th>Payable Basic</th>
                                     <th style={{ textAlign: 'center' }}>Present</th>
                                     <th style={{ textAlign: 'center' }}>Absent</th>
                                     <th style={{ textAlign: 'center' }}>Half Day</th>
@@ -1532,7 +1538,8 @@ export function SalaryCalculatorPage() {
                                     <th>Employee</th>
                                     <th>Gross</th>
                                     <th>Deductions</th>
-                                    <th style={{ textAlign: 'center' }}>Present</th>
+                                    <th style={{ textAlign: 'center' }}>Attendance</th>
+                                    <th style={{ textAlign: 'center' }}>Leve Adj.</th>
                                     <th>Net Salary</th>
                                     <th>Action</th>
                                 </tr>
@@ -1553,9 +1560,14 @@ export function SalaryCalculatorPage() {
                                     const deductions = sal ? Number(sal.pf_deduction) + Number(sal.tax_deduction) + Number(sal.other_deduction) : 0;
                                     const gross = base + hra + allowances;
 
-                                    const att = attendanceMap[emp.id] || { present: 0, half_day: 0 };
-                                    const presentDays = att.present + (att.half_day * 0.5);
-                                    const wd = workingDaysOverride !== null ? workingDaysOverride : autoWorkingDays;
+                                    const att = attendanceMap[emp.id] || { present: 0, half_day: 0, leave: 0, absent: 0 };
+                                    const monthlyQuota = salaryMap[emp.id] ? Number(salaryMap[emp.id].monthly_paid_leave_quota || 0) : 0;
+                                    const coveredByQuota = Math.min(att.absent || 0, monthlyQuota);
+
+                                    // Subtraction Method: Holidays reduce the wd target, presence counts normally
+                                    const holidayCount = att.leave || 0;
+                                    const wd = Math.max(1, (workingDaysOverride !== null ? workingDaysOverride : autoWorkingDays) - holidayCount);
+                                    const presentDays = att.present + (att.half_day * 0.5) + coveredByQuota;
 
                                     let calcNet = 0;
                                     if (presentDays === 0) {
@@ -1576,7 +1588,18 @@ export function SalaryCalculatorPage() {
                                             </td>
                                             <td>₹{gross.toLocaleString()}</td>
                                             <td>₹{deductions.toLocaleString()}</td>
-                                            <td style={{ textAlign: 'center', fontWeight: 500 }}>{presentDays}</td>
+                                            <td style={{ textAlign: 'center' }}>
+                                                <div style={{ fontWeight: 600 }}>{presentDays} / {wd}</div>
+                                                <div style={{ fontSize: 10, color: 'var(--muted)' }}>
+                                                    {att.present}P {att.leave}H {att.absent}A
+                                                </div>
+                                            </td>
+                                            <td style={{ textAlign: 'center' }}>
+                                                <div title="Absences covered by quota" style={{ color: coveredByQuota > 0 ? 'var(--success)' : 'var(--muted)', fontSize: 13, fontWeight: 600 }}>
+                                                    +{coveredByQuota}
+                                                </div>
+                                                <div style={{ fontSize: 10, color: 'var(--muted)' }}>Quota: {monthlyQuota}</div>
+                                            </td>
                                             <td style={{ fontWeight: 700, color: '#10233f' }}>₹{net.toLocaleString()}</td>
                                             <td>
                                                 {isSubmitted ? (
@@ -1615,7 +1638,8 @@ export function SalaryCalculatorPage() {
                                     <th>Level</th>
                                     <th>Basic Salary</th>
                                     <th>Target (₹)</th>
-                                    <th style={{ textAlign: 'center' }}>Present</th>
+                                    <th style={{ textAlign: 'center' }}>Attendance</th>
+                                    <th style={{ textAlign: 'center' }}>Leve Adj.</th>
                                     <th>Payable Basic</th>
                                     <th>Incentive</th>
                                     <th>Total Net</th>
@@ -1635,9 +1659,11 @@ export function SalaryCalculatorPage() {
                                     const levelTarget = cLevel ? Number(cLevel.target_amount) : 0;
                                     const levelIncentivePct = cLevel ? Number(cLevel.incentive_percentage) : 0;
 
-                                    const att = attendanceMap[emp.id] || { present: 0, half_day: 0 };
-                                    const presentDays = att.present + (att.half_day * 0.5);
-                                    const wd = workingDaysOverride !== null ? workingDaysOverride : autoWorkingDays;
+                                    const att = attendanceMap[emp.id] || { present: 0, half_day: 0, leave: 0 };
+                                    const monthlyQuota = salaryMap[emp.id] ? Number(salaryMap[emp.id].monthly_paid_leave_quota || 0) : 0;
+                                    const coveredByQuota = Math.min(att.absent || 0, monthlyQuota);
+                                    const presentDays = att.present + (att.half_day * 0.5) + coveredByQuota;
+                                    const wd = Math.max(1, (workingDaysOverride !== null ? workingDaysOverride : autoWorkingDays) - (att.leave || 0));
 
                                     let payableBasic = 0;
                                     if (presentDays === 0) {
@@ -1676,7 +1702,18 @@ export function SalaryCalculatorPage() {
                                             </td>
                                             <td>₹{levelBasic.toLocaleString()}</td>
                                             <td>₹{levelTarget.toLocaleString()}</td>
-                                            <td style={{ textAlign: 'center', fontWeight: 500 }}>{presentDays}</td>
+                                            <td style={{ textAlign: 'center' }}>
+                                                <div style={{ fontWeight: 600 }}>{presentDays} / {wd}</div>
+                                                <div style={{ fontSize: 10, color: 'var(--muted)' }}>
+                                                    {att.present}P {att.leave}H {att.absent}A
+                                                </div>
+                                            </td>
+                                            <td style={{ textAlign: 'center' }}>
+                                                <div title="Absences covered by quota" style={{ color: coveredByQuota > 0 ? 'var(--success)' : 'var(--muted)', fontSize: 13, fontWeight: 600 }}>
+                                                    +{coveredByQuota}
+                                                </div>
+                                                <div style={{ fontSize: 10, color: 'var(--muted)' }}>Quota: {monthlyQuota}</div>
+                                            </td>
                                             <td>₹{payableBasic.toLocaleString()}</td>
                                             <td>
                                                 <div style={{ fontWeight: 600, color: displayIncentive > 0 ? (isSubmitted ? 'var(--success)' : '#4f46e5') : 'var(--muted)' }}>
@@ -1721,7 +1758,8 @@ export function SalaryCalculatorPage() {
                                     <th>Academic Coordinator</th>
                                     <th>Gross</th>
                                     <th>Deductions</th>
-                                    <th style={{ textAlign: 'center' }}>Present</th>
+                                    <th style={{ textAlign: 'center' }}>Attendance</th>
+                                    <th style={{ textAlign: 'center' }}>Leve Adj.</th>
                                     <th>Payable Basic</th>
                                     <th>AC Incentive</th>
                                     <th>Total Net</th>
@@ -1740,9 +1778,11 @@ export function SalaryCalculatorPage() {
                                     const deductions = sal ? Number(sal.pf_deduction) + Number(sal.tax_deduction) + Number(sal.other_deduction) : 0;
                                     const gross = base + hra + allowances;
 
-                                    const att = attendanceMap[emp.id] || { present: 0, half_day: 0 };
-                                    const presentDays = att.present + (att.half_day * 0.5);
-                                    const wd = workingDaysOverride !== null ? workingDaysOverride : autoWorkingDays;
+                                    const att = attendanceMap[emp.id] || { present: 0, half_day: 0, leave: 0 };
+                                    const monthlyQuota = salaryMap[emp.id] ? Number(salaryMap[emp.id].monthly_paid_leave_quota || 0) : 0;
+                                    const coveredByQuota = Math.min(att.absent || 0, monthlyQuota);
+                                    const presentDays = att.present + (att.half_day * 0.5) + coveredByQuota;
+                                    const wd = Math.max(1, (workingDaysOverride !== null ? workingDaysOverride : autoWorkingDays) - (att.leave || 0));
 
                                     let calcNet = 0;
                                     if (presentDays === 0) {
@@ -1771,7 +1811,18 @@ export function SalaryCalculatorPage() {
                                             </td>
                                             <td>₹{gross.toLocaleString()}</td>
                                             <td>₹{deductions.toLocaleString()}</td>
-                                            <td style={{ textAlign: 'center', fontWeight: 500 }}>{presentDays}</td>
+                                            <td style={{ textAlign: 'center' }}>
+                                                <div style={{ fontWeight: 600 }}>{presentDays} / {wd}</div>
+                                                <div style={{ fontSize: 10, color: 'var(--muted)' }}>
+                                                    {att.present}P {att.leave}H {att.absent}A
+                                                </div>
+                                            </td>
+                                            <td style={{ textAlign: 'center' }}>
+                                                <div title="Absences covered by quota" style={{ color: coveredByQuota > 0 ? 'var(--success)' : 'var(--muted)', fontSize: 13, fontWeight: 600 }}>
+                                                    +{coveredByQuota}
+                                                </div>
+                                                <div style={{ fontSize: 10, color: 'var(--muted)' }}>Quota: {monthlyQuota}</div>
+                                            </td>
                                             <td>₹{calcNet.toLocaleString()}</td>
                                             <td>
                                                 {displayAcMetrics ? (
@@ -2227,7 +2278,8 @@ function SalaryModal({ employee, existing, onClose, onDone }) {
         other_allowance: existing?.other_allowance || '',
         pf_deduction: existing?.pf_deduction || '',
         tax_deduction: existing?.tax_deduction || '',
-        other_deduction: existing?.other_deduction || ''
+        other_deduction: existing?.other_deduction || '',
+        monthly_paid_leave_quota: existing?.monthly_paid_leave_quota || '0'
     });
     const [saving, setSaving] = useState(false);
     const upd = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
@@ -2284,6 +2336,9 @@ function SalaryModal({ employee, existing, onClose, onDone }) {
                             <input type="number" step="0.01" value={form.other_deduction} onChange={e => upd('other_deduction', e.target.value)} style={inputStyle} />
                         </label>
                     </div>
+                    <label style={labelStyle}>Monthly Paid Leave Quota (Days)
+                        <input type="number" step="0.1" value={form.monthly_paid_leave_quota} onChange={e => upd('monthly_paid_leave_quota', e.target.value)} style={inputStyle} placeholder="e.g. 1.5" />
+                    </label>
                     <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: '#475569' }}>Gross: <strong style={{ color: '#16a34a' }}>₹{gross.toLocaleString()}</strong></span>
                         <span style={{ color: '#475569' }}>Deductions: <strong style={{ color: '#dc2626' }}>₹{deductions.toLocaleString()}</strong></span>

@@ -89,7 +89,8 @@ export const APP_PAGES = [
   { path: '/student/dashboard', title: 'Home', group: 'Home', roles: [ROLES.STUDENT], showInNav: true },
   { path: '/student/materials', title: 'Materials', group: 'Home', roles: [ROLES.STUDENT], showInNav: true },
   { path: '/student/history', title: 'History', group: 'Home', roles: [ROLES.STUDENT], showInNav: true },
-  { path: '/student/profile', title: 'Profile', group: 'Home', roles: [ROLES.STUDENT], showInNav: true }
+  { path: '/student/profile', title: 'Profile', group: 'Home', roles: [ROLES.STUDENT], showInNav: true },
+  { path: '/student/support', title: 'Support', group: 'Home', roles: [ROLES.STUDENT], showInNav: true }
 ];
 
 export function pagesForRole(role) {
