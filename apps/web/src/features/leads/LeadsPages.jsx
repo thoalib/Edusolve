@@ -565,7 +565,7 @@ export function AllLeadsPage({ onOpenDetails, onViewInPipeline, selectedLeadId }
                       {!lead.counselor_id ? (
                         <InlineAssign leadId={lead.id} counselors={counselors} onDone={refresh} />
                       ) : (
-                        counselorMap[lead.counselor_id] || <span className="text-dim">Unassigned</span>
+                        lead.counselor?.full_name || counselorMap[lead.counselor_id] || <span className="text-dim">Unassigned</span>
                       )}
                     </td>
                   ) : null}

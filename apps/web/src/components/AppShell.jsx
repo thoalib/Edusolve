@@ -132,6 +132,38 @@ export default function AppShell({ roleLabel, role, user, pages, activePath, onN
     };
   }, [mobileMenuOpen]);
 
+  // Push Subscription Hook
+  useEffect(() => {
+     if ('serviceWorker' in navigator && 'PushManager' in window && user) {
+         navigator.serviceWorker.register('/sw.js').then(async (reg) => {
+             // Only attempt if permission is already granted for auto-silent mode
+             if (Notification.permission === 'granted') {
+                 try {
+                     let sub = await reg.pushManager.getSubscription();
+                     if (!sub) {
+                         const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+                         if (vapidKey) {
+                             sub = await reg.pushManager.subscribe({
+                                 userVisibleOnly: true,
+                                 applicationServerKey: vapidKey
+                             });
+                         }
+                     }
+                     if (sub) {
+                         // Send to backend
+                         await apiFetch('/push/subscribe', {
+                             method: 'POST',
+                             body: JSON.stringify(sub)
+                         });
+                     }
+                 } catch (e) {
+                     console.error('Push auto-subscribe failed:', e);
+                 }
+             }
+         }).catch(e => console.error('Service Worker registration failed:', e));
+     }
+  }, [user]);
+
   useEffect(() => {
     if (role === 'super_admin') {
       apiFetch('/admin/users/employees').then(res => {
@@ -175,8 +207,8 @@ export default function AppShell({ roleLabel, role, user, pages, activePath, onN
     const home = navPages.find(p => p.path === '/student/dashboard');
     const materials = navPages.find(p => p.path === '/student/materials');
     const history = navPages.find(p => p.path === '/student/history');
-    const profile = navPages.find(p => p.path === '/student/profile');
-    bottomNavPages = [home, materials, history, profile].filter(Boolean);
+    const support = navPages.find(p => p.path === '/student/support');
+    bottomNavPages = [home, materials, history, support].filter(Boolean);
   } else {
     bottomNavPages = navPages.slice(0, 4);
   }
@@ -190,6 +222,8 @@ export default function AppShell({ roleLabel, role, user, pages, activePath, onN
         <style dangerouslySetInnerHTML={{ __html: `
           @media (max-width: 1023px) {
             .sidebar.student-sidebar { display: none !important; }
+            .hide-mobile { display: none !important; }
+            .top-bar-title-section h2 { font-size: 18px !important; }
           }
           @media (min-width: 1024px) {
             .app-shell:has(.student-sidebar) .page-content { padding: 12px 16px; }
@@ -293,34 +327,36 @@ export default function AppShell({ roleLabel, role, user, pages, activePath, onN
                 })()}
               </h2>
             </div>
-            {role === 'student' ? (
-              <button
-                type="button"
-                onClick={onLogout}
-                style={{
-                  background: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '10px',
-                  padding: '8px 14px',
-                  fontSize: '13px',
-                  fontWeight: '700',
-                  color: '#64748b',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.2s',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-                }}
-                onMouseOver={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.borderColor = '#fee2e2'; }}
-                onMouseOut={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                Logout
-              </button>
-            ) : (
-              <NotificationBell onNavigateToTicket={(ticketId) => onNavigateToTicket && onNavigateToTicket(ticketId)} />
-            )}
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <NotificationBell onNavigateToTicket={(ticketId) => onNavigateToTicket && onNavigateToTicket(ticketId)} />
+                {role === 'student' && (
+                  <button
+                    type="button"
+                    onClick={onLogout}
+                    style={{
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '10px',
+                      padding: '8px 10px',
+                      fontSize: '13px',
+                      fontWeight: '700',
+                      color: '#64748b',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      transition: 'all 0.2s',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                    }}
+                    onMouseOver={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.borderColor = '#fee2e2'; }}
+                    onMouseOut={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                    <span className="hide-mobile">Logout</span>
+                  </button>
+                )}
+            </div>
           </div>
         </header>
 

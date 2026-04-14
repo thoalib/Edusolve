@@ -18,6 +18,7 @@ import { handleUsers } from './users/users.controller.js';
 import { handleHR } from './hr/hr.controller.js';
 import { handleWaappa } from './waappa/waappa.routes.js';
 import { handleAdSetups } from './ad-setup/ad-setup.controller.js';
+import { handlePush } from './push/push.controller.js';
 
 import { AuthService } from './auth/auth.service.js';
 import { getBearerToken } from './common/http.js';
@@ -71,6 +72,7 @@ const server = http.createServer(async (req, res) => {
     if (await handleHR(req, res, url)) return;
     if (await handleWaappa(req, res, url)) return;
     if (await handleAdSetups(req, res, url)) return;
+    if (await handlePush(req, res, url)) return;
 
     if (req.method === 'GET' && url.pathname === '/health') {
       return sendJson(res, 200, { ok: true, service: 'ehms-api' });

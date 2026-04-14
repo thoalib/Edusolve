@@ -322,6 +322,167 @@ function UserModal({ user, onClose, onDone }) {
     );
 }
 
+export function AdminBroadcastTool() {
+    const [title, setTitle] = useState('');
+    const [message, setMessage] = useState('');
+    const [url, setUrl] = useState('');
+    const [roleFilter, setRoleFilter] = useState('all');
+    const [statusFilter, setStatusFilter] = useState('');
+    const [feesPending, setFeesPending] = useState(false);
+    const [sending, setSending] = useState(false);
+    const [resultMsg, setResultMsg] = useState({ text: '', type: '' });
+
+    const handleBroadcast = async (e) => {
+        e.preventDefault();
+        if (!title.trim() || !message.trim()) return setResultMsg({ text: 'Title and message are required', type: 'error' });
+        
+        setSending(true);
+        setResultMsg({ text: '', type: '' });
+        
+        try {
+            const res = await apiFetch('/push/broadcast', {
+                method: 'POST',
+                body: JSON.stringify({
+                    title,
+                    message,
+                    url: url || '/',
+                    filters: {
+                        role: roleFilter,
+                        status: statusFilter || undefined,
+                        feesPending: feesPending || undefined
+                    }
+                })
+            });
+            setResultMsg({ text: `Broadcast sent! Delivered to ${res.delivered} devices (Matched ${res.totalMatched} users).`, type: 'success' });
+            setTitle(''); setMessage(''); setUrl('');
+            setTimeout(() => setResultMsg({ text: '', type: '' }), 5000);
+        } catch (err) {
+            setResultMsg({ text: err.message, type: 'error' });
+        }
+        setSending(false);
+    };
+
+    return (
+        <div className="card" style={{ marginTop: '20px' }}>
+            <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '20px' }}>📢</span> Notification Broadcast Center
+            </h3>
+            
+            <form onSubmit={handleBroadcast} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div>
+                        <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Broadcast Title *</label>
+                        <input type="text" value={title} onChange={e => setTitle(e.target.value)} required placeholder="e.g. Urgent: Fees Reminder" style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db' }} />
+                    </div>
+                    <div>
+                        <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Message Body *</label>
+                        <textarea value={message} onChange={e => setMessage(e.target.value)} required rows="3" placeholder="Type your message..." style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', resize: 'vertical' }} />
+                    </div>
+                    <div>
+                        <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Action Link (Optional URL)</label>
+                        <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="/student/payments" style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db' }} />
+                    </div>
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <h4 style={{ margin: '0 0 10px', fontSize: '14px', color: '#334155' }}>Target Audience Filters</h4>
+                    
+                    <div>
+                        <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Target Role</label>
+                        <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
+                            <option value="all">All Roles (Everyone)</option>
+                            <option value="student">Students Only</option>
+                            <option value="teacher">Teachers Only</option>
+                            <option value="staff">Staff Only</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Account Status</label>
+                        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
+                            <option value="">Any Status</option>
+                            <option value="active">Active Only</option>
+                            <option value="inactive">Inactive Only</option>
+                        </select>
+                    </div>
+                    
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', background: '#fff', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                        <input type="checkbox" checked={feesPending} onChange={e => setFeesPending(e.target.checked)} style={{ width: '16px', height: '16px' }} />
+                        Only users with PENDING FEES
+                    </label>
+                    
+                    <button type="submit" disabled={sending} className="primary" style={{ marginTop: 'auto', padding: '12px' }}>
+                        {sending ? 'Broadcasting...' : '📤 Send Broadcast Now'}
+                    </button>
+                    
+                    {resultMsg.text && (
+                        <div style={{ padding: '10px', borderRadius: '8px', fontSize: '13px', background: resultMsg.type === 'error' ? '#fee2e2' : '#dcfce7', color: resultMsg.type === 'error' ? '#dc2626' : '#16a34a', textAlign: 'center', fontWeight: 600 }}>
+                            {resultMsg.text}
+                        </div>
+                    )}
+                </div>
+            </form>
+        </div>
+    );
+}
+
+export function GlobalPushConfig() {
+    const [configs, setConfigs] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        apiFetch('/push/config')
+            .then(res => { setConfigs(res.configs || []); setLoading(false); })
+            .catch(() => setLoading(false));
+    }, []);
+
+    const togglePush = async (eventType, currentStatus) => {
+        const updated = configs.map(c => c.event_type === eventType ? { ...c, push_enabled: !currentStatus } : c);
+        setConfigs(updated);
+        try {
+            await apiFetch('/push/config', {
+                method: 'PATCH',
+                body: JSON.stringify({ event_type: eventType, push_enabled: !currentStatus })
+            });
+        } catch (err) {
+            alert(err.message);
+        }
+    };
+
+    if (loading) return null;
+
+    const readable = {
+        ticket_reply: 'Support Ticket Updates',
+        new_remark: 'New Performance Remarks',
+        payment_verified: 'Payment Approvals & Confirmations',
+        custom_broadcast: 'Custom Admin Broadcasts'
+    };
+
+    return (
+        <div className="card" style={{ marginTop: '20px' }}>
+             <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '20px' }}>⚙️</span> Push Notification Triggers
+            </h3>
+            <p style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '16px' }}>Master switches to control which system events are allowed to send push notifications to user devices.</p>
+            
+            <div style={{ display: 'grid', gap: '12px' }}>
+                {configs.map(config => (
+                    <div key={config.event_type} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                        <div>
+                            <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '14px' }}>{readable[config.event_type] || config.event_type}</div>
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                            <div style={{ width: '44px', height: '24px', background: config.push_enabled ? '#22c55e' : '#cbd5e1', borderRadius: '12px', position: 'relative', transition: 'background 0.3s' }}>
+                                <div style={{ position: 'absolute', top: '2px', left: config.push_enabled ? '22px' : '2px', width: '20px', height: '20px', background: '#fff', borderRadius: '50%', transition: 'left 0.3s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+                            </div>
+                            <input type="checkbox" checked={config.push_enabled} onChange={() => togglePush(config.event_type, config.push_enabled)} style={{ display: 'none' }} />
+                        </label>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
 export function SystemSettingsPage() {
     return (
         <section className="panel">
@@ -346,6 +507,9 @@ export function SystemSettingsPage() {
             <div className="card" style={{ marginTop: '20px', padding: '24px' }}>
                 <CompanyBrandingSettings />
             </div>
+            
+            <GlobalPushConfig />
+            <AdminBroadcastTool />
         </section>
     );
 }

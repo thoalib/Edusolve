@@ -172,7 +172,7 @@ export class LeadsService {
       return { items: filtered, total, page: 1, limit: total || 10 };
     }
 
-    let selectQuery = '*, students!students_lead_id_fkey(academic_coordinator_id, users!students_academic_coordinator_id_fkey(full_name, email))';
+    let selectQuery = '*, counselor:counselor_id(full_name), students!students_lead_id_fkey(academic_coordinator_id, users!students_academic_coordinator_id_fkey(full_name, email))';
 
     let query = adminClient
       .from('leads')
@@ -447,8 +447,8 @@ export class LeadsService {
     }
 
     let counselorId = payload.counselor_id || null;
-    if (isCounselor(actor)) {
-      counselorId = actor.userId; // Force auto-assign to the counselor creating it
+    if (isCounselor(actor) || isCounselorHead(actor)) {
+      counselorId = actor.userId; // Force auto-assign to the counselor/head creating it
     }
 
     if (!adminClient) {
@@ -512,7 +512,7 @@ export class LeadsService {
     }
 
     let forcedCounselorId = null;
-    if (isCounselor(actor)) {
+    if (isCounselor(actor) || isCounselorHead(actor)) {
       forcedCounselorId = actor.userId;
     }
 

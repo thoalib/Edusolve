@@ -78,6 +78,33 @@ export async function handleTickets(req, res, url) {
             return true;
         }
 
+        // PATCH /tickets/:id — update ticket (title, description, category)
+        if (req.method === 'PATCH' && parts[0] === 'tickets' && parts.length === 2) {
+            const ticketId = parts[1];
+            const payload = await readJson(req);
+            const result = await ticketsService.updateTicket(ticketId, userId, payload);
+            if (result.error) {
+                const status = result.error.includes('Forbidden') ? 403 : 400;
+                sendJson(res, status, { error: result.error });
+                return true;
+            }
+            sendJson(res, 200, result);
+            return true;
+        }
+
+        // DELETE /tickets/:id — delete ticket
+        if (req.method === 'DELETE' && parts[0] === 'tickets' && parts.length === 2) {
+            const ticketId = parts[1];
+            const result = await ticketsService.deleteTicket(ticketId, userId);
+            if (result.error) {
+                const status = result.error.includes('Forbidden') ? 403 : 400;
+                sendJson(res, status, { error: result.error });
+                return true;
+            }
+            sendJson(res, 200, result);
+            return true;
+        }
+
         // PATCH /tickets/:id/status — update ticket status
         if (req.method === 'PATCH' && parts[0] === 'tickets' && parts.length === 3 && parts[2] === 'status') {
             const ticketId = parts[1];

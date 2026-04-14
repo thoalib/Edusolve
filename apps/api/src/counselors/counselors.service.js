@@ -11,20 +11,20 @@ export class CounselorsService {
     async list() {
         if (!this.admin) return { error: 'Admin client not available' };
 
-        // 1. Get role ID for 'counselor'
-        const { data: roleData, error: roleError } = await this.admin
+        // 1. Get role IDs for 'counselor' and 'counselor_head'
+        const { data: rolesData, error: rolesError } = await this.admin
             .from('roles')
             .select('id')
-            .eq('code', 'counselor')
-            .single();
+            .in('code', ['counselor', 'counselor_head']);
 
-        if (roleError || !roleData) return { error: 'Counselor role not found' };
+        if (rolesError || !rolesData?.length) return { error: 'Counselor roles not found' };
+        const roleIds = rolesData.map(r => r.id);
 
-        // 2. Get users who have this role
+        // 2. Get users who have these roles
         const { data: userRoles, error: urError } = await this.admin
             .from('user_roles')
             .select('user_id')
-            .eq('role_id', roleData.id);
+            .in('role_id', roleIds);
 
         if (urError) return { error: urError.message };
 

@@ -1,5 +1,6 @@
 
 import { getSupabaseAdminClient } from '../config/supabase.js';
+import { PushService } from '../push/push.service.js';
 
 /**
  * Role-based ticket routing: which roles can each role send tickets to.
@@ -7,6 +8,7 @@ import { getSupabaseAdminClient } from '../config/supabase.js';
 const TICKET_ROUTING = {
     counselor: ['counselor_head', 'hr', 'super_admin'],
     teacher: ['teacher_coordinator', 'hr', 'super_admin'],
+    student: ['academic_coordinator', 'super_admin'],
     counselor_head: ['hr', 'super_admin'],
     teacher_coordinator: ['hr', 'super_admin'],
     academic_coordinator: ['teacher_coordinator', 'hr', 'super_admin'],
@@ -103,8 +105,26 @@ export class TicketsService {
 
         // Fallback: look up any missing users or users without a DB role from auth.users
         const foundIds = new Set(allUsers.map(u => u.id));
-        const missingIds = creatorIds.filter(id => !foundIds.has(id));
-        const usersNeedingRole = allUsers.filter(u => !roleMap[u.id]).map(u => u.id);
+        let missingIds = creatorIds.filter(id => !foundIds.has(id));
+
+        // Fallback 1: Students table
+        if (missingIds.length > 0) {
+            const { data: students } = await this.admin.from('students').select('id, student_name, student_code').in('id', missingIds);
+            if (students && students.length > 0) {
+                students.forEach(s => {
+                    allUsers.push({
+                        id: s.id,
+                        full_name: s.student_name || 'Student',
+                        email: s.student_code || '',
+                        role: 'student'
+                    });
+                    foundIds.add(s.id);
+                });
+                missingIds = creatorIds.filter(id => !foundIds.has(id));
+            }
+        }
+
+        const usersNeedingRole = allUsers.filter(u => !roleMap[u.id] && u.role !== 'student').map(u => u.id);
         const idsToFetchFromAuth = [...new Set([...missingIds, ...usersNeedingRole])];
 
         for (const id of idsToFetchFromAuth) {
@@ -187,21 +207,37 @@ export class TicketsService {
         }
 
         if (!creator || !creatorRole || creatorRole === 'unknown') {
-            try {
-                const { data } = await this.admin.auth.admin.getUserById(ticket.created_by);
-                if (data?.user) {
-                    if (!creator) {
-                        creator = {
-                            id: data.user.id,
-                            full_name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'User',
-                            email: data.user.email || ''
-                        };
-                    }
-                    if (!creatorRole || creatorRole === 'unknown') {
-                        creatorRole = data.user.app_metadata?.role || data.user.user_metadata?.role || 'unknown';
-                    }
+            // Fallback 1: Student Check
+            if (!creator) {
+                const { data: student } = await this.admin.from('students').select('id, student_name, student_code').eq('id', ticket.created_by).maybeSingle();
+                if (student) {
+                    creator = {
+                        id: student.id,
+                        full_name: student.student_name || 'Student',
+                        email: student.student_code || ''
+                    };
+                    creatorRole = 'student';
                 }
-            } catch (e) { /* skip */ }
+            }
+
+            // Fallback 2: Auth
+            if (!creator || !creatorRole || creatorRole === 'unknown') {
+                try {
+                    const { data } = await this.admin.auth.admin.getUserById(ticket.created_by);
+                    if (data?.user) {
+                        if (!creator) {
+                            creator = {
+                                id: data.user.id,
+                                full_name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'User',
+                                email: data.user.email || ''
+                            };
+                        }
+                        if (!creatorRole || creatorRole === 'unknown') {
+                            creatorRole = data.user.app_metadata?.role || data.user.user_metadata?.role || 'unknown';
+                        }
+                    }
+                } catch (e) { /* skip */ }
+            }
         }
         if (creator) creator.role = creatorRole || 'unknown';
 
@@ -233,8 +269,26 @@ export class TicketsService {
             }
 
             const foundIds = new Set(allSenders.map(u => u.id));
-            const missingIds = senderIds.filter(id => !foundIds.has(id));
-            const usersNeedingRole = allSenders.filter(u => !sRoleMap[u.id]).map(u => u.id);
+            let missingIds = senderIds.filter(id => !foundIds.has(id));
+
+            // Fallback 1: Students Check
+            if (missingIds.length > 0) {
+                const { data: students } = await this.admin.from('students').select('id, student_name, student_code').in('id', missingIds);
+                if (students && students.length > 0) {
+                    students.forEach(s => {
+                        allSenders.push({
+                            id: s.id,
+                            full_name: s.student_name || 'Student',
+                            email: s.student_code || '',
+                            role: 'student'
+                        });
+                        foundIds.add(s.id);
+                    });
+                    missingIds = senderIds.filter(id => !foundIds.has(id));
+                }
+            }
+
+            const usersNeedingRole = allSenders.filter(u => !sRoleMap[u.id] && u.role !== 'student').map(u => u.id);
             const idsToFetchFromAuth = [...new Set([...missingIds, ...usersNeedingRole])];
 
             for (const id of idsToFetchFromAuth) {
@@ -313,18 +367,30 @@ export class TicketsService {
         if (target_user_id) {
             await this._notifyUser(target_user_id, {
                 title: 'New Ticket Submitted',
-                message: `${payload.creatorName || 'A staff member'} submitted a ${priority || 'medium'} priority ticket: "${title}"`,
+                message: `${payload.creatorName || 'A user'} submitted a ${priority || 'medium'} priority ticket: "${title}"`,
                 type: 'ticket',
-                reference_id: data.id
+                reference_id: data.id,
+                event_type: 'ticket_reply'
             });
         } else {
             // Create notifications for all users with the target role
             await this._notifyRole(target_role, {
                 title: 'New Ticket Submitted',
-                message: `${payload.creatorName || 'A staff member'} submitted a ${priority || 'medium'} priority ticket: "${title}"`,
+                message: `${payload.creatorName || 'A user'} submitted a ${priority || 'medium'} priority ticket: "${title}"`,
                 type: 'ticket',
-                reference_id: data.id
+                reference_id: data.id,
+                event_type: 'ticket_reply'
             });
+            // If sender is student, always notify super_admin too
+            if (role === 'student' && target_role !== 'super_admin') {
+                await this._notifyRole('super_admin', {
+                    title: 'New Student Ticket',
+                    message: `A student submitted a ticket: "${title}"`,
+                    type: 'ticket',
+                    reference_id: data.id,
+                    event_type: 'ticket_reply'
+                });
+            }
         }
 
         return data;
@@ -368,6 +434,57 @@ export class TicketsService {
         return data;
     }
 
+    async updateTicket(ticketId, userId, payload) {
+        if (!this.admin) return { error: 'Admin client not available' };
+
+        const { data: ticket, error: fetchErr } = await this.admin
+            .from('tickets').select('created_by, status').eq('id', ticketId).single();
+        if (fetchErr) return { error: fetchErr.message };
+
+        if (ticket.created_by !== userId) return { error: 'Forbidden. Only the creator can edit this ticket.' };
+        if (ticket.status !== 'open') return { error: 'Ticket cannot be edited because it is no longer open' };
+
+        const { count: msgCount } = await this.admin
+            .from('ticket_messages').select('*', { count: 'exact', head: true }).eq('ticket_id', ticketId);
+        
+        if (msgCount > 0) return { error: 'Ticket cannot be edited because it already has replies' };
+
+        const { data, error } = await this.admin
+            .from('tickets')
+            .update({
+                title: payload.title,
+                description: payload.description,
+                category: payload.category || null,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', ticketId)
+            .select()
+            .single();
+
+        if (error) return { error: error.message };
+        return data;
+    }
+
+    async deleteTicket(ticketId, userId) {
+        if (!this.admin) return { error: 'Admin client not available' };
+
+        const { data: ticket, error: fetchErr } = await this.admin
+            .from('tickets').select('created_by, status').eq('id', ticketId).single();
+        if (fetchErr) return { error: fetchErr.message };
+
+        if (ticket.created_by !== userId) return { error: 'Forbidden. Only the creator can delete this ticket.' };
+        if (ticket.status !== 'open') return { error: 'Ticket cannot be deleted because it is no longer open' };
+
+        const { count: msgCount } = await this.admin
+            .from('ticket_messages').select('*', { count: 'exact', head: true }).eq('ticket_id', ticketId);
+        
+        if (msgCount > 0) return { error: 'Ticket cannot be deleted because it already has replies' };
+
+        const { error } = await this.admin.from('tickets').delete().eq('id', ticketId);
+        if (error) return { error: error.message };
+        return { success: true };
+    }
+
     /* ─── Messages (Conversation Thread) ─── */
 
     async addMessage(ticketId, userId, role, message) {
@@ -400,15 +517,27 @@ export class TicketsService {
                 title: 'New Reply on Ticket',
                 message: `New reply on ticket: "${ticket.title}"`,
                 type: 'ticket',
-                reference_id: ticketId
+                reference_id: ticketId,
+                event_type: 'ticket_reply'
             });
+            // Also notify super admin if it's a student replying
+            if (role === 'student' && ticket.target_role !== 'super_admin') {
+                 await this._notifyRole('super_admin', {
+                    title: 'New Reply on Student Ticket',
+                    message: `Student replied to ticket: "${ticket.title}"`,
+                    type: 'ticket',
+                    reference_id: ticketId,
+                    event_type: 'ticket_reply'
+                });
+            }
         } else {
             // Responder replied → notify creator
             await this._notifyUser(ticket.created_by, {
                 title: 'New Reply on Your Ticket',
                 message: `You received a reply on your ticket: "${ticket.title}"`,
                 type: 'ticket',
-                reference_id: ticketId
+                reference_id: ticketId,
+                event_type: 'ticket_reply'
             });
         }
 
@@ -540,12 +669,18 @@ export class TicketsService {
 
             if (!userRoles || !userRoles.length) return;
 
+            const pushService = new PushService();
             const rows = userRoles.map(ur => ({
                 user_id: ur.user_id,
                 ...notification
             }));
 
             await this.admin.from('notifications').insert(rows);
+            
+            // Try to trigger push notifications as well
+            for (const ur of userRoles) {
+                pushService.sendToUser(ur.user_id, notification, notification.event_type || 'general').catch(e => console.error('Push error:', e));
+            }
         } catch (e) {
             console.error('Failed to send notifications:', e.message);
         }
@@ -557,6 +692,10 @@ export class TicketsService {
                 user_id: userId,
                 ...notification
             });
+            
+            // Try to trigger push notification
+            const pushService = new PushService();
+            pushService.sendToUser(userId, notification, notification.event_type || 'general').catch(e => console.error('Push error:', e));
         } catch (e) {
             console.error('Failed to send notification:', e.message);
         }

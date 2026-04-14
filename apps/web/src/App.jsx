@@ -48,7 +48,7 @@ import { TeacherSalesReportsPage } from './features/teachers/TeacherSalesReports
 import { TeacherDashboardPage, TeacherTodaySessionsPage, TeacherApprovalsPage, TeacherTimetablePage, TeacherMyProfilePage, TeacherStudentsPage, TeacherReportsPage, TeacherInvoicesPage, TeacherMaterialsPage } from './features/teachers/TeacherDashboardPages.jsx';
 import { MaterialTransfersPage } from './features/academic/MaterialTransfersPage.jsx';
 import { HRDashboardPage, AttendancePage, EmployeesPage, SalaryCalculatorPage, HRPaymentRequestsPage, CouncilorLevelsPage, ACIncentiveConfigPage } from './features/hr/HRPages.jsx';
-import { StudentDashboardPage, StudentHistoryPage, StudentMaterialsPage, StudentProfilePage } from './features/student-portal/StudentPortalPages.jsx';
+import { StudentDashboardPage, StudentHistoryPage, StudentMaterialsPage, StudentProfilePage, StudentSupportPage } from './features/student-portal/StudentPortalPages.jsx';
 import StudentLoginPage from './features/student-portal/StudentLoginPage.jsx';
 import { getSession, logout } from './lib/auth.js';
 import { defaultPageForRole, getPageByPath, pagesForRole } from './lib/routes.js';
@@ -296,6 +296,7 @@ export default function App() {
     if (page.path === '/student/history') return <StudentHistoryPage onNavigate={onNavigate} />;
     if (page.path === '/student/materials') return <StudentMaterialsPage />;
     if (page.path === '/student/profile') return <StudentProfilePage />;
+    if (page.path === '/student/support') return <StudentSupportPage />;
 
     return <PageView page={page} role={roleLabel(role)} />;
   }
