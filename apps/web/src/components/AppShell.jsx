@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { NotificationBell } from './NotificationBell.jsx';
+import { PushNotificationPrompt } from './PushNotificationPrompt.jsx';
 import { apiFetch } from '../lib/api.js';
 
 // Simple set of generic SVG icons for the bottom nav
@@ -360,7 +361,10 @@ export default function AppShell({ roleLabel, role, user, pages, activePath, onN
           </div>
         </header>
 
-        <main className="page-content">{children}</main>
+        <main className="page-content">
+          <PushNotificationPrompt />
+          {children}
+        </main>
       </div>
 
       <nav className="bottom-nav">
