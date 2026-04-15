@@ -139,7 +139,7 @@ export class PushService {
          
          // 2. Gather Users (Staff / Teachers)
          if (roleFilter === 'all' || roleFilter !== 'student') {
-             const { data: users, error: userError } = await this.admin.from('users').select('id, user_roles(roles(code))');
+             const { data: users, error: userError } = await this.admin.from('users').select('id, is_active, user_roles(roles(code))');
              
              if (!userError && users) {
                  let staffUsers = users.filter(u => {
@@ -151,21 +151,9 @@ export class PushService {
                      return roles.some(ur => ur && ur.roles && ur.roles.code === roleFilter);
                  });
                  
-                 // If status filter is passed, we check teacher_profiles since users doesn't hold status
                  if (statusFilter) {
-                     const { data: tProfs } = await this.admin.from('teacher_profiles').select('user_id, status');
-                     const statusMap = new Map();
-                     if (tProfs) tProfs.forEach(t => statusMap.set(t.user_id, t.status));
-                     
-                     staffUsers = staffUsers.filter(u => {
-                         const roles = Array.isArray(u.user_roles) ? u.user_roles : [u.user_roles];
-                         const isTeacher = roles.some(ur => ur?.roles?.code === 'teacher');
-                         if (isTeacher) {
-                             return statusMap.get(u.id) === statusFilter;
-                         }
-                         // For other roles, just act as if they pass the check if active is checked
-                         return statusFilter === 'active'; 
-                     });
+                     const isTargetActive = statusFilter === 'active';
+                     staffUsers = staffUsers.filter(u => u.is_active === isTargetActive);
                  }
                  staffUsers.forEach(u => targetUserIds.add(u.id));
              }
@@ -214,18 +202,22 @@ export class PushService {
          };
 
          let delivered = 0;
-         const promises = subs.map(sub => {
-            const pushSub = {
-                endpoint: sub.endpoint,
-                keys: { p256dh: sub.p256dh, auth: sub.auth }
-            };
-            return webpush.sendNotification(pushSub, JSON.stringify(payload)).then(() => {
+         const promises = subs.map(async (sub) => {
+            try {
+                if (!sub.endpoint) return;
+                const pushSub = {
+                    endpoint: sub.endpoint,
+                    keys: { p256dh: sub.p256dh, auth: sub.auth }
+                };
+                await webpush.sendNotification(pushSub, JSON.stringify(payload));
                 delivered++;
-            }).catch(err => {
-                if (err.statusCode === 404 || err.statusCode === 410) {
-                    return this.admin.from('push_subscriptions').delete().eq('id', sub.id);
+            } catch (err) {
+                if (err?.statusCode === 404 || err?.statusCode === 410) {
+                    await this.admin.from('push_subscriptions').delete().eq('id', sub.id);
+                } else {
+                    console.error('[Push Service] Send error for sub:', sub.id, err);
                 }
-            });
+            }
          });
 
          await Promise.all(promises);

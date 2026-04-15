@@ -664,24 +664,35 @@ export async function handleTeachers(req, res, url) {
       let currentYear = new Date().getFullYear();
       
       const fromParam = url.searchParams.get('from');
+      const toParam = url.searchParams.get('to');
       if (fromParam) {
         const d = new Date(fromParam);
         currentMonth = d.getMonth() + 1;
         currentYear = d.getFullYear();
       }
 
-      // Dynamically calculate total earned from approved sessions
-      const { calculateAllTeacherSalaries } = await import('../hr/salary.service.js');
-      const report = await calculateAllTeacherSalaries(currentMonth, currentYear);
-      const teacherData = report.find(t => t.user_id === actor.userId);
-      const totalEarned = teacherData ? teacherData.total_salary : 0;
-      const totalHours = teacherData ? teacherData.total_hours : 0;
+      // Dynamically calculate total earned and hours from approved sessions for the given date range
+      const { calculateTeacherSalaryForDateRange } = await import('../hr/salary.service.js');
+      const salaryData = await calculateTeacherSalaryForDateRange(actor.userId, fromParam, toParam);
+      
+      const totalEarned = salaryData.total_salary;
+      const totalHours = salaryData.total_hours;
 
-      // Fetch all payment requests for this teacher (all-time)
-      const { data: paymentRequests } = await adminClient
+      // Fetch all payment requests for this teacher
+      let prQuery = adminClient
         .from('hr_payment_requests')
-        .select('total_amount, status')
+        .select('total_amount, status, created_at')
         .eq('teacher_id', profile.id);
+      
+      // Optionally filter payment requests by the same range if it affects 'paid'/'payable' meaning.
+      // Usually "paid" makes sense to be filtered by range, so user sees what was paid IN that range.
+      // But typically payable is "all time pending". Let's filter both by range to match "Total Earned".
+      if (fromParam && toParam) {
+        prQuery = prQuery.gte('created_at', fromParam.includes('T') ? fromParam : fromParam + 'T00:00:00')
+                         .lte('created_at', toParam.includes('T') ? toParam : toParam + 'T23:59:59');
+      }
+
+      const { data: paymentRequests } = await prQuery;
 
       let paid = 0;
       let payable = 0;
@@ -693,8 +704,8 @@ export async function handleTeachers(req, res, url) {
       sendJson(res, 200, {
         ok: true,
         salary: {
-          total_earned: Math.round(totalEarned * 100) / 100,
-          total_hours: Math.round(totalHours * 100) / 100,
+          total_earned: totalEarned,
+          total_hours: totalHours,
           paid: Math.round(paid * 100) / 100,
           payable: Math.round(payable * 100) / 100,
           month: currentMonth,

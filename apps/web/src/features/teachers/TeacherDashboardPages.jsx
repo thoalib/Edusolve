@@ -110,6 +110,7 @@ export function TeacherDashboardPage() {
         // Use the 'to' date from dateRange to determine which month we are viewing
         const monthlyCompleted = allSessions.filter(s => {
             if (s.status !== 'completed' && s.status !== 'verified') return false;
+            if (!dateRange.from || !dateRange.to) return true;
             const d = new Date(s.started_at || s.created_at).toISOString().split('T')[0];
             return d >= dateRange.from && d <= dateRange.to;
         }).length;

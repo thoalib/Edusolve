@@ -236,7 +236,7 @@ export async function calculateAllTeacherSalaries(month, year) {
   // Fetch approved sessions with their student class_level and board
   const { data: verifications, error: vErr } = await adminClient
     .from('session_verifications')
-    .select('session_id, academic_sessions!inner(id, teacher_id, duration_hours, session_date, subject, students(class_level, board))')
+    .select('session_id, new_duration, academic_sessions!inner(id, teacher_id, duration_hours, session_date, subject, students(class_level, board))')
     .eq('type', 'approval')
     .eq('status', 'approved');
 
@@ -250,8 +250,9 @@ export async function calculateAllTeacherSalaries(month, year) {
     if (sess.session_date < startDate || sess.session_date > endDate) return;
 
     if (!sessionsByTeacher[sess.teacher_id]) sessionsByTeacher[sess.teacher_id] = [];
+    const actualHours = sv.new_duration !== null && sv.new_duration !== undefined ? Number(sv.new_duration) : Number(sess.duration_hours || 0);
     sessionsByTeacher[sess.teacher_id].push({
-      duration_hours: Number(sess.duration_hours || 0),
+      duration_hours: actualHours,
       subject: sess.subject || '_default',
       class_level: sess.students?.class_level || '',
       board: sess.students?.board || ''
@@ -302,4 +303,60 @@ export async function calculateAllTeacherSalaries(month, year) {
   });
 
   return report;
+}
+
+/**
+ * Calculate salary and hours for a specific teacher over an arbitrary date range.
+ */
+export async function calculateTeacherSalaryForDateRange(teacherUserId, fromDateStr, toDateStr) {
+  const adminClient = getSupabaseAdminClient();
+  const config = await getRateConfig();
+
+  // Fetch the specific teacher
+  const { data: t, error: tErr } = await adminClient
+    .from('teacher_profiles')
+    .select('*, users!teacher_profiles_user_id_fkey(id, email, full_name, phone)')
+    .eq('user_id', teacherUserId)
+    .single();
+
+  if (tErr) throw new Error(tErr.message);
+
+  let query = adminClient
+    .from('session_verifications')
+    .select('session_id, new_duration, academic_sessions!inner(id, teacher_id, session_date, duration_hours, subject, students(class_level, board))')
+    .eq('type', 'approval')
+    .eq('status', 'approved')
+    .eq('academic_sessions.teacher_id', teacherUserId);
+  
+  if (fromDateStr) {
+    const d = fromDateStr.includes('T') ? fromDateStr.split('T')[0] : fromDateStr;
+    query = query.gte('academic_sessions.session_date', d);
+  }
+  if (toDateStr) {
+    const d = toDateStr.includes('T') ? toDateStr.split('T')[0] : toDateStr;
+    query = query.lte('academic_sessions.session_date', d);
+  }
+
+  const { data: verifications, error: vErr } = await query;
+  if (vErr) throw new Error(vErr.message);
+
+  let totalHours = 0;
+  let totalSalary = 0;
+
+  (verifications || []).forEach(sv => {
+    const sess = sv.academic_sessions;
+    if (!sess) return;
+    const level = classToLevel(sess.students?.class_level);
+    const rate = getRate(t, sess.students?.board, sess.subject, level, config);
+    const hours = sv.new_duration !== null && sv.new_duration !== undefined ? Number(sv.new_duration) : Number(sess.duration_hours || 0);
+    const amount = Math.round(hours * rate * 100) / 100;
+
+    totalHours += hours;
+    totalSalary += amount;
+  });
+
+  return {
+    total_hours: Math.round(totalHours * 100) / 100,
+    total_salary: Math.round(totalSalary * 100) / 100,
+  };
 }
