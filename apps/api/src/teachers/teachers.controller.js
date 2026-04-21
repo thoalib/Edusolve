@@ -20,7 +20,7 @@ const meetingLinkSchema = z.object({
 const updateTeacherSchema = z.object({
   experience_level: z.string().max(100).nullable().optional(),
   experience_remark: z.string().max(100).nullable().optional(),
-  per_hour_rate: z.coerce.number().positive().max(10000).nullable().optional(),
+  per_hour_rate: z.union([z.coerce.number().positive().max(10000), z.literal(''), z.null()]).optional().transform(v => v === '' ? null : v),
   phone: phoneSchema.nullable().optional(),
   qualification: z.string().max(200).nullable().optional(),
   subjects_taught: z.array(z.string().max(100)).nullable().optional(),
@@ -49,7 +49,7 @@ const updateTeacherSchema = z.object({
 const recruitSuccessSchema = z.object({
   user_id: z.string().uuid(),
   experience_level: z.string().max(100).nullable().optional(),
-  per_hour_rate: z.coerce.number().positive().max(10000).nullable().optional()
+  per_hour_rate: z.union([z.coerce.number().positive().max(10000), z.literal(''), z.null()]).optional().transform(v => v === '' ? null : v)
 });
 
 const teacherProfileUpdateSchema = z.object({

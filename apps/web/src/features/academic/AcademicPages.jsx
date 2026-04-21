@@ -3747,7 +3747,10 @@ export function SessionsManagePage() {
 
       if (start) url += `start_date=${start}&`;
       if (end) url += `end_date=${end}&`;
-      // Filters are applied on frontend, so we don't need to append them to the URL anymore
+      if (fTeacher) url += `teacher_id=${fTeacher}&`;
+      if (fStudent) url += `student_id=${fStudent}&`;
+      if (fStatus) url += `status=${fStatus}&`;
+      
       const res = await apiFetch(url);
       setAllSessions(res.items || []);
     } catch (e) { setError(e.message); }
@@ -3946,8 +3949,15 @@ export function SessionsManagePage() {
     return allSessions.filter(s => {
       if (fTeacher && s.teacher_id !== fTeacher) return false;
       if (fStudent && s.student_id !== fStudent) return false;
-      if (fStatus && s.status !== fStatus) return false;
       if (fOverdue && !isSessionOverdue(s)) return false;
+
+      if (fStatus) {
+        const vStatus = s.verification_status || (Array.isArray(s.session_verifications) ? s.session_verifications.find(v => v.type === 'approval')?.status : s.session_verifications?.status) || 'pending';
+        if (fStatus === 'verified' && vStatus !== 'approved') return false;
+        if (fStatus === 'not_verified' && vStatus === 'approved') return false;
+        if (fStatus === 'pending' && vStatus !== 'pending') return false;
+        if (fStatus !== 'verified' && fStatus !== 'not_verified' && fStatus !== 'pending' && s.status !== fStatus) return false;
+      }
       return true;
     });
   }, [allSessions, fTeacher, fStudent, fStatus, fOverdue]);
@@ -3981,8 +3991,12 @@ export function SessionsManagePage() {
           <SearchSelect label="Student" value={fStudent} onChange={setFStudent} options={allStudentOpts} placeholder="All Students" />
           <SearchSelect label="Status" value={fStatus} onChange={setFStatus} options={[
             { value: 'scheduled', label: 'Upcoming / Scheduled' },
-            { value: 'completed', label: 'Taken / Completed' },
-            { value: 'pending', label: 'Pending Verification' }
+            { value: 'completed', label: 'Completed (All)' },
+            { value: 'not_verified', label: 'Completed (Not Verified)' },
+            { value: 'verified', label: 'Verified' },
+            { value: 'pending', label: 'Pending Verification' },
+            { value: 'rescheduled', label: 'Rescheduled' },
+            { value: 'cancelled', label: 'Cancelled' }
           ]} placeholder="All Status" />
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
             <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: 4 }}>Overdue</label>

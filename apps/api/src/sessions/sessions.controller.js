@@ -182,9 +182,13 @@ export async function handleSessions(req, res, url) {
       if (endDate) query = query.lte('session_date', endDate);
       if (teacherId) query = query.eq('teacher_id', teacherId);
       if (studentId) query = query.eq('student_id', studentId);
-      if (statusStr && statusStr !== 'pending') {
+      const virtualStatuses = ['pending', 'verified', 'not_verified'];
+      if (statusStr && !virtualStatuses.includes(statusStr)) {
         query = query.eq('status', statusStr);
+      } else if (statusStr === 'verified' || statusStr === 'not_verified') {
+        query = query.eq('status', 'completed');
       }
+
 
       const { data, error } = await (async () => {
         let q = query.order('session_date', { ascending: false }).limit(2000);
@@ -210,7 +214,12 @@ export async function handleSessions(req, res, url) {
       // We will map 'scheduled' to 'upcoming' if it's future, or leave it as is, and filter by pending verification if statusStr === 'pending'
       if (statusStr === 'pending') {
         items = items.filter(i => i.verification_status === 'pending');
+      } else if (statusStr === 'verified') {
+        items = items.filter(i => i.verification_status === 'approved');
+      } else if (statusStr === 'not_verified') {
+        items = items.filter(i => i.verification_status !== 'approved');
       }
+
 
       sendJson(res, 200, { ok: true, items });
       return true;

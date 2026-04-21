@@ -696,13 +696,15 @@ export async function handleHR(req, res, url) {
         endDate = new Date(year, month, 0).toISOString().split('T')[0];
       }
 
+      const endDateFull = endDate + 'T23:59:59.999Z';
+
       // 1. Fetch Verified Lead Payments (Initial Onboarding)
       const { data: vPs } = await adminClient
         .from('payment_requests')
         .select('id, amount, leads!inner(counselor_id), effective_date, verified_at')
         .eq('status', 'verified')
         .or(`effective_date.gte.${startDate},and(effective_date.is.null,verified_at.gte.${startDate})`)
-        .or(`effective_date.lte.${endDate},and(effective_date.is.null,verified_at.lte.${endDate})`);
+        .or(`effective_date.lte.${endDate},and(effective_date.is.null,verified_at.lte.${endDateFull})`);
 
       // 2. Fetch Verified Student Topups (Renewals)
       const { data: vTs } = await adminClient
@@ -710,7 +712,7 @@ export async function handleHR(req, res, url) {
         .select('id, amount, requested_by, effective_date, verified_at')
         .eq('status', 'verified')
         .or(`effective_date.gte.${startDate},and(effective_date.is.null,verified_at.gte.${startDate})`)
-        .or(`effective_date.lte.${endDate},and(effective_date.is.null,verified_at.lte.${endDate})`);
+        .or(`effective_date.lte.${endDate},and(effective_date.is.null,verified_at.lte.${endDateFull})`);
 
       // 3. Fetch Verified Installments within the range (Part Payments)
       const { data: vInsts } = await adminClient
@@ -718,7 +720,7 @@ export async function handleHR(req, res, url) {
         .select('id, amount, reference_type, reference_id, effective_date, verified_at')
         .eq('status', 'verified')
         .or(`effective_date.gte.${startDate},and(effective_date.is.null,verified_at.gte.${startDate})`)
-        .or(`effective_date.lte.${endDate},and(effective_date.is.null,verified_at.lte.${endDate})`);
+        .or(`effective_date.lte.${endDate},and(effective_date.is.null,verified_at.lte.${endDateFull})`);
 
       // 4. To calculate the "Initial Portion" of requests correctly, we need all installments for ALL requests found
       const parentIds = [...new Set([
