@@ -8,8 +8,8 @@ import { toLocalISO } from '../../lib/dateUtils.js';
 function getThisMonthRange() {
   const now = new Date();
   return {
-    from: `${toLocalISO(new Date(now.getFullYear(), now.getMonth(), 1))}`,
-    to: toLocalISO(now)
+    from: toLocalISO(new Date(now.getFullYear(), now.getMonth(), 1)),
+    to: toLocalISO(new Date(now.getFullYear(), now.getMonth() + 1, 0))
   };
 }
 
@@ -108,13 +108,22 @@ export function TeacherDashboardPage() {
 
     const metrics = useMemo(() => {
         // Use the 'to' date from dateRange to determine which month we are viewing
-        const monthlyCompleted = allSessions.filter(s => {
-            if (s.status !== 'completed' && s.status !== 'verified') return false;
+        const rangeSessionsList = allSessions.filter(s => {
             if (!dateRange.from || !dateRange.to) return true;
             const d = new Date(s.started_at || s.created_at).toISOString().split('T')[0];
             return d >= dateRange.from && d <= dateRange.to;
-        }).length;
+        });
+
+        const totalRangeSessions = rangeSessionsList.length;
+
+
+        const monthlyCompleted = rangeSessionsList.filter(s => s.status === 'completed' || s.status === 'verified').length;
         const completed = monthlyCompleted;
+        const verified = rangeSessionsList.filter(s => isSessionVerified(s)).length;
+        const notVerified = rangeSessionsList.filter(s => (s.status === 'completed' || s.status === 'verified') && !isSessionVerified(s)).length;
+        const upcoming = rangeSessionsList.filter(s => s.status === 'scheduled' || s.status === 'in_progress').length;
+        const cancelled = rangeSessionsList.filter(s => s.status === 'cancelled').length;
+        const rescheduledRange = rangeSessionsList.filter(s => s.status === 'rescheduled').length;
 
         const pending = todaySessions.filter(s => s.status === 'scheduled' || s.status === 'in_progress').length;
         const rescheduled = allSessions.filter(s => s.status === 'rescheduled').length;
@@ -123,7 +132,10 @@ export function TeacherDashboardPage() {
         const monthlyHours = salary.total_hours || 0;
         const monthlyReceivables = salary.total_earned || 0;
 
-        return { completed, monthlyCompleted, pending, rescheduled, uniqueStudents, monthlyHours, monthlyReceivables };
+        return { 
+            completed, monthlyCompleted, verified, notVerified, upcoming, cancelled, rescheduledRange,
+            pending, rescheduled, uniqueStudents, monthlyHours, monthlyReceivables, totalRangeSessions 
+        };
     }, [todaySessions, allSessions, salary, profile, dateRange]);
 
     return (
@@ -167,11 +179,13 @@ export function TeacherDashboardPage() {
                         </div>
                     </article>
 
-                    <div className="dash-stats-grid">
-                        <DashCard label="Range Hours" value={`${metrics.monthlyHours}h`} tone="info" />
-                        <DashCard label="Range Sessions" value={metrics.monthlyCompleted} tone="success" />
-                        <DashCard label="Sessions Today" value={todaySessions.length} />
-                        <DashCard label="My Students" value={metrics.uniqueStudents} />
+                    <div className="dash-stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
+                        <DashCard label="Total Sessions" value={metrics.totalRangeSessions} tone="info" />
+                        <DashCard label="Verified" value={metrics.verified} tone="success" />
+                        <DashCard label="Not Verified" value={metrics.notVerified} tone="danger" />
+                        <DashCard label="Upcoming" value={metrics.upcoming} tone="info" />
+                        <DashCard label="Cancelled" value={metrics.cancelled} tone="danger" />
+                        <DashCard label="Today" value={todaySessions.length} tone="info" />
                     </div>
 
                     <div className="grid-three" style={{ marginTop: '16px' }}>
@@ -210,9 +224,9 @@ export function TeacherDashboardPage() {
                                     <p style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#15803d' }}>{metrics.completed}</p>
                                     <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#15803d' }}>Completed</p>
                                 </div>
-                                <div style={{ flex: 1, textAlign: 'center', padding: '12px', background: '#fef9c3', borderRadius: '12px' }}>
-                                    <p style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#a16207' }}>{metrics.pending}</p>
-                                    <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#a16207' }}>Pending</p>
+                                <div style={{ flex: 1, textAlign: 'center', padding: '12px', background: '#e0e7ff', borderRadius: '12px' }}>
+                                    <p style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#4338ca' }}>{metrics.uniqueStudents}</p>
+                                    <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#4338ca' }}>My Students</p>
                                 </div>
                             </div>
                         </article>
@@ -2102,10 +2116,12 @@ export function TeacherReportsPage() {
     const [allAssignedStudents, setAllAssignedStudents] = useState([]);
     const [hours, setHours] = useState({ items: [], total_hours: 0 });
     const [loading, setLoading] = useState(true);
-    const [preset, setPreset] = useState('all');
+    const [preset, setPreset] = useState('this_month');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [studentFilter, setStudentFilter] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+
 
     useEffect(() => {
         (async () => {
@@ -2136,7 +2152,11 @@ export function TeacherReportsPage() {
             return [monday.toISOString().slice(0, 10), sunday.toISOString().slice(0, 10)];
         }
         if (p === 'this_month') {
-            return [today.slice(0, 7) + '-01', today];
+            const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+            const yearStr = endOfMonth.getFullYear();
+            const monthStr = String(endOfMonth.getMonth() + 1).padStart(2, '0');
+            const dateStr = String(endOfMonth.getDate()).padStart(2, '0');
+            return [`${yearStr}-${monthStr}-01`, `${yearStr}-${monthStr}-${dateStr}`];
         }
         if (p === 'last_month') {
             const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -2161,9 +2181,15 @@ export function TeacherReportsPage() {
             if (from && s.session_date < from) return false;
             if (to && s.session_date > to) return false;
             if (studentFilter && (s.students?.student_name || '') !== studentFilter) return false;
+            if (statusFilter !== 'all') {
+                const verified = isSessionVerified(s);
+                if (statusFilter === 'verified' && !verified) return false;
+                if (statusFilter === 'not_verified' && (!['completed', 'verified'].includes(s.status) || verified)) return false;
+                if (statusFilter !== 'verified' && statusFilter !== 'not_verified' && s.status !== statusFilter && !(statusFilter === 'completed' && verified)) return false;
+            }
             return true;
         });
-    }, [sessions, preset, dateFrom, dateTo, studentFilter]);
+    }, [sessions, preset, dateFrom, dateTo, studentFilter, statusFilter]);
 
     // Stats
     const stats = useMemo(() => {
@@ -2251,6 +2277,20 @@ export function TeacherReportsPage() {
                             {students.map(name => <option key={name} value={name}>{name}</option>)}
                         </select>
                     </label>
+
+                    {/* Status filter */}
+                    <label style={{ fontSize: '13px' }}>
+                        <span style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase' }}>Status</span>
+                        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ padding: '6px 10px', fontSize: '13px', minWidth: '140px' }}>
+                            <option value="all">All Statuses</option>
+                            <option value="scheduled">Scheduled (Upcoming)</option>
+                            <option value="completed">Completed</option>
+                            <option value="not_verified">Completed (Not Verified)</option>
+                            <option value="verified">Verified</option>
+                            <option value="rescheduled">Rescheduled</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                    </label>
                 </div>
             </div>
 
@@ -2258,7 +2298,7 @@ export function TeacherReportsPage() {
             <article className="card" style={{ padding: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <h3 style={{ margin: 0, fontSize: '15px' }}>Session Logs</h3>
-                    <span className="text-muted" style={{ fontSize: '12px' }}>{filtered.filter(s => isSessionVerified(s)).length} verified sessions</span>
+                    <span className="text-muted" style={{ fontSize: '12px' }}>{filtered.length} sessions found</span>
                 </div>
                 <div className="table-wrap mobile-friendly-table">
                     <table>
@@ -2268,8 +2308,8 @@ export function TeacherReportsPage() {
                             </tr>
                         </thead>
                         <tbody>
-                            {filtered.filter(s => isSessionVerified(s)).map(s => {
-                                const sc = statusColors['verified'];
+                            {filtered.map(s => {
+                                const sc = getSessionStatusStyles(s.status, s.verification_status);
                                 return (
                                     <tr key={s.id}>
                                         <td data-label="Date">{s.session_date}</td>
@@ -2287,7 +2327,7 @@ export function TeacherReportsPage() {
                                             <span style={{
                                                 padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
                                                 background: sc.bg, color: sc.color, textTransform: 'capitalize'
-                                            }}>Verified</span>
+                                            }}>{sc.label}</span>
                                         </td>
                                     </tr>
                                 );

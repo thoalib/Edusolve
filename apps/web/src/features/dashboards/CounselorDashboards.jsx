@@ -113,7 +113,7 @@ function getThisMonthRange() {
   const now = new Date();
   return {
     from: toLocalISO(new Date(now.getFullYear(), now.getMonth(), 1)),
-    to: toLocalISO(now)
+    to: toLocalISO(new Date(now.getFullYear(), now.getMonth() + 1, 0))
   };
 }
 
@@ -140,7 +140,7 @@ export function DashboardDateFilter({ onChange, initial }) {
     } else if (m === 'this_month') {
       onChange({
         from: toLocalISO(new Date(now.getFullYear(), now.getMonth(), 1)),
-        to: toLocalISO(now)
+        to: toLocalISO(new Date(now.getFullYear(), now.getMonth() + 1, 0))
       });
     } else if (m === 'last_month') {
       onChange({
@@ -814,7 +814,7 @@ export function CounselorHeadDashboardPage({ targetUserId }) {
       const targetAmt = lvl ? Number(lvl.target_amount) : 0;
       const achieved = salesMap[c.id] || 0;
       const progress = targetAmt > 0 ? Math.min(100, Math.round((achieved / targetAmt) * 100)) : 0;
-      return { id: c.id, name: c.full_name?.split(' ')[0] || c.email?.split('@')[0] || 'Unknown', achieved, targetAmt, progress, levelName: lvl?.level_name || 'N/A' };
+      return { id: c.id, name: c.full_name || c.email?.split('@')[0] || 'Unknown', achieved, targetAmt, progress, levelName: lvl?.level_name || 'N/A' };
     });
     return mapped.sort((a, b) => b.progress !== a.progress ? b.progress - a.progress : b.achieved - a.achieved);
   }, [counselors, allCProfiles, cLevels, salesMap]);
