@@ -1645,6 +1645,7 @@ function StudentDetailPage({ studentId, onBack }) {
   const [remarks, setRemarks] = useState([]);
   const [showAddRemark, setShowAddRemark] = useState(false);
   const [editingRemark, setEditingRemark] = useState(null);
+  const [hoursLedgerStudentId, setHoursLedgerStudentId] = useState(null);
   
   const currentUser = useMemo(() => {
     try {
@@ -1830,7 +1831,18 @@ function StudentDetailPage({ studentId, onBack }) {
     return (code ? code + ' ' : '') + raw;
   };
 
+  if (hoursLedgerStudentId) {
+    return (
+      <HoursLedgerPage
+        studentId={hoursLedgerStudentId}
+        studentName={student?.student_name}
+        onBack={() => setHoursLedgerStudentId(null)}
+      />
+    );
+  }
+
   return (
+    <>
     <section className="panel">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
         <button type="button" className="secondary" onClick={onBack}>← Back</button>
@@ -1867,10 +1879,10 @@ function StudentDetailPage({ studentId, onBack }) {
           </div>
         </article>
         <article className="card">
-          <h3>Hours</h3>
+          <h3>Hours <button type="button" onClick={() => setHoursLedgerStudentId(student.id)} title="View Hour History" style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', color: '#6b7280', padding: '3px 10px', marginLeft: '8px', verticalAlign: 'middle' }}>📋 History</button></h3>
           <div className="grid-two" style={{ gap: 12, marginBottom: '20px' }}>
-            <div className="stat-card card" style={{ textAlign: 'center' }}><p className="eyebrow">Total</p><h3>{student.total_hours}</h3></div>
-            <div className={`stat-card card ${Number(student.remaining_hours) <= 5 ? 'danger' : 'success'}`} style={{ textAlign: 'center' }}><p className="eyebrow">Left</p><h3>{student.remaining_hours}</h3></div>
+            <div className="stat-card card" style={{ textAlign: 'center', cursor: 'pointer' }} onClick={() => setHoursLedgerStudentId(student.id)} title="Click to see hour history"><p className="eyebrow">Total</p><h3>{student.total_hours}</h3></div>
+            <div className={`stat-card card ${Number(student.remaining_hours) <= 5 ? 'danger' : 'success'}`} style={{ textAlign: 'center', cursor: 'pointer' }} onClick={() => setHoursLedgerStudentId(student.id)} title="Click to see hour history"><p className="eyebrow">Left</p><h3>{student.remaining_hours}</h3></div>
           </div>
           {(() => {
             // Initial payment (from payment_requests)
@@ -2248,8 +2260,198 @@ function StudentDetailPage({ studentId, onBack }) {
         {editingRemark && <AddRemarkModal studentId={studentId} editData={editingRemark} onClose={() => setEditingRemark(null)} onDone={() => { setEditingRemark(null); load(); }} />}
       </div> : null}
     </section>
+    </>
   );
 }
+
+/* ─── Hours Ledger Page ─── */
+function HoursLedgerPage({ studentId, studentName, onBack }) {
+  const [items, setItems] = useState([]);
+  const [student, setStudent] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await apiFetch(`/students/${studentId}/hours-ledger`);
+        setItems(res.items || []);
+        setStudent(res.student || null);
+      } catch (e) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [studentId]);
+
+  const typeConfig = {
+    student_credit:    { label: 'Hours Added',      color: '#059669', bg: '#d1fae5' },
+    student_debit:     { label: 'Hours Deducted',    color: '#dc2626', bg: '#fee2e2' },
+    teacher_credit:    { label: 'Teacher Credit',    color: '#2563eb', bg: '#dbeafe' },
+    manual_adjustment: { label: 'Manual Adjustment', color: '#d97706', bg: '#fef3c7' },
+  };
+
+  // Calculate running balance across ALL items (so balance stays correct per page)
+  let running = 0;
+  const itemsWithBalance = items.map(item => {
+    running += Number(item.hours_delta || 0);
+    return { ...item, running_balance: running };
+  });
+
+  const totalPages = Math.ceil(itemsWithBalance.length / PAGE_SIZE);
+  const paginated = itemsWithBalance.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  return (
+    <section className="panel">
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+        <button type="button" className="secondary" onClick={onBack}>← Back to {studentName || 'Student'}</button>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ margin: 0 }}>📋 Hour History</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4, flexWrap: 'wrap' }}>
+            {studentName && <span style={{ fontSize: '13px', color: '#6b7280' }}>{studentName}</span>}
+            {student && (
+              <>
+                <span style={{ fontSize: '13px', color: '#6b7280' }}>·</span>
+                <span style={{ fontSize: '13px', color: '#374151' }}>Total: <strong style={{ color: '#0f172a' }}>{Number(student.total_hours).toFixed(1)} hrs</strong></span>
+                <span style={{ fontSize: '13px', color: '#6b7280' }}>·</span>
+                <span style={{ fontSize: '13px', color: '#374151' }}>Remaining: <strong style={{ color: Number(student.remaining_hours) <= 5 ? '#dc2626' : '#059669' }}>{Number(student.remaining_hours).toFixed(1)} hrs</strong></span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <article className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        {loading ? (
+          <p style={{ textAlign: 'center', padding: '48px', color: '#6b7280' }}>Loading history...</p>
+        ) : error ? (
+          <p className="error" style={{ padding: '24px' }}>{error}</p>
+        ) : items.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '60px 32px', color: '#9ca3af' }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📭</div>
+            <p style={{ margin: '0 0 6px', fontSize: '15px', fontWeight: 600, color: '#6b7280' }}>No hour history yet</p>
+            <p style={{ margin: 0, fontSize: '13px' }}>History will appear as payments are verified and classes are conducted.</p>
+          </div>
+        ) : (
+          <>
+          <div className="table-wrap">
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc' }}>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Date &amp; Time</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Type</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Note / Reason</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Hours</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Running Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginated.map((item, i) => {
+                  const cfg = typeConfig[item.entry_type] || { label: item.entry_type, color: '#374151', bg: '#f9fafb' };
+                  const delta = Number(item.hours_delta || 0);
+                  return (
+                    <tr key={item.id || i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '12px 16px', color: '#6b7280', whiteSpace: 'nowrap', fontSize: '12px' }}>
+                        {new Date(item.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}<br />
+                        <span style={{ fontSize: '11px' }}>{new Date(item.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </td>
+                      <td style={{ padding: '12px 16px' }}>
+                        <span style={{ background: cfg.bg, color: cfg.color, padding: '4px 10px', borderRadius: '6px', fontWeight: 600, fontSize: '11px', whiteSpace: 'nowrap' }}>
+                          {cfg.label}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 16px', color: '#4b5563' }}>
+                        {item.notes || (item.academic_sessions?.subject ? `Class: ${item.academic_sessions.subject}` : '—')}
+                      </td>
+                      <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, fontSize: '15px', color: delta >= 0 ? '#059669' : '#dc2626', whiteSpace: 'nowrap' }}>
+                        {delta >= 0 ? '+' : ''}{delta.toFixed(1)}
+                      </td>
+                      <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, fontSize: '15px', color: '#0f172a', whiteSpace: 'nowrap' }}>
+                        {item.running_balance.toFixed(1)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0' }}>
+                  <td colSpan={3} style={{ padding: '14px 16px', fontWeight: 700, color: '#166534', fontSize: '14px' }}>Current Remaining Balance</td>
+                  <td colSpan={2} style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 800, fontSize: '20px', color: Number(student?.remaining_hours) <= 5 ? '#dc2626' : '#059669' }}>
+                    {Number(student?.remaining_hours || 0).toFixed(1)} hrs
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderTop: '1px solid #e5e7eb', background: '#fafafa' }}>
+              <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, itemsWithBalance.length)} of {itemsWithBalance.length} entries
+              </span>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => setPage(1)}
+                  disabled={page === 1}
+                  style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #d1d5db', background: page === 1 ? '#f3f4f6' : '#fff', cursor: page === 1 ? 'default' : 'pointer', fontSize: '13px', color: page === 1 ? '#9ca3af' : '#374151' }}
+                >«</button>
+                <button
+                  type="button"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  style={{ padding: '5px 12px', borderRadius: '6px', border: '1px solid #d1d5db', background: page === 1 ? '#f3f4f6' : '#fff', cursor: page === 1 ? 'default' : 'pointer', fontSize: '13px', color: page === 1 ? '#9ca3af' : '#374151' }}
+                >‹ Prev</button>
+
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                  .reduce((acc, p, idx, arr) => {
+                    if (idx > 0 && arr[idx - 1] !== p - 1) acc.push('...');
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p, idx) =>
+                    p === '...' ? (
+                      <span key={`dots-${idx}`} style={{ padding: '5px 4px', fontSize: '13px', color: '#9ca3af' }}>…</span>
+                    ) : (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setPage(p)}
+                        style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid', borderColor: page === p ? '#3b82f6' : '#d1d5db', background: page === p ? '#3b82f6' : '#fff', color: page === p ? '#fff' : '#374151', fontWeight: page === p ? 700 : 400, cursor: 'pointer', fontSize: '13px', minWidth: '34px' }}
+                      >{p}</button>
+                    )
+                  )}
+
+                <button
+                  type="button"
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  style={{ padding: '5px 12px', borderRadius: '6px', border: '1px solid #d1d5db', background: page === totalPages ? '#f3f4f6' : '#fff', cursor: page === totalPages ? 'default' : 'pointer', fontSize: '13px', color: page === totalPages ? '#9ca3af' : '#374151' }}
+                >Next ›</button>
+                <button
+                  type="button"
+                  onClick={() => setPage(totalPages)}
+                  disabled={page === totalPages}
+                  style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #d1d5db', background: page === totalPages ? '#f3f4f6' : '#fff', cursor: page === totalPages ? 'default' : 'pointer', fontSize: '13px', color: page === totalPages ? '#9ca3af' : '#374151' }}
+                >»</button>
+              </div>
+            </div>
+          )}
+          </>
+        )}
+      </article>
+    </section>
+  );
+}
+
 
 /* ─── Add Remark Modal ─── */
 function AddRemarkModal({ studentId, editData, onClose, onDone }) {
@@ -2615,6 +2817,7 @@ export function StudentsHubPage({ role }) {
   const [showImportOld, setShowImportOld] = useState(false);
   const [deleteStudentTarget, setDeleteStudentTarget] = useState(null); // { id, name }
   const [reassignModal, setReassignModal] = useState(null); // student object
+  const [hoursLedgerStudentId, setHoursLedgerStudentId] = useState(null);
 
   // Group creation modal
   const [groupModal, setGroupModal] = useState(null);
@@ -2797,7 +3000,7 @@ export function StudentsHubPage({ role }) {
                   return <span className="status-tag" style={{ background: style.bg, color: style.color }}>{style.label}</span>;
                 })()}
               </td>
-              <td data-label="Hours Left" style={{ padding: '16px 12px' }}><span className={Number(s.remaining_hours) <= 5 ? 'text-danger' : ''}>{s.remaining_hours}</span></td>
+              <td data-label="Hours Left" style={{ padding: '16px 12px' }} onClick={e => { e.stopPropagation(); setHoursLedgerStudentId(s.id); }}><span className={Number(s.remaining_hours) <= 5 ? 'text-danger' : ''} style={{ cursor: 'pointer', textDecoration: 'underline dotted', textDecorationColor: '#94a3b8' }} title="Click to see hour history">{s.remaining_hours}</span></td>
               {isSuperAdmin && <td data-label="Coordinator" style={{ padding: '16px 12px', fontSize: '13px', color: '#4b5563' }}>{s.ac_user?.full_name || '—'}</td>}
               <td data-label="Payment" style={{ padding: '16px 12px' }}>
                 {s.pending_payment === 'topup' && <span style={{ padding: '3px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 700, background: '#fef3c7', color: '#92400e' }}>Topup Pending</span>}
@@ -2859,6 +3062,8 @@ export function StudentsHubPage({ role }) {
           onDone={() => { setReassignModal(null); loadData(); }}
         />
       )}
+
+
 
       {/* Create Group Modal */}
       {groupModal && (
@@ -4930,13 +5135,13 @@ export function TopUpsPage() {
     return r.requested_by === userId || userRole === 'academic_coordinator' || userRole === 'super_admin';
   };
 
-  async function submit(e) {
-    if (e) e.preventDefault();
+  async function submit(e, force = false) {
+    if (e && e.preventDefault) e.preventDefault();
     setError(''); setMsg('');
 
     // Warning Check
     const student = students.find(s => String(s.id) === String(sid));
-    if (student && student.pending_payment && !warningAck) {
+    if (student && student.pending_payment && !warningAck && !force) {
       setPendingWarning({
         type: student.pending_payment,
         amount: student.pending_amount || 0
@@ -4959,7 +5164,10 @@ export function TopUpsPage() {
         method: 'POST',
         body: JSON.stringify({ hours_added: Number(hrs), total_amount: Number(totalAmt), amount: Number(amt), finance_note: fNote || null, screenshot_url: scrUrl })
       });
-      setMsg('Sent to finance.'); setHrs(''); setTotalAmt(''); setAmt(''); setFNote(''); setScrFile(null); await load();
+      setMsg('Sent to finance.'); 
+      setSid(''); setHrs(''); setTotalAmt(''); setAmt(''); setFNote(''); setScrFile(null); 
+      setPendingWarning(null); setWarningAck(false);
+      await load();
     } catch (e) { setError(e.message); }
     finally { setSubmitting(false); }
   }
@@ -4968,8 +5176,8 @@ export function TopUpsPage() {
     <section className="panel">
       {error ? <p className="error">{error}</p> : null}
       <article className="card"><h3>Create Top-Up</h3>
-        {pendingWarning && !warningAck && (
-          <div style={{ padding: '12px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', marginBottom: '16px' }}>
+        {pendingWarning && (
+          <div style={{ padding: '12px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', marginBottom: '16px', opacity: submitting ? 0.7 : 1 }}>
             <h4 style={{ margin: 0, color: '#d97706', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span>⚠️</span> WARNING: Pending Payment Detected
             </h4>
@@ -4978,13 +5186,10 @@ export function TopUpsPage() {
               Are you sure you want to request another top-up before this is cleared?
             </p>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button type="button" className="secondary small" onClick={() => setPendingWarning(null)}>Cancel</button>
-              <button type="button" className="primary small" style={{ background: '#d97706', borderColor: '#d97706' }} onClick={() => {
-                setWarningAck(true);
-                setPendingWarning(null);
-                // We use setTimeout to ensure state updates before submitting again
-                setTimeout(() => submit(), 0);
-              }}>Yes, Proceed Anyway</button>
+              <button type="button" className="secondary small" disabled={submitting} onClick={() => { setPendingWarning(null); setWarningAck(false); }}>Cancel</button>
+              <button type="button" className="primary small" disabled={submitting} style={{ background: '#d97706', borderColor: '#d97706' }} onClick={() => submit(null, true)}>
+                {submitting ? '⏳ Submitting...' : 'Yes, Proceed Anyway'}
+              </button>
             </div>
           </div>
         )}
@@ -4996,7 +5201,7 @@ export function TopUpsPage() {
             options={studentOptions}
             placeholder="Select Student"
           />
-          <label>Hours<input type="number" value={hrs} onChange={e => setHrs(e.target.value)} required /></label><label>Total Amount (₹)<input type="number" value={totalAmt} onChange={e => setTotalAmt(e.target.value)} required /></label><label>Paid Amount (₹)<input type="number" value={amt} onChange={e => setAmt(e.target.value)} required /></label><label>Finance Note<textarea value={fNote} onChange={e => setFNote(e.target.value)} rows={2} style={{ resize: 'vertical' }} /></label><label>Screenshot (Upload)<input type="file" accept="image/*" onChange={e => setScrFile(e.target.files[0])} /></label><button type="submit" disabled={submitting || !sid} style={{ alignSelf: 'flex-end', marginTop: '16px', opacity: (submitting || !sid) ? 0.7 : 1, cursor: (submitting || !sid) ? 'not-allowed' : 'pointer' }}>{submitting ? '⏳ Submitting...' : 'Submit'}</button>
+          <label>Hours<input type="number" value={hrs} onChange={e => setHrs(e.target.value)} required /></label><label>Total Amount (₹)<input type="number" value={totalAmt} onChange={e => setTotalAmt(e.target.value)} required /></label><label>Paid Amount (₹)<input type="number" value={amt} onChange={e => setAmt(e.target.value)} required /></label><label>Finance Note<textarea value={fNote} onChange={e => setFNote(e.target.value)} rows={2} style={{ resize: 'vertical' }} /></label><label>Screenshot (Upload)<input type="file" accept="image/*" onChange={e => setScrFile(e.target.files[0])} /></label><button type="submit" disabled={submitting || !sid} style={{ alignSelf: 'flex-end', marginTop: '16px', opacity: (submitting || !sid) ? 0.7 : 1, cursor: (submitting || !sid) ? 'not-allowed' : 'pointer' }}>{submitting ? '⏳ Submitting...' : 'Submit Request'}</button>
         </form>
         {msg ? <p>{msg}</p> : null}
       </article>

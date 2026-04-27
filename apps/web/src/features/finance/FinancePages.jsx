@@ -735,6 +735,20 @@ function EditAccountModal({ account, onClose, onDone }) {
   const [isMain, setIsMain] = useState(account.is_main);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  
+  // Company & Tax Fields
+  const [companyName, setCompanyName] = useState(account.company_name || '');
+  const [companyTagline, setCompanyTagline] = useState(account.company_tagline || '');
+  const [companyAddress, setCompanyAddress] = useState(account.company_address || '');
+  const [companyPhone, setCompanyPhone] = useState(account.company_phone || '');
+  const [companyEmail, setCompanyEmail] = useState(account.company_email || '');
+  const [companyGst, setCompanyGst] = useState(account.company_gst || '');
+  const [companyCin, setCompanyCin] = useState(account.company_cin_llpin || '');
+  const [companyTerms, setCompanyTerms] = useState(account.company_terms || '');
+  const [companyLogo, setCompanyLogo] = useState(account.company_logo || '');
+  const [gstType, setGstType] = useState(account.gst_type || 'none');
+  const [gstRate, setGstRate] = useState(account.gst_rate || 0);
+  const [showCompanyDetails, setShowCompanyDetails] = useState(false);
 
   async function handleSave() {
     if (!name || !type || balance === '') {
@@ -753,6 +767,17 @@ function EditAccountModal({ account, onClose, onDone }) {
           opening_balance: Number(openingBalance),
           description: description || null,
           is_main: isMain,
+          company_name: companyName,
+          company_tagline: companyTagline,
+          company_address: companyAddress,
+          company_phone: companyPhone,
+          company_email: companyEmail,
+          company_gst: companyGst,
+          company_cin_llpin: companyCin,
+          company_terms: companyTerms,
+          company_logo: companyLogo,
+          gst_type: gstType,
+          gst_rate: Number(gstRate)
         })
       });
       onDone();
@@ -784,6 +809,46 @@ function EditAccountModal({ account, onClose, onDone }) {
             <input type="checkbox" checked={isMain} onChange={e => setIsMain(e.target.checked)} style={{ width: 'auto' }} />
             Main Company Account
           </label>
+
+          <div style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px', marginTop: '10px', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', marginBottom: showCompanyDetails ? '16px' : '0' }} onClick={() => setShowCompanyDetails(!showCompanyDetails)}>
+              <h4 style={{ margin: 0, fontSize: '14px', color: '#334155' }}>🏢 Company Branding & Tax Setup</h4>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>{showCompanyDetails ? 'Hide ▲' : 'Expand ▼'}</span>
+            </div>
+            {showCompanyDetails && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Configure the specific details that will print on the Receipt / Invoice for this account.</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
+                  <label style={{ fontSize: '12px' }}>Company Legal Name<input value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="e.g. ELVO Learning Pvt Ltd" style={{ padding: '6px' }} /></label>
+                  <label style={{ fontSize: '12px' }}>Tagline<input value={companyTagline} onChange={e => setCompanyTagline(e.target.value)} style={{ padding: '6px' }} /></label>
+                  <label style={{ fontSize: '12px' }}>Address<input value={companyAddress} onChange={e => setCompanyAddress(e.target.value)} style={{ padding: '6px' }} /></label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <label style={{ fontSize: '12px' }}>Phone<input value={companyPhone} onChange={e => setCompanyPhone(e.target.value)} style={{ padding: '6px' }} /></label>
+                    <label style={{ fontSize: '12px' }}>Email<input type="email" value={companyEmail} onChange={e => setCompanyEmail(e.target.value)} style={{ padding: '6px' }} /></label>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <label style={{ fontSize: '12px' }}>GST Number<input value={companyGst} onChange={e => setCompanyGst(e.target.value)} style={{ padding: '6px' }} /></label>
+                    <label style={{ fontSize: '12px' }}>CIN / LLPIN<input value={companyCin} onChange={e => setCompanyCin(e.target.value)} placeholder="e.g. U85500..." style={{ padding: '6px' }} /></label>
+                  </div>
+                  <label style={{ fontSize: '12px' }}>Logo URL<input type="url" value={companyLogo} onChange={e => setCompanyLogo(e.target.value)} placeholder="https://..." style={{ padding: '6px' }} /></label>
+                  
+                  <h4 style={{ margin: '8px 0 0', fontSize: '13px', borderTop: '1px solid #cbd5e1', paddingTop: '12px' }}>Tax Configuration</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <label style={{ fontSize: '12px' }}>GST Logic
+                      <select value={gstType} onChange={e => setGstType(e.target.value)} style={{ padding: '6px' }}>
+                        <option value="none">None (No GST)</option>
+                        <option value="inclusive">Inclusive (Reversed)</option>
+                        <option value="exclusive">Exclusive (Added on top)</option>
+                        <option value="composition">Composition Scheme</option>
+                      </select>
+                    </label>
+                    <label style={{ fontSize: '12px' }}>GST Rate (%)<input type="number" step="0.1" value={gstRate} onChange={e => setGstRate(e.target.value)} disabled={gstType === 'none' || gstType === 'composition'} style={{ padding: '6px' }} /></label>
+                  </div>
+                  <label style={{ fontSize: '12px' }}>Terms & Conditions (Bottom of Receipt)<textarea value={companyTerms} onChange={e => setCompanyTerms(e.target.value)} rows="2" placeholder="All disputes are subject to..." style={{ padding: '6px', resize: 'vertical' }} /></label>
+                </div>
+              </div>
+            )}
+          </div>
 
           {error ? <p className="error">{error}</p> : null}
           <div className="actions">
@@ -1691,6 +1756,7 @@ export function PaymentVerificationPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [receiptItem, setReceiptItem] = useState(null);
   const [receiptType, setReceiptType] = useState('payment');
+  const [docFormat, setDocFormat] = useState('receipt');
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
 
@@ -1815,7 +1881,12 @@ export function PaymentVerificationPage() {
                           <button className={p.status === 'pending' ? "small primary" : "small secondary"} onClick={() => setSelectedPayment(p)}>
                             {p.status === 'pending' ? 'Review' : 'View'}
                           </button>
-                          {p.status === 'verified' && <button className="small secondary" onClick={() => { setReceiptItem(p); setReceiptType('payment'); }}>Receipt</button>}
+                          {p.status === 'verified' && (
+                            <>
+                              <button className="small secondary" onClick={() => { setReceiptItem(p); setReceiptType('payment'); setDocFormat('receipt'); }}>Receipt</button>
+                              <button className="small secondary" onClick={() => { setReceiptItem(p); setReceiptType('payment'); setDocFormat('invoice'); }}>Invoice</button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1875,7 +1946,12 @@ export function PaymentVerificationPage() {
                           <button className={t.status === 'pending_finance' ? "small primary" : "small secondary"} onClick={() => setSelectedTopup(t)}>
                             {t.status === 'pending_finance' ? 'Review' : 'View'}
                           </button>
-                          {t.status === 'verified' && <button className="small secondary" onClick={() => { setReceiptItem(t); setReceiptType('topup'); }}>Receipt</button>}
+                          {t.status === 'verified' && (
+                            <>
+                              <button className="small secondary" onClick={() => { setReceiptItem(t); setReceiptType('topup'); setDocFormat('receipt'); }}>Receipt</button>
+                              <button className="small secondary" onClick={() => { setReceiptItem(t); setReceiptType('topup'); setDocFormat('invoice'); }}>Invoice</button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1986,7 +2062,7 @@ export function PaymentVerificationPage() {
           onDone={() => { setSelectedInstallment(null); load(); }}
         />
       )}
-      {receiptItem && <ReceiptModal payment={receiptItem} type={receiptType} onClose={() => setReceiptItem(null)} />}
+      {receiptItem && <ReceiptModal payment={receiptItem} type={receiptType} docFormat={docFormat} onClose={() => setReceiptItem(null)} />}
     </section>
   );
 }
@@ -2431,9 +2507,14 @@ function AddExpenseModal({ accounts, categories, editItem, onClose, onDone }) {
 }
 
 function AddAccountModal({ onClose, onDone }) {
-  const [form, setForm] = useState({ name: '', type: 'bank', is_main: false, balance: '', description: '', category: '', customCategory: '' });
+  const [form, setForm] = useState({ 
+    name: '', type: 'bank', is_main: false, balance: '', description: '', category: '', customCategory: '',
+    company_name: '', company_tagline: '', company_address: '', company_phone: '', company_email: '',
+    company_gst: '', company_cin_llpin: '', company_terms: '', company_logo: '', gst_type: 'none', gst_rate: ''
+  });
   const [err, setErr] = useState('');
   const [categories, setCategories] = useState([]);
+  const [showCompanyDetails, setShowCompanyDetails] = useState(false);
 
   useEffect(() => {
     apiFetch('/finance/categories?type=account').then(d => {
@@ -2489,6 +2570,46 @@ function AddAccountModal({ onClose, onDone }) {
           <input type="checkbox" checked={form.is_main} onChange={e => upd('is_main', e.target.checked)} style={{ width: 'auto' }} />
           Main Company Account
         </label>
+
+        <div style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px', marginTop: '10px', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', marginBottom: showCompanyDetails ? '16px' : '0' }} onClick={() => setShowCompanyDetails(!showCompanyDetails)}>
+              <h4 style={{ margin: 0, fontSize: '14px', color: '#334155' }}>🏢 Company Branding & Tax Setup</h4>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>{showCompanyDetails ? 'Hide ▲' : 'Expand ▼'}</span>
+            </div>
+            {showCompanyDetails && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Configure the specific details that will print on the Receipt / Invoice for this account.</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
+                  <label style={{ fontSize: '12px' }}>Company Legal Name<input value={form.company_name} onChange={e => upd('company_name', e.target.value)} placeholder="e.g. ELVO Learning Pvt Ltd" style={{ padding: '6px' }} /></label>
+                  <label style={{ fontSize: '12px' }}>Tagline<input value={form.company_tagline} onChange={e => upd('company_tagline', e.target.value)} style={{ padding: '6px' }} /></label>
+                  <label style={{ fontSize: '12px' }}>Address<input value={form.company_address} onChange={e => upd('company_address', e.target.value)} style={{ padding: '6px' }} /></label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <label style={{ fontSize: '12px' }}>Phone<input value={form.company_phone} onChange={e => upd('company_phone', e.target.value)} style={{ padding: '6px' }} /></label>
+                    <label style={{ fontSize: '12px' }}>Email<input type="email" value={form.company_email} onChange={e => upd('company_email', e.target.value)} style={{ padding: '6px' }} /></label>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <label style={{ fontSize: '12px' }}>GST Number<input value={form.company_gst} onChange={e => upd('company_gst', e.target.value)} style={{ padding: '6px' }} /></label>
+                    <label style={{ fontSize: '12px' }}>CIN / LLPIN<input value={form.company_cin_llpin} onChange={e => upd('company_cin_llpin', e.target.value)} placeholder="e.g. U85500..." style={{ padding: '6px' }} /></label>
+                  </div>
+                  <label style={{ fontSize: '12px' }}>Logo URL<input type="url" value={form.company_logo} onChange={e => upd('company_logo', e.target.value)} placeholder="https://..." style={{ padding: '6px' }} /></label>
+                  
+                  <h4 style={{ margin: '8px 0 0', fontSize: '13px', borderTop: '1px solid #cbd5e1', paddingTop: '12px' }}>Tax Configuration</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <label style={{ fontSize: '12px' }}>GST Logic
+                      <select value={form.gst_type} onChange={e => upd('gst_type', e.target.value)} style={{ padding: '6px' }}>
+                        <option value="none">None (No GST)</option>
+                        <option value="inclusive">Inclusive (Reversed)</option>
+                        <option value="exclusive">Exclusive (Added on top)</option>
+                        <option value="composition">Composition Scheme</option>
+                      </select>
+                    </label>
+                    <label style={{ fontSize: '12px' }}>GST Rate (%)<input type="number" step="0.1" value={form.gst_rate} onChange={e => upd('gst_rate', e.target.value)} disabled={form.gst_type === 'none' || form.gst_type === 'composition'} style={{ padding: '6px' }} /></label>
+                  </div>
+                  <label style={{ fontSize: '12px' }}>Terms & Conditions<textarea value={form.company_terms} onChange={e => upd('company_terms', e.target.value)} rows="2" placeholder="All disputes are subject to..." style={{ padding: '6px', resize: 'vertical' }} /></label>
+                </div>
+              </div>
+            )}
+          </div>
         {err ? <p className="error">{err}</p> : null}
         <div className="actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button type="submit">Create</button></div>
       </form>

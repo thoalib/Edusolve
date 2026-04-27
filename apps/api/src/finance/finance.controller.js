@@ -393,9 +393,19 @@ export async function handleFinance(req, res, url) {
             amount: request.amount || 0,
             description: `Income: Onboarding Payment — ${student.student_name} ${ledgerTag}`,
             student_id: student.id,
-            posted_by: actor.userId
           }
         ]);
+
+        // Add to Hour Ledger
+        if (request.hours && Number(request.hours) > 0) {
+          await adminClient.from('hour_ledger').insert({
+            student_id: student.id,
+            hours_delta: Number(request.hours),
+            entry_type: 'student_credit',
+            notes: `Initial Onboard Payment Verified (RID: ${requestId})`,
+            created_at: now
+          });
+        }
       }
 
       const { error: paymentUpdateError } = await adminClient
@@ -403,6 +413,7 @@ export async function handleFinance(req, res, url) {
         .update({
           status: 'verified',
           finance_note: payload.finance_note || null,
+          account_id: payload.account_id || null, // Stamped directly so receipt logic can find it
           effective_date: entryDate,
           verified_by: actor.userId,
           verified_at: now,
@@ -523,6 +534,17 @@ export async function handleFinance(req, res, url) {
           }
         ]);
 
+        // Add to Hour Ledger
+        if (request.hours_added && Number(request.hours_added) > 0) {
+          await adminClient.from('hour_ledger').insert({
+            student_id: student.id,
+            hours_delta: Number(request.hours_added),
+            entry_type: 'student_credit',
+            notes: `Top-up Verified (TID: ${requestId})`,
+            created_at: now
+          });
+        }
+
         if (payload.account_id) {
           adminClient.from('finance_accounts').select('balance').eq('id', payload.account_id).single().then(({ data: acc }) => {
             if (acc) adminClient.from('finance_accounts').update({ balance: Number(acc.balance) + Number(request.amount), updated_at: now }).eq('id', payload.account_id);
@@ -536,6 +558,7 @@ export async function handleFinance(req, res, url) {
           status: 'verified',
           payment_verified: true,
           finance_note: payload.finance_note || null,
+          account_id: payload.account_id || null,
           effective_date: entryDate,
           verified_by: actor.userId,
           verified_at: now
@@ -584,7 +607,13 @@ export async function handleFinance(req, res, url) {
       const { data, error } = await adminClient.from('finance_accounts').insert({
         name: payload.name, type: payload.type || 'bank', is_main: payload.is_main || false,
         balance: payload.balance || 0, opening_balance: payload.opening_balance || payload.balance || 0,
-        description: payload.description || null, category: payload.category || null, created_by: actor.userId
+        description: payload.description || null, category: payload.category || null, created_by: actor.userId,
+        company_name: payload.company_name || null, company_tagline: payload.company_tagline || null,
+        company_address: payload.company_address || null, company_phone: payload.company_phone || null,
+        company_email: payload.company_email || null, company_gst: payload.company_gst || null,
+        company_cin_llpin: payload.company_cin_llpin || null, company_terms: payload.company_terms || null,
+        company_logo: payload.company_logo || null, gst_type: payload.gst_type || 'none',
+        gst_rate: payload.gst_rate !== undefined ? Number(payload.gst_rate) : 0
       }).select('*').single();
       if (error) throw new Error(error.message);
       sendJson(res, 201, { ok: true, account: data });
@@ -600,6 +629,21 @@ export async function handleFinance(req, res, url) {
       if (payload.balance !== undefined) update.balance = Number(payload.balance);
       if (payload.opening_balance !== undefined) update.opening_balance = Number(payload.opening_balance);
       if (payload.description !== undefined) update.description = payload.description || null;
+      if (payload.category !== undefined) update.category = payload.category || null;
+
+      // New company branding fields
+      if (payload.company_name !== undefined) update.company_name = payload.company_name || null;
+      if (payload.company_tagline !== undefined) update.company_tagline = payload.company_tagline || null;
+      if (payload.company_address !== undefined) update.company_address = payload.company_address || null;
+      if (payload.company_phone !== undefined) update.company_phone = payload.company_phone || null;
+      if (payload.company_email !== undefined) update.company_email = payload.company_email || null;
+      if (payload.company_gst !== undefined) update.company_gst = payload.company_gst || null;
+      if (payload.company_cin_llpin !== undefined) update.company_cin_llpin = payload.company_cin_llpin || null;
+      if (payload.company_terms !== undefined) update.company_terms = payload.company_terms || null;
+      if (payload.company_logo !== undefined) update.company_logo = payload.company_logo || null;
+      if (payload.gst_type !== undefined) update.gst_type = payload.gst_type;
+      if (payload.gst_rate !== undefined) update.gst_rate = Number(payload.gst_rate);
+
       const { data, error } = await adminClient.from('finance_accounts').update(update).eq('id', accountId).select('*').single();
       if (error) throw new Error(error.message);
       sendJson(res, 200, { ok: true, account: data });
@@ -1145,16 +1189,31 @@ export async function handleFinance(req, res, url) {
       const reason = payload.reason || 'Manual hour adjustment by finance';
       const prevRemaining = Number(student.remaining_hours || 0);
       const newRemaining = Number(updateData.remaining_hours ?? student.remaining_hours);
-      const diff = newRemaining - prevRemaining;
-      if (diff !== 0) {
+      const diffRemaining = newRemaining - prevRemaining;
+      
+      const prevTotal = Number(student.total_hours || 0);
+      const newTotal = Number(updateData.total_hours ?? student.total_hours);
+      const diffTotal = newTotal - prevTotal;
+
+      if (diffRemaining !== 0 || diffTotal !== 0) {
         try {
+          // Log to finance ledger
           await adminClient.from('ledger_entries').insert({
             entry_date: nowIso().slice(0, 10),
             entry_type: 'income',
             amount: 0,
-            description: `[Hour Adjustment] ${student.student_name}: ${diff > 0 ? '+' : ''}${diff} hrs remaining (${reason})`,
+            description: `[Hour Adjustment] ${student.student_name}: Rem ${diffRemaining > 0 ? '+' : ''}${diffRemaining}, Total ${diffTotal > 0 ? '+' : ''}${diffTotal} (${reason})`,
             student_id: studentId,
             posted_by: actor.userId
+          });
+
+          // Log to hour ledger
+          await adminClient.from('hour_ledger').insert({
+            student_id: studentId,
+            hours_delta: diffRemaining,
+            entry_type: 'manual_adjustment',
+            notes: `Manual Adjustment: Remaining ${diffRemaining > 0 ? '+' : ''}${diffRemaining}, Total ${diffTotal > 0 ? '+' : ''}${diffTotal} (${reason})`,
+            created_at: nowIso()
           });
         } catch (e) {
           console.error('Audit log failed:', e);
@@ -1320,19 +1379,6 @@ export async function handleFinance(req, res, url) {
       }
 
       const newPaidAmount = Number(parent.amount || 0) + Number(inst.amount);
-      const totalRequestedAmount = Number(parent.total_amount || 0);
-      let excessAmount = 0;
-      let extraHours = 0;
-
-      // Check for overpayment against payment request
-      if (table === 'payment_requests' && totalRequestedAmount > 0 && newPaidAmount > totalRequestedAmount) {
-        excessAmount = newPaidAmount - totalRequestedAmount;
-        const reqHours = Number(parent.hours || 0);
-        if (reqHours > 0) {
-          const ratePerHour = totalRequestedAmount / reqHours;
-          extraHours = Number((excessAmount / ratePerHour).toFixed(2)); 
-        }
-      }
 
       // Update Parent Paid Amount
       await adminClient.from(table).update({ amount: newPaidAmount }).eq('id', parent.id);
@@ -1345,63 +1391,13 @@ export async function handleFinance(req, res, url) {
         effective_date: effectiveDate
       }).eq('id', instId);
 
-      // Handle overpayment: create verified top-up, add hours, and log receivable + income
-      if (excessAmount > 0 && studentId) {
-
-        // 1. Create Verified Top-up
-        await adminClient.from('student_topups').insert({
-          student_id: studentId,
-          amount: excessAmount,
-          hours_added: extraHours,
-          status: 'verified',
-          finance_note: 'Auto top-up from initial installment overpayment',
-          requested_by: actor.userId,
-          verified_by: actor.userId,
-          verified_at: nowIso(),
-          account_id: payload.account_id
-        });
-
-        // 2. Add extra hours to the student record automatically
-        const { data: stData } = await adminClient.from('students').select('total_hours, remaining_hours').eq('id', studentId).single();
-        if (stData) {
-          await adminClient.from('students').update({
-            total_hours: Number(stData.total_hours || 0) + extraHours,
-            remaining_hours: Number(stData.remaining_hours || 0) + extraHours,
-            updated_at: nowIso()
-          }).eq('id', studentId);
-        }
-
-        // 3. Add Ledger Entries (Receivable for the new hours, Income for the actual cash)
-        const overpayDate = payload.entry_date || nowIso().slice(0, 10);
-        await adminClient.from('ledger_entries').insert([
-          {
-            entry_date: overpayDate,
-            entry_type: 'receivable',
-            amount: excessAmount,
-            description: `Receivable: Auto Top-Up Fee — ${studentName}`,
-            student_id: studentId,
-            posted_by: actor.userId
-          },
-          {
-            entry_date: overpayDate,
-            entry_type: 'income',
-            amount: excessAmount,
-            description: `Auto Top-up Income: Overpayment by ${studentName}`,
-            student_id: studentId,
-            account_id: payload.account_id,
-            posted_by: actor.userId
-          }
-        ]);
-      }
-
-      // Add to Ledger for the base installment amount
+      // Add to Ledger for the full installment amount
       const entryDate = payload.entry_date || nowIso().slice(0, 10);
-      const baseInstallmentAmount = Number(inst.amount) - excessAmount;
-      if (baseInstallmentAmount > 0) {
+      if (Number(inst.amount) > 0) {
         await adminClient.from('ledger_entries').insert({
           entry_date: entryDate,
           entry_type: 'income',
-          amount: baseInstallmentAmount,
+          amount: Number(inst.amount),
           description: `Installment Payment: ${studentName}`,
           student_id: studentId,
           account_id: payload.account_id,

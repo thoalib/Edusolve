@@ -674,12 +674,151 @@ export function AttendancePage() {
     );
 }
 
+function EmployeeMonthlyAttendanceModal({ employee, year, month, onClose, onRefresh }) {
+    const [days, setDays] = useState([]);
+    const [changes, setChanges] = useState({});
+    const [saving, setSaving] = useState(false);
+    const [loading, setLoading] = useState(true);
+
+    const statuses = ['present', 'absent', 'half_day', 'leave'];
+    const statusLabels = { present: 'Present', absent: 'Absent', half_day: 'Half Day', leave: 'Leave' };
+    const statusIcons = { present: '🟢', absent: '🔴', half_day: '🟡', leave: '🔵' };
+    const statusColors = { present: '#22c55e', absent: '#ef4444', half_day: '#f59e0b', leave: '#3b82f6' };
+
+    useEffect(() => {
+        setLoading(true);
+        apiFetch(`/hr/attendance/employee?employeeId=${employee.id}&year=${year}&month=${month}`)
+            .then(res => {
+                const records = res.items || [];
+                const recordMap = {};
+                records.forEach(r => recordMap[r.attendance_date] = r);
+
+                const daysInMonth = new Date(year, month, 0).getDate();
+                const calendar = [];
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+                    const d = new Date(dateStr);
+                    const isSunday = d.getDay() === 0;
+                    calendar.push({
+                        dateStr,
+                        dayNum: i,
+                        dayName: d.toLocaleString('en-US', { weekday: 'short' }),
+                        isSunday,
+                        record: recordMap[dateStr] || null
+                    });
+                }
+                setDays(calendar);
+            })
+            .catch(() => {})
+            .finally(() => setLoading(false));
+    }, [employee.id, year, month]);
+
+    const handleSave = async () => {
+        const payloadRecords = Object.values(changes);
+        if (payloadRecords.length === 0) return;
+        
+        setSaving(true);
+        try {
+            await apiFetch('/hr/attendance', {
+                method: 'POST',
+                body: JSON.stringify({
+                    date: `${year}-${String(month).padStart(2, '0')}-01`, // Fallback, we rely on r.attendance_date
+                    records: payloadRecords
+                })
+            });
+            onRefresh();
+            onClose();
+        } catch (err) {
+            alert('Error saving attendance');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const updateStatus = (dateStr, status) => {
+        setChanges(prev => ({
+            ...prev,
+            [dateStr]: { employee_id: employee.id, attendance_date: dateStr, status }
+        }));
+    };
+
+    return (
+        <div className="modal-overlay" onClick={onClose}>
+            <div className="modal-content" onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 700, maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: 0 }}>
+                <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                        <h3 style={{ margin: 0, fontSize: 18 }}>View Attendance: {employee.name}</h3>
+                        <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>For {new Date(year, month - 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })}</p>
+                    </div>
+                    <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 24, padding: '0 8px' }}>×</button>
+                </div>
+
+                <div style={{ padding: 24, overflowY: 'auto', flex: 1, background: '#f8fafc' }}>
+                    {loading ? <p>Loading calendar...</p> : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {days.map(d => {
+                                const currentStatus = changes[d.dateStr]?.status || d.record?.status || null;
+                                return (
+                                    <div key={d.dateStr} style={{ 
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                        padding: '12px 16px', background: '#fff', borderRadius: 8,
+                                        border: '1px solid var(--line)', opacity: d.isSunday ? 0.7 : 1,
+                                        flexWrap: 'wrap', gap: 12
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 40 }}>
+                                                <span style={{ fontSize: 13, fontWeight: 600, color: d.isSunday ? '#ef4444' : 'var(--muted)' }}>{d.dayName}</span>
+                                                <span style={{ fontSize: 18, fontWeight: 700, color: '#10233f' }}>{d.dayNum}</span>
+                                            </div>
+                                            {d.isSunday && <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c' }}>Sunday</span>}
+                                            {!d.isSunday && !currentStatus && <span style={{ fontSize: 13, color: 'var(--muted)' }}>Not marked</span>}
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                            {!d.isSunday && statuses.map(s => {
+                                                const isActive = currentStatus === s;
+                                                return (
+                                                    <button key={s} onClick={() => updateStatus(d.dateStr, s)}
+                                                        style={{
+                                                            padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                                                            fontSize: 12, fontWeight: isActive ? 600 : 400,
+                                                            background: isActive ? statusColors[s] : '#f1f5f9',
+                                                            color: isActive ? '#fff' : '#64748b',
+                                                            minWidth: 80, transition: 'all 0.15s'
+                                                        }}>
+                                                        <span style={{ marginRight: 4 }}>{statusIcons[s]}</span>
+                                                        {statusLabels[s]}
+                                                    </button>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                <div style={{ padding: '16px 24px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', borderBottomLeftRadius: 16, borderBottomRightRadius: 16 }}>
+                    <span style={{ fontSize: 14, color: 'var(--primary)', fontWeight: 500 }}>{Object.keys(changes).length} unsaved modifications</span>
+                    <div style={{ display: 'flex', gap: 12 }}>
+                        <button onClick={onClose} className="secondary" style={{ padding: '8px 16px' }}>Cancel</button>
+                        <button onClick={handleSave} disabled={saving || Object.keys(changes).length === 0} className="primary" style={{ padding: '8px 24px' }}>
+                            {saving ? 'Saving...' : 'Save Changes'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 /* ═══════ MONTHLY ATTENDANCE REPORT PAGE ═══════ */
 function AttendanceReportPage({ onBack }) {
     const [year, setYear] = useState(new Date().getFullYear());
     const [month, setMonth] = useState(new Date().getMonth() + 1);
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [viewingEmp, setViewingEmp] = useState(null);
 
     function load() {
         setLoading(true);
@@ -724,12 +863,13 @@ function AttendanceReportPage({ onBack }) {
                                 <tr>
                                     <th>#</th>
                                     <th>Employee</th>
-                                    <th style={{ textAlign: 'center' }}>Attendance</th>
-                                    <th style={{ textAlign: 'center' }}>Leve Adj.</th>
-                                    <th>Payable Basic</th>
+                                    <th>Department</th>
+                                    <th>Emp Type</th>
                                     <th style={{ textAlign: 'center' }}>Present</th>
-                                    <th style={{ textAlign: 'center' }}>Absent</th>
                                     <th style={{ textAlign: 'center' }}>Half Day</th>
+                                    <th style={{ textAlign: 'center' }}>Leave</th>
+                                    <th style={{ textAlign: 'center' }}>Absent</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -741,20 +881,28 @@ function AttendanceReportPage({ onBack }) {
                                             {emp.designation && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{emp.designation}</div>}
                                         </td>
                                         <td>{emp.department || '-'}</td>
-                                        <td>{emp.employee_type}</td>
+                                        <td><span className="badge">{emp.employee_type}</span></td>
                                         <td style={{ textAlign: 'center', fontWeight: 600, color: '#22c55e' }}>
-                                            {emp.report.present}
-                                        </td>
-                                        <td style={{ textAlign: 'center', fontWeight: 600, color: '#ef4444' }}>
-                                            {emp.report.absent}
+                                            {emp.report?.present || 0}
                                         </td>
                                         <td style={{ textAlign: 'center', fontWeight: 600, color: '#f59e0b' }}>
-                                            {emp.report.half_day}
+                                            {emp.report?.half_day || 0}
+                                        </td>
+                                        <td style={{ textAlign: 'center', fontWeight: 600, color: '#3b82f6' }}>
+                                            {emp.report?.leave || 0}
+                                        </td>
+                                        <td style={{ textAlign: 'center', fontWeight: 600, color: '#ef4444' }}>
+                                            {emp.report?.absent || 0}
+                                        </td>
+                                        <td style={{ textAlign: 'center' }}>
+                                            <button onClick={() => setViewingEmp({ id: emp.id, name: emp.full_name })} className="secondary small">
+                                                View
+                                            </button>
                                         </td>
                                     </tr>
                                 ))}
                                 {items.length === 0 && (
-                                    <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>
+                                    <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>
                                         No records found.
                                     </td></tr>
                                 )}
@@ -762,6 +910,16 @@ function AttendanceReportPage({ onBack }) {
                         </table>
                     </div>
                 </div>
+            )}
+
+            {viewingEmp && (
+                <EmployeeMonthlyAttendanceModal
+                    employee={viewingEmp}
+                    year={year}
+                    month={month}
+                    onClose={() => setViewingEmp(null)}
+                    onRefresh={load}
+                />
             )}
         </section>
     );
@@ -1347,6 +1505,16 @@ export function SalaryCalculatorPage() {
     const [counselorProfiles, setCounselorProfiles] = useState([]);
     const [counselorLevels, setCounselorLevels] = useState([]);
     const [counselorSalesMap, setCounselorSalesMap] = useState({});
+    const [searchQuery, setSearchQuery] = useState('');
+
+    const matchesSearch = (item) => {
+        if (!searchQuery) return true;
+        const q = searchQuery.toLowerCase();
+        const name = (item.full_name || '').toLowerCase();
+        const code = (item.employee_code || item.teacher_code || '').toLowerCase();
+        const email = (item.email || '').toLowerCase();
+        return name.includes(q) || code.includes(q) || email.includes(q);
+    };
 
     const getMonthYearString = (offset) => {
         const d = new Date();
@@ -1471,62 +1639,90 @@ export function SalaryCalculatorPage() {
         }
     }
 
+    const isCounselor = (e) => {
+        const d = e.designation?.toLowerCase() || '';
+        return d.includes('counselor') && !d.includes('head');
+    };
+
+    const isAc = (e) => {
+        const d = e.designation?.toLowerCase() || '';
+        if (d.includes('teacher')) return false; // Exclude Teacher Coordinator
+        return d.includes('academic') || d.includes('coordinator') || d.includes('cordinator');
+    };
+
+    const isStaff = (e) => {
+        return !isCounselor(e) && !isAc(e);
+    };
+
     if (loading) return <p style={{ padding: 24 }}>Loading...</p>;
 
     return (
         <section className="panel">
-            <div className="card filters-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px' }}>
-                <h2 style={{ margin: 0, fontSize: '18px', color: '#10233f' }}>Salary Calculator</h2>
-                <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                        onClick={() => setActiveTab('employees')}
-                        className={activeTab === 'employees' ? 'primary' : 'secondary'}
-                        style={activeTab === 'employees' ? {} : { background: 'transparent', border: '1px solid var(--line)' }}
-                    >
-                        Employees
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('teachers')}
-                        className={activeTab === 'teachers' ? 'primary' : 'secondary'}
-                        style={activeTab === 'teachers' ? {} : { background: 'transparent', border: '1px solid var(--line)' }}
-                    >
-                        Teachers
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('master_rates')}
-                        className={activeTab === 'master_rates' ? 'primary' : 'secondary'}
-                        style={activeTab === 'master_rates' ? {} : { background: 'transparent', border: '1px solid var(--line)' }}
-                    >
-                        Master Rates
-                    </button>
+            <div className="card filters-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', flexWrap: 'wrap', gap: 16 }}>
+                <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <h2 style={{ margin: 0, fontSize: '18px', color: '#10233f' }}>Salary Calculator</h2>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                            onClick={() => setActiveTab('employees')}
+                            className={activeTab === 'employees' ? 'primary' : 'secondary'}
+                            style={activeTab === 'employees' ? {} : { background: 'transparent', border: '1px solid var(--line)' }}
+                        >
+                            Employees
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('teachers')}
+                            className={activeTab === 'teachers' ? 'primary' : 'secondary'}
+                            style={activeTab === 'teachers' ? {} : { background: 'transparent', border: '1px solid var(--line)' }}
+                        >
+                            Teachers
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('master_rates')}
+                            className={activeTab === 'master_rates' ? 'primary' : 'secondary'}
+                            style={activeTab === 'master_rates' ? {} : { background: 'transparent', border: '1px solid var(--line)' }}
+                        >
+                            Master Rates
+                        </button>
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {(activeTab === 'employees' || activeTab === 'teachers') && (
+                        <input 
+                            type="text" 
+                            placeholder="🔍 Name or ID..." 
+                            value={searchQuery} 
+                            onChange={e => setSearchQuery(e.target.value)}
+                            style={{ padding: '7px 12px', border: '1px solid var(--line)', borderRadius: '8px', fontSize: '13px', width: '180px' }} 
+                        />
+                    )}
+                    {(activeTab === 'employees' || activeTab === 'teachers') && (
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <button onClick={() => setTeacherMonthOffset(prev => prev - 1)} className="secondary small">←</button>
+                            <span style={{ fontSize: 14, fontWeight: 500, minWidth: '130px', textAlign: 'center' }}>{currentMY.label}</span>
+                            <button onClick={() => setTeacherMonthOffset(prev => prev + 1)} className="secondary small" disabled={teacherMonthOffset >= 0}>→</button>
+                            {teacherMonthOffset !== 0 && (
+                                <button onClick={() => setTeacherMonthOffset(0)} className="secondary small" style={{ marginLeft: 4 }}>Today</button>
+                            )}
+                        </div>
+                    )}
+                    {activeTab === 'employees' && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, borderLeft: '1px solid var(--line)', paddingLeft: 12 }}>
+                            <span style={{ fontSize: 13, color: 'var(--muted)' }}>Working Days:</span>
+                            <input
+                                type="number"
+                                value={workingDaysOverride !== null ? workingDaysOverride : autoWorkingDays}
+                                onChange={e => setWorkingDaysOverride(Number(e.target.value))}
+                                style={{ width: 55, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line)', textAlign: 'center', fontSize: 13 }}
+                                min="0" max="31"
+                            />
+                        </div>
+                    )}
                 </div>
             </div>
 
             {activeTab === 'employees' && (
                 <>
-                    <div className="card filters-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', marginBottom: '20px' }}>
-                        <h2 style={{ margin: 0, fontSize: '16px', color: '#10233f' }}>Employee Salaries</h2>
-                        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                <button onClick={() => setTeacherMonthOffset(prev => prev - 1)} className="secondary small">←</button>
-                                <span style={{ fontSize: 14, fontWeight: 500 }}>{currentMY.label}</span>
-                                <button onClick={() => setTeacherMonthOffset(prev => prev + 1)} className="secondary small" disabled={teacherMonthOffset >= 0}>→</button>
-                                {teacherMonthOffset !== 0 && (
-                                    <button onClick={() => setTeacherMonthOffset(0)} className="secondary small" style={{ marginLeft: 4 }}>Current Month</button>
-                                )}
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, borderLeft: '1px solid var(--line)', paddingLeft: 12 }}>
-                                <span style={{ fontSize: 13, color: 'var(--muted)' }}>Working Days:</span>
-                                <input
-                                    type="number"
-                                    value={workingDaysOverride !== null ? workingDaysOverride : autoWorkingDays}
-                                    onChange={e => setWorkingDaysOverride(Number(e.target.value))}
-                                    style={{ width: 50, padding: '3px 6px', borderRadius: 6, border: '1px solid var(--line)', textAlign: 'center', fontSize: 13 }}
-                                    min="0" max="31"
-                                />
-                            </div>
-                        </div>
-                    </div>
 
                     {/* ─── Regular Employees Table ─── */}
                     <h3 style={{ fontSize: 15, margin: '0 0 10px', color: '#10233f' }}>Staff Salaries</h3>
@@ -1545,11 +1741,7 @@ export function SalaryCalculatorPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {employees.filter(e => 
-                                    e.is_active && 
-                                    (!e.designation?.toLowerCase().includes('counselor') || e.designation?.toLowerCase().includes('head')) &&
-                                    !e.designation?.toLowerCase().includes('academic')
-                                ).map((emp, idx) => {
+                                {employees.filter(e => e.is_active && isStaff(e) && matchesSearch(e)).map((emp, idx) => {
                                     const pr = prMap.employee[emp.id];
                                     const isSubmitted = !!pr;
 
@@ -1609,19 +1801,15 @@ export function SalaryCalculatorPage() {
                                                         <button onClick={() => setEditEmp(emp)} className={gross > 0 ? "secondary small" : "primary small"}>
                                                             {gross > 0 ? 'Edit Salary' : 'Set Salary'}
                                                         </button>
-                                                        <button onClick={() => setConfirmSubmit({ type: 'employee', data: { ...emp, calcNet: net, workingDays: wd } })} className="primary small">Submit</button>
+                                                        <button onClick={() => setConfirmSubmit({ type: 'employee', data: { ...emp, calcNet: net, workingDays: wd, presentDays, gross, deductions, roleType: 'staff' } })} className="primary small">Submit</button>
                                                     </div>
                                                 )}
                                             </td>
                                         </tr>
                                     );
                                 })}
-                                {employees.filter(e => 
-                                    e.is_active && 
-                                    (!e.designation?.toLowerCase().includes('counselor') || e.designation?.toLowerCase().includes('head')) &&
-                                    !e.designation?.toLowerCase().includes('academic')
-                                ).length === 0 && (
-                                    <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}>No staff employees</td></tr>
+                                {employees.filter(e => e.is_active && isStaff(e) && matchesSearch(e)).length === 0 && (
+                                    <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}>No staff employees match</td></tr>
                                 )}
                             </tbody>
                         </table>
@@ -1647,7 +1835,7 @@ export function SalaryCalculatorPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {employees.filter(e => e.is_active && e.designation?.toLowerCase().includes('counselor') && !e.designation?.toLowerCase().includes('head')).map((emp, idx) => {
+                                {employees.filter(e => e.is_active && isCounselor(e) && matchesSearch(e)).map((emp, idx) => {
                                     const pr = prMap.employee[emp.id];
                                     const isSubmitted = !!pr;
 
@@ -1734,15 +1922,15 @@ export function SalaryCalculatorPage() {
                                                         <button onClick={() => setAssignLevelEmp(emp)} className="secondary small" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}>
                                                             Change Level
                                                         </button>
-                                                        <button onClick={() => setConfirmSubmit({ type: 'employee', data: { ...emp, calcNet: payableBasic, workingDays: wd } })} className="primary small">Submit</button>
+                                                        <button onClick={() => setConfirmSubmit({ type: 'employee', data: { ...emp, calcNet: payableBasic, workingDays: wd, presentDays, levelBasic, levelTarget, displayAchieved, displayIncentive, roleType: 'counselor' } })} className="primary small">Submit</button>
                                                     </div>
                                                 )}
                                             </td>
                                         </tr>
                                     );
                                 })}
-                                {employees.filter(e => e.is_active && e.designation?.toLowerCase().includes('counselor') && !e.designation?.toLowerCase().includes('head')).length === 0 && (
-                                    <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}>No counselors found</td></tr>
+                                {employees.filter(e => e.is_active && isCounselor(e) && matchesSearch(e)).length === 0 && (
+                                    <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}>No counselors match</td></tr>
                                 )}
                             </tbody>
                         </table>
@@ -1767,7 +1955,7 @@ export function SalaryCalculatorPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {employees.filter(e => e.is_active && e.designation?.toLowerCase().includes('academic')).map((emp, idx) => {
+                                {employees.filter(e => e.is_active && isAc(e) && matchesSearch(e)).map((emp, idx) => {
                                     const pr = prMap.employee[emp.id];
                                     const isSubmitted = !!pr;
 
@@ -1849,15 +2037,15 @@ export function SalaryCalculatorPage() {
                                                         <button onClick={() => setEditEmp(emp)} className={gross > 0 ? "secondary small" : "primary small"}>
                                                             {gross > 0 ? 'Edit Salary' : 'Set Salary'}
                                                         </button>
-                                                        <button onClick={() => setConfirmSubmit({ type: 'employee', data: { ...emp, calcNet: calcNet, workingDays: wd } })} className="primary small">Submit</button>
+                                                        <button onClick={() => setConfirmSubmit({ type: 'employee', data: { ...emp, calcNet: calcNet, workingDays: wd, presentDays, gross, deductions, displayIncentive, displayAcMetrics, roleType: 'academic' } })} className="primary small">Submit</button>
                                                     </div>
                                                 )}
                                             </td>
                                         </tr>
                                     );
                                 })}
-                                {employees.filter(e => e.is_active && e.designation?.toLowerCase().includes('academic')).length === 0 && (
-                                    <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}>No academic coordinators found</td></tr>
+                                {employees.filter(e => e.is_active && isAc(e) && matchesSearch(e)).length === 0 && (
+                                    <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}>No academic coordinators match</td></tr>
                                 )}
                             </tbody>
                         </table>
@@ -1875,17 +2063,6 @@ export function SalaryCalculatorPage() {
             {
                 activeTab === 'teachers' && (
                     <>
-                        <div className="card filters-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', marginBottom: '20px' }}>
-                            <h2 style={{ margin: 0, fontSize: '16px', color: '#10233f' }}>Session-wise Salaries</h2>
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                <button onClick={() => setTeacherMonthOffset(prev => prev - 1)} className="secondary small">←</button>
-                                <span style={{ fontSize: 14, fontWeight: 500 }}>{currentMY.label}</span>
-                                <button onClick={() => setTeacherMonthOffset(prev => prev + 1)} className="secondary small" disabled={teacherMonthOffset >= 0}>→</button>
-                                {teacherMonthOffset !== 0 && (
-                                    <button onClick={() => setTeacherMonthOffset(0)} className="secondary small" style={{ marginLeft: 8 }}>Current Month</button>
-                                )}
-                            </div>
-                        </div>
 
                         <div className="card">
                             <div className="table-wrap">
@@ -1901,7 +2078,7 @@ export function SalaryCalculatorPage() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {teacherReport.map((t, idx) => {
+                                        {teacherReport.filter(matchesSearch).map((t, idx) => {
                                             const pr = prMap.teacher[t.id];
                                             const isSubmitted = !!pr;
                                             const displayVal = isSubmitted ? pr.total_amount : (t.total_salary || 0);
@@ -1923,7 +2100,7 @@ export function SalaryCalculatorPage() {
                                                         {isSubmitted ? (
                                                             <span className="badge success" style={{ padding: '4px 8px', fontSize: 11, borderRadius: 12 }}>Submitted ✓</span>
                                                         ) : (
-                                                            <button onClick={(e) => { e.stopPropagation(); setConfirmSubmit({ type: 'teacher', data: t }); }} className="primary small">
+                                                            <button onClick={(e) => { e.stopPropagation(); setConfirmSubmit({ type: 'teacher', data: { ...t, roleType: 'teacher' } }); }} className="primary small">
                                                                 Submit
                                                             </button>
                                                         )}
@@ -1931,9 +2108,9 @@ export function SalaryCalculatorPage() {
                                                 </tr>
                                             )
                                         })}
-                                        {teacherReport.length === 0 && (
+                                        {teacherReport.filter(matchesSearch).length === 0 && (
                                             <tr>
-                                                <td colSpan={5} style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>No teachers found in pool</td>
+                                                <td colSpan={6} style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>No teachers match</td>
                                             </tr>
                                         )}
                                     </tbody>
@@ -1971,38 +2148,116 @@ export function SalaryCalculatorPage() {
             {
                 confirmSubmit && (
                     <div className="modal-overlay" onClick={() => setConfirmSubmit(null)}>
-                        <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
-                            <h3 style={{ marginTop: 0 }}>Confirm Payment Submission</h3>
-                            <p style={{ fontSize: 14 }}>
-                                You are submitting a payment request to Finance for <strong>{confirmSubmit.data.full_name}</strong> for {currentMY.label}.
+                        <div className="modal-content" onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 460 }}>
+                            <h3 style={{ marginTop: 0, marginBottom: 4, color: '#10233f' }}>Confirm Salary Submission</h3>
+                            <p style={{ fontSize: 14, color: 'var(--muted)', marginTop: 0, marginBottom: 20 }}>
+                                Review and submit payment request for <strong>{confirmSubmit.data.full_name}</strong> ({currentMY.label}).
                             </p>
-                            <div style={{ background: 'var(--bg)', padding: '12px 16px', borderRadius: 8, marginBottom: 16 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                                    <span style={{ color: 'var(--muted)', fontSize: 13 }}>Calculated Value:</span>
-                                    <strong style={{ color: '#10233f', fontSize: 14 }}>
-                                        ₹{Number(confirmSubmit.type === 'teacher' ? confirmSubmit.data.total_salary : confirmSubmit.data.calcNet).toLocaleString()}
-                                    </strong>
+
+                            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 16, marginBottom: 20 }}>
+                                <h4 style={{ margin: '0 0 12px 0', fontSize: 13, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '0.05em' }}>Calculation Breakdown</h4>
+                                
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 14 }}>
+                                    
+                                    {confirmSubmit.data.roleType === 'teacher' && (
+                                        <>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#475569' }}>Total Approved Hours</span>
+                                                <span style={{ fontWeight: 600 }}>{confirmSubmit.data.total_hours} hrs</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569', fontSize: 13 }}>
+                                                <span>Experience Level</span>
+                                                <span style={{ textTransform: 'capitalize' }}>{(confirmSubmit.data.experience_level || '—').replace(/_/g, ' ')}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #cbd5e1', paddingTop: 10, marginTop: 4 }}>
+                                                <span style={{ fontWeight: 500 }}>Total Calculated Salary</span>
+                                                <span style={{ fontWeight: 600 }}>₹{Number(confirmSubmit.data.total_salary).toLocaleString()}</span>
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {confirmSubmit.data.roleType === 'staff' && (
+                                        <>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#475569' }}>Gross Base & Allowances</span>
+                                                <span>₹{Number(confirmSubmit.data.gross).toLocaleString()}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#475569' }}>Attendance Pro-rata</span>
+                                                <span>{confirmSubmit.data.presentDays} / {confirmSubmit.data.workingDays} days</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#ef4444' }}>
+                                                <span>Deductions (Tax, PF)</span>
+                                                <span>- ₹{Number(confirmSubmit.data.deductions).toLocaleString()}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #cbd5e1', paddingTop: 10, marginTop: 4 }}>
+                                                <span style={{ fontWeight: 500 }}>Net Pay Calculated</span>
+                                                <span style={{ fontWeight: 600 }}>₹{Number(confirmSubmit.data.calcNet).toLocaleString()}</span>
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {confirmSubmit.data.roleType === 'counselor' && (
+                                        <>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#475569' }}>Payable Basic (Pro-rated)</span>
+                                                <span>₹{Number(confirmSubmit.data.calcNet).toLocaleString()}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--muted)' }}>
+                                                <span>Sales Target vs Achieved</span>
+                                                <span>₹{Number(confirmSubmit.data.levelTarget).toLocaleString()} / ₹{Number(confirmSubmit.data.displayAchieved).toLocaleString()}</span>
+                                            </div>
+                                            {confirmSubmit.data.displayIncentive > 0 && (
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--success)', fontWeight: 500 }}>
+                                                    <span>Performance Incentive</span>
+                                                    <span>+ ₹{Number(confirmSubmit.data.displayIncentive).toLocaleString()}</span>
+                                                </div>
+                                            )}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #cbd5e1', paddingTop: 10, marginTop: 4 }}>
+                                                <span style={{ fontWeight: 500 }}>Net Pay Calculated</span>
+                                                <span style={{ fontWeight: 600 }}>₹{Number(confirmSubmit.data.calcNet + (confirmSubmit.data.displayIncentive || 0)).toLocaleString()}</span>
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {confirmSubmit.data.roleType === 'academic' && (
+                                        <>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#475569' }}>Payable Basic (Pro-rated)</span>
+                                                <span>₹{Number(confirmSubmit.data.calcNet).toLocaleString()}</span>
+                                            </div>
+                                            {confirmSubmit.data.displayAcMetrics && (
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--muted)' }}>
+                                                    <span>AC Performance</span>
+                                                    <span>{confirmSubmit.data.displayAcMetrics.students_added} Students added</span>
+                                                </div>
+                                            )}
+                                            {confirmSubmit.data.displayIncentive > 0 && (
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--success)', fontWeight: 500 }}>
+                                                    <span>AC Incentive</span>
+                                                    <span>+ ₹{Number(confirmSubmit.data.displayIncentive).toLocaleString()}</span>
+                                                </div>
+                                            )}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #cbd5e1', paddingTop: 10, marginTop: 4 }}>
+                                                <span style={{ fontWeight: 500 }}>Net Pay Calculated</span>
+                                                <span style={{ fontWeight: 600 }}>₹{Number(confirmSubmit.data.calcNet + (confirmSubmit.data.displayIncentive || 0)).toLocaleString()}</span>
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <span style={{ color: 'var(--muted)', fontSize: 13 }}>Adjustment (₹):</span>
+                            </div>
+
+                            <div style={{ marginBottom: 20 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                    <label style={{ fontSize: 14, fontWeight: 500, color: '#10233f' }}>Manual Adjustments (Optional)</label>
                                     <input
                                         type="number"
                                         value={confirmSubmit.adjustment || ''}
                                         onChange={e => setConfirmSubmit({ ...confirmSubmit, adjustment: Number(e.target.value) })}
-                                        style={{ width: 80, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line)', textAlign: 'right' }}
+                                        style={{ width: 100, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--line)', textAlign: 'right', fontSize: 15 }}
                                         placeholder="0"
                                     />
                                 </div>
-                                {confirmSubmit.adjustment ? (
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-                                        <span style={{ color: 'var(--muted)', fontSize: 13, fontWeight: 500 }}>Final Amount:</span>
-                                        <strong style={{ color: '#22c55e', fontSize: 15 }}>
-                                            ₹{Math.max(0, Number(confirmSubmit.type === 'teacher' ? confirmSubmit.data.total_salary : confirmSubmit.data.calcNet) + (confirmSubmit.adjustment || 0)).toLocaleString()}
-                                        </strong>
-                                    </div>
-                                ) : null}
-                            </div>
-                            <div style={{ marginBottom: 16 }}>
                                 <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>HR Note (Optional):</label>
                                 <textarea
                                     value={confirmSubmit.hr_note || ''}

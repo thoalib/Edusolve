@@ -239,7 +239,7 @@ export async function handleHR(req, res, url) {
 
       const upserts = payload.records.map(r => ({
         employee_id: r.employee_id,
-        attendance_date: payload.date,
+        attendance_date: r.attendance_date || payload.date,
         status: r.status || 'present',
         check_in: r.check_in || null,
         check_out: r.check_out || null,
@@ -255,6 +255,32 @@ export async function handleHR(req, res, url) {
       if (error) throw new Error(error.message);
 
       sendJson(res, 200, { ok: true, count: (data || []).length });
+      return true;
+    }
+
+    // ═══════ INDIVIDUAL MONTHLY ATTENDANCE ═══════
+    if (req.method === 'GET' && url.pathname === '/hr/attendance/employee') {
+      const year = parseInt(url.searchParams.get('year') || new Date().getFullYear(), 10);
+      const month = parseInt(url.searchParams.get('month') || (new Date().getMonth() + 1), 10);
+      const empId = url.searchParams.get('employeeId');
+
+      if (!empId) {
+        sendJson(res, 400, { ok: false, error: 'employeeId required' });
+        return true;
+      }
+
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const endDate = new Date(year, month, 0).toISOString().slice(0, 10);
+
+      const { data } = await adminClient
+        .from('attendance_records')
+        .select('*')
+        .eq('employee_id', empId)
+        .gte('attendance_date', startDate)
+        .lte('attendance_date', endDate)
+        .order('attendance_date');
+
+      sendJson(res, 200, { ok: true, items: data || [] });
       return true;
     }
 
@@ -306,7 +332,7 @@ export async function handleHR(req, res, url) {
       // Merge
       const report = (employees || []).map(emp => ({
         ...emp,
-        report: attendanceMap[emp.id] || { present: 0, absent: 0, half_day: 0 }
+        report: attendanceMap[emp.id] || { present: 0, absent: 0, half_day: 0, leave: 0 }
       }));
 
       sendJson(res, 200, { ok: true, year, month, workingDays, items: report });

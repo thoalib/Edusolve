@@ -77,7 +77,9 @@ export function CompanyBrandingSettings() {
    GENERATE INVOICE MODAL (on-demand, before payment)
 ═══════════════════════════════════════════════ */
 export function GenerateInvoiceModal({ onClose }) {
-  const company = getBranding();
+  const [accounts, setAccounts] = useState([]);
+  const [selectedAccountId, setSelectedAccountId] = useState('');
+
   const [leads, setLeads] = useState([]);
   const [leadsLoading, setLeadsLoading] = useState(true);
   const [selectedLead, setSelectedLead] = useState(null);
@@ -93,13 +95,18 @@ export function GenerateInvoiceModal({ onClose }) {
   const [showPreview, setShowPreview] = useState(false);
   function upd(k, v) { setForm(f => ({ ...f, [k]: v })); }
 
-  // Fetch counselor's assigned leads
-  useEffect(() => {
+    // Fetch counselor's assigned leads and finance accounts
+    useEffect(() => {
     import('../../lib/api.js').then(({ apiFetch }) => {
-      apiFetch('/leads?scope=my&limit=2000')
-        .then(res => setLeads((res.items || []).filter(l => !l.deleted_at)))
-        .catch(() => {})
-        .finally(() => setLeadsLoading(false));
+      Promise.all([
+        apiFetch('/leads?scope=my&limit=2000').catch(() => ({ items: [] })),
+        apiFetch('/finance/accounts').catch(() => ({ items: [] }))
+      ]).then(([leadsRes, accsRes]) => {
+        setLeads((leadsRes.items || []).filter(l => !l.deleted_at));
+        const accs = accsRes.items || [];
+        setAccounts(accs);
+        if (accs.length > 0) setSelectedAccountId(accs[0].id);
+      }).finally(() => setLeadsLoading(false));
     });
   }, []);
 
@@ -110,7 +117,22 @@ export function GenerateInvoiceModal({ onClose }) {
 
   const docNumber = `INV-${new Date().getFullYear()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 
-  if (showPreview && selectedLead) {
+  if (showPreview && selectedLead && selectedAccountId) {
+    const selectedAccount = accounts.find(a => a.id === selectedAccountId);
+    const companyBranding = selectedAccount ? {
+      name: selectedAccount.company_name || selectedAccount.name,
+      tagline: selectedAccount.company_tagline || '',
+      address: selectedAccount.company_address || '',
+      phone: selectedAccount.company_phone || '',
+      email: selectedAccount.company_email || '',
+      gst: selectedAccount.company_gst || '',
+      company_cin_llpin: selectedAccount.company_cin_llpin || '',
+      company_terms: selectedAccount.company_terms || '',
+      logo: selectedAccount.company_logo || '',
+      gst_type: selectedAccount.gst_type || 'none',
+      gst_rate: selectedAccount.gst_rate || 0
+    } : getBranding();
+
     const items = [{
       description: `${form.subject || 'Tuition'} — ${form.hours || '?'} hrs`,
       hours: form.hours,
@@ -120,10 +142,10 @@ export function GenerateInvoiceModal({ onClose }) {
       <InvoicePrintModal
         type="invoice"
         status="unpaid"
-        company={company}
+        company={companyBranding}
         docNumber={docNumber}
         docDate={form.date}
-        party={{ name: selectedLead.student_name, phone: selectedLead.contact_number }}
+        party={{ name: selectedLead.student_name, phone: selectedLead.contact_number, location: selectedLead.country }}
         items={items}
         total={items[0].amount}
         note={form.note}
@@ -189,6 +211,13 @@ export function GenerateInvoiceModal({ onClose }) {
             )}
           </label>
 
+          <label style={labelStyle}>
+            Invoice From Account (Company) *
+            <select value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)} style={inputStyle}>
+              {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name} {acc.company_name ? `(${acc.company_name})` : ''}</option>)}
+            </select>
+          </label>
+
           {/* Auto-filled info (read-only) */}
           {selectedLead && (
             <div style={{ background: '#f9fafb', borderRadius: '6px', padding: '10px 14px', fontSize: '13px', color: '#4b5563' }}>
@@ -245,8 +274,36 @@ export function GenerateInvoiceModal({ onClose }) {
 /* ═══════════════════════════════════════════════
    RECEIPT MODAL — from verified payment request
 ═══════════════════════════════════════════════ */
-export function ReceiptModal({ payment, type = 'payment', onClose }) {
-  const company = getBranding();
+export function ReceiptModal({ payment, type = 'payment', docFormat = 'receipt', onClose }) {
+  const [company, setCompany] = useState(null);
+
+  useEffect(() => {
+    if (payment.account_id) {
+      import('../../lib/api.js').then(({ apiFetch }) => {
+        apiFetch('/finance/accounts').then(res => {
+          const acc = (res.items || []).find(a => a.id === payment.account_id);
+          if (acc) {
+            setCompany({
+              name: acc.company_name || acc.name,
+              tagline: acc.company_tagline || '',
+              address: acc.company_address || '',
+              phone: acc.company_phone || '',
+              email: acc.company_email || '',
+              gst: acc.company_gst || '',
+              company_cin_llpin: acc.company_cin_llpin || '',
+              company_terms: acc.company_terms || '',
+              logo: acc.company_logo || '',
+              gst_type: acc.gst_type || 'none',
+              gst_rate: acc.gst_rate || 0
+            });
+          } else { setCompany(getBranding()); }
+        }).catch(() => setCompany(getBranding()));
+      });
+    } else {
+      setCompany(getBranding());
+    }
+  }, [payment.account_id]);
+
   const isTopup = type === 'topup';
   const studentName = isTopup
     ? (payment.students?.student_name || '—')
@@ -254,8 +311,11 @@ export function ReceiptModal({ payment, type = 'payment', onClose }) {
   const phone = isTopup
     ? (payment.students?.contact_number || '—')
     : (payment.leads?.contact_number || '—');
+  const location = isTopup
+    ? (payment.students?.country || '')
+    : (payment.leads?.country || '');
 
-  const docNumber = `RCP-${new Date().getFullYear()}-${(payment.id || '').slice(0, 6).toUpperCase()}`;
+  const docNumber = `${docFormat === 'invoice' ? 'INV' : 'RCP'}-${new Date().getFullYear()}-${(payment.id || '').slice(0, 6).toUpperCase()}`;
   const items = [{
     description: isTopup
       ? `Top-Up — ${payment.hours_added || '?'} hrs`
@@ -264,15 +324,17 @@ export function ReceiptModal({ payment, type = 'payment', onClose }) {
     amount: Number(payment.amount || 0),
   }];
 
+  if (!company) return <div className="modal-overlay"><div className="modal card" style={{ padding: '20px', textAlign: 'center' }}>Loading...</div></div>;
+
   return (
     <InvoicePrintModal
-      type="receipt"
+      type={docFormat}
       status="paid"
       company={company}
       docNumber={docNumber}
       docDate={payment.effective_date || (payment.created_at ? toLocalISO(new Date(payment.created_at)) : toLocalISO(new Date()))}
       paidDate={payment.effective_date || (payment.updated_at ? new Date(payment.updated_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null)}
-      party={{ name: studentName, phone }}
+      party={{ name: studentName, phone, location }}
       items={items}
       total={Number(payment.total_amount || payment.amount || 0)}
       paidAmount={Number(payment.amount || 0)}
@@ -286,7 +348,36 @@ export function ReceiptModal({ payment, type = 'payment', onClose }) {
    PAYSLIP MODAL — from verified payroll request
 ═══════════════════════════════════════════════ */
 export function PaySlipModal({ request, onClose }) {
-  const company = getBranding();
+  const [company, setCompany] = useState(null);
+
+  useEffect(() => {
+    // If HR payment requests start keeping account_id we can link it. Otherwise fallback to global branding
+    if (request.account_id) {
+      import('../../lib/api.js').then(({ apiFetch }) => {
+        apiFetch('/finance/accounts').then(res => {
+          const acc = (res.items || []).find(a => a.id === request.account_id);
+          if (acc) {
+            setCompany({
+              name: acc.company_name || acc.name,
+              tagline: acc.company_tagline || '',
+              address: acc.company_address || '',
+              phone: acc.company_phone || '',
+              email: acc.company_email || '',
+              gst: acc.company_gst || '',
+              company_cin_llpin: acc.company_cin_llpin || '',
+              company_terms: acc.company_terms || '',
+              logo: acc.company_logo || '',
+              gst_type: acc.gst_type || 'none',
+              gst_rate: acc.gst_rate || 0
+            });
+          } else { setCompany(getBranding()); }
+        }).catch(() => setCompany(getBranding()));
+      });
+    } else {
+      setCompany(getBranding());
+    }
+  }, [request.account_id]);
+
   const name = request.target_type === 'teacher'
     ? (request.teacher_profiles?.users?.full_name || '—')
     : (request.employees?.full_name || '—');
@@ -299,6 +390,8 @@ export function PaySlipModal({ request, onClose }) {
     { description: 'Base Salary / Calculated', amount: Number(breakdown.base_calculated || request.total_amount || 0) },
     ...(breakdown.adjustment ? [{ description: 'Adjustment', amount: Number(breakdown.adjustment) }] : []),
   ];
+
+  if (!company) return <div className="modal-overlay"><div className="modal card" style={{ padding: '20px', textAlign: 'center' }}>Loading...</div></div>;
 
   return (
     <InvoicePrintModal
@@ -369,7 +462,36 @@ function InvoicePrintModal({ type, status, company, docNumber, docDate, paidDate
     setTimeout(() => win.print(), 400);
   }
 
-  const docTitle = type === 'invoice' ? 'INVOICE' : type === 'receipt' ? 'RECEIPT' : 'PAY SLIP';
+  // Tax Logic
+  const gstType = company?.gst_type || 'none';
+  const gstRate = Number(company?.gst_rate || 0);
+  const isComposition = gstType === 'composition';
+
+  const docTitle = type === 'invoice' ? (isComposition ? 'BILL OF SUPPLY' : 'INVOICE') : type === 'receipt' ? 'RECEIPT' : 'PAY SLIP';
+
+  // If it's a receipt or composition scheme, DO NOT show tax breakdown
+  const showTaxes = type === 'invoice' && !isComposition && gstType !== 'none' && gstRate > 0;
+
+  let finalGross = Number(total);
+  let subtotal = finalGross;
+  let taxAmount = 0;
+  let cgst = 0;
+  let sgst = 0;
+
+  // Invoice display overrides
+  const isInvoice = type === 'invoice';
+  const displayPaidAmount = isInvoice ? undefined : paidAmount;
+  const displayPaidDate = isInvoice ? null : paidDate;
+  const showStamp = !isInvoice;
+
+  if (showTaxes) {
+    // Both inclusive and exclusive follow Option A (Reverse Calculation) per user request:
+    // Final Total remains static as the sum paid. Instead, subtotal shrinks automatically.
+    subtotal = finalGross / (1 + (gstRate / 100));
+    taxAmount = finalGross - subtotal;
+    cgst = taxAmount / 2;
+    sgst = taxAmount / 2;
+  }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -408,21 +530,24 @@ function InvoicePrintModal({ type, status, company, docNumber, docDate, paidDate
                   {company.phone && <div>📞 {company.phone}</div>}
                   {company.email && <div>✉ {company.email}</div>}
                   {company.gst && <div>GST: {company.gst}</div>}
+                  {company.company_cin_llpin && <div>CIN/LLPIN: {company.company_cin_llpin}</div>}
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: '26px', fontWeight: 900, letterSpacing: '3px', color: status === 'paid' ? '#15803d' : '#f59e0b' }}>{docTitle}</div>
                 <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>{docNumber}</div>
                 <div style={{ fontSize: '12px', color: '#6b7280' }}>Date: {new Date(docDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
-                {paidDate && <div style={{ fontSize: '12px', color: '#6b7280' }}>Paid On: {paidDate}</div>}
+                {displayPaidDate && <div style={{ fontSize: '12px', color: '#6b7280' }}>Paid On: {displayPaidDate}</div>}
                 {/* Stamp */}
-                <div style={{
-                  display: 'inline-block', border: `3px solid ${status === 'paid' ? '#15803d' : '#f59e0b'}`,
-                  color: status === 'paid' ? '#15803d' : '#f59e0b', fontSize: '18px', fontWeight: 900,
-                  padding: '4px 14px', borderRadius: '6px', transform: 'rotate(-8deg)', letterSpacing: '3px', marginTop: '10px'
-                }}>
-                  {status === 'paid' ? 'PAID ✓' : 'UNPAID'}
-                </div>
+                {showStamp && (
+                  <div style={{
+                    display: 'inline-block', border: `3px solid ${status === 'paid' ? '#15803d' : '#f59e0b'}`,
+                    color: status === 'paid' ? '#15803d' : '#f59e0b', fontSize: '18px', fontWeight: 900,
+                    padding: '4px 14px', borderRadius: '6px', transform: 'rotate(-8deg)', letterSpacing: '3px', marginTop: '10px'
+                  }}>
+                    {status === 'paid' ? 'PAID ✓' : 'UNPAID'}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -432,6 +557,7 @@ function InvoicePrintModal({ type, status, company, docNumber, docDate, paidDate
                 {type === 'payslip' ? 'Pay To' : 'Bill To'}
               </div>
               <div style={{ fontSize: '16px', fontWeight: 700 }}>{party.name}</div>
+              {party.location && <div style={{ fontSize: '12px', color: '#4b5563', marginTop: '2px' }}>📍 {party.location}</div>}
               {party.phone && <div style={{ fontSize: '12px', color: '#4b5563', marginTop: '2px' }}>📞 {party.phone}</div>}
               {party.role && <div style={{ fontSize: '12px', color: '#4b5563' }}>Role: {party.role}</div>}
               {party.period && <div style={{ fontSize: '12px', color: '#4b5563' }}>Period: {party.period}</div>}
@@ -461,30 +587,53 @@ function InvoicePrintModal({ type, status, company, docNumber, docDate, paidDate
 
             {/* Totals */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '24px' }}>
-              <div style={{ width: '240px' }}>
-                {paidAmount !== undefined ? (
+              <div style={{ width: '260px' }}>
+                {showTaxes ? (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '13px', borderBottom: '1px solid #f3f4f6' }}>
-                      <span style={{ color: '#6b7280' }}>Total Amount</span>
-                      <span style={{ fontWeight: 600 }}>₹{Number(total).toLocaleString('en-IN')}</span>
+                      <span style={{ color: '#6b7280' }}>Subtotal</span>
+                      <span style={{ fontWeight: 600 }}>₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '13px', borderBottom: '1px solid #f3f4f6' }}>
+                      <span style={{ color: '#6b7280' }}>CGST ({gstRate / 2}%)</span>
+                      <span style={{ fontWeight: 600 }}>₹{cgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '13px', borderBottom: '1px solid #f3f4f6' }}>
+                      <span style={{ color: '#6b7280' }}>SGST ({gstRate / 2}%)</span>
+                      <span style={{ fontWeight: 600 }}>₹{sgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                  </>
+                ) : null}
+                
+                {displayPaidAmount !== undefined ? (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '14px', borderBottom: '1px solid #f3f4f6', fontWeight: 700 }}>
+                      <span style={{ color: '#111' }}>Total Amount</span>
+                      <span>₹{finalGross.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '13px', borderBottom: '1px solid #f3f4f6' }}>
                       <span style={{ color: '#15803d', fontWeight: 600 }}>Amount Paid</span>
-                      <span style={{ fontWeight: 700, color: '#15803d' }}>₹{Number(paidAmount).toLocaleString('en-IN')}</span>
+                      <span style={{ fontWeight: 700, color: '#15803d' }}>₹{Number(displayPaidAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 0', fontSize: '15px', fontWeight: 800, borderTop: '2px solid #4338ca', marginTop: '4px', color: paidAmount < total ? '#dc2626' : '#4338ca' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 0', fontSize: '15px', fontWeight: 800, borderTop: '2px solid #4338ca', marginTop: '4px', color: displayPaidAmount < finalGross ? '#dc2626' : '#4338ca' }}>
                       <span>Balance Due</span>
-                      <span>₹{Math.max(0, Number(total) - Number(paidAmount)).toLocaleString('en-IN')}</span>
+                      <span>₹{Math.max(0, finalGross - Number(displayPaidAmount)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   </>
                 ) : (
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 0', fontSize: '16px', fontWeight: 800, color: '#4338ca', borderTop: '2px solid #4338ca', marginTop: '4px' }}>
-                    <span>Total</span>
-                    <span>₹{Number(total).toLocaleString('en-IN')}</span>
+                    <span>Total Amount</span>
+                    <span>₹{finalGross.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 )}
               </div>
             </div>
+
+            {isComposition && type === 'invoice' && (
+              <div style={{ textAlign: 'right', marginBottom: '20px', color: '#166534', fontWeight: 600, fontSize: '11px' }}>
+                Composition taxable person not eligible to collect tax on supplies
+              </div>
+            )}
 
             {note && (
               <div style={{ fontSize: '12px', color: '#4b5563', padding: '10px 14px', background: '#fef3c7', borderRadius: '6px', marginBottom: '20px' }}>
@@ -495,7 +644,8 @@ function InvoicePrintModal({ type, status, company, docNumber, docDate, paidDate
             {/* Footer */}
             <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '14px', textAlign: 'center', fontSize: '11px', color: '#9ca3af' }}>
               <p>{company.name} {company.gst ? `| GST: ${company.gst}` : ''}</p>
-              <p style={{ marginTop: '4px' }}>This is a computer-generated document. No signature required.</p>
+              {company.company_terms && <p style={{ marginTop: '8px', color: '#4b5563', fontWeight: 500, fontStyle: 'italic' }}>{company.company_terms}</p>}
+              <p style={{ marginTop: '8px' }}>This is a computer-generated document. No signature required.</p>
             </div>
           </div>
         </div>
