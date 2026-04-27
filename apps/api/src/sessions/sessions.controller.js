@@ -443,14 +443,48 @@ export async function handleSessions(req, res, url) {
       }
       patch.updated_at = nowIso();
 
+      const { data: existingSession, error: sessErr } = await adminClient.from('academic_sessions').select('*').eq('id', sessionId).single();
+      if (!existingSession) throw new Error("session not found");
+
+      let refundHours = 0;
+      if (existingSession.status === 'completed') {
+        const oldDuration = Number(existingSession.duration_hours || 0);
+        let newDuration = oldDuration;
+        
+        if (patch.duration_hours !== undefined) newDuration = Number(patch.duration_hours);
+        
+        if (patch.status && patch.status !== 'completed') {
+           refundHours = oldDuration; 
+        } else if (newDuration !== oldDuration) {
+           refundHours = oldDuration - newDuration;
+        }
+      }
+
       const { data, error } = await adminClient
         .from('academic_sessions')
         .update(patch)
         .eq('id', sessionId)
         .select('*')
         .single();
-
       if (error) throw new Error(error.message);
+
+      if (refundHours !== 0 && existingSession.student_id) {
+         const { data: student } = await adminClient.from('students').select('remaining_hours').eq('id', existingSession.student_id).single();
+         if (student) {
+             const newRemaining = Number(student.remaining_hours || 0) + refundHours;
+             await adminClient.from('students').update({ remaining_hours: newRemaining, updated_at: nowIso() }).eq('id', existingSession.student_id);
+
+             await adminClient.from('hour_ledger').insert({
+                student_id: existingSession.student_id,
+                session_id: sessionId,
+                hours_delta: refundHours,
+                entry_type: refundHours > 0 ? 'student_credit' : 'student_debit',
+                notes: `Session Edit Adjustment (SID: ${sessionId})`,
+                created_at: nowIso()
+             });
+         }
+      }
+
       sendJson(res, 200, { ok: true, session: data });
       return true;
     }
@@ -462,6 +496,28 @@ export async function handleSessions(req, res, url) {
         return true;
       }
       const sessionId = parts[1];
+      
+      const { data: existingSession } = await adminClient.from('academic_sessions').select('*').eq('id', sessionId).single();
+      
+      if (existingSession && existingSession.status === 'completed' && existingSession.student_id) {
+         const refundHours = Number(existingSession.duration_hours || 0);
+         if (refundHours > 0) {
+             const { data: student } = await adminClient.from('students').select('remaining_hours').eq('id', existingSession.student_id).single();
+             if (student) {
+                 const newRemaining = Number(student.remaining_hours || 0) + refundHours;
+                 await adminClient.from('students').update({ remaining_hours: newRemaining, updated_at: nowIso() }).eq('id', existingSession.student_id);
+
+                 await adminClient.from('hour_ledger').insert({
+                    student_id: existingSession.student_id,
+                    hours_delta: refundHours,
+                    entry_type: 'student_credit',
+                    notes: `Session Deleted Refund (SID: ${sessionId})`,
+                    created_at: nowIso()
+                 });
+             }
+         }
+      }
+
       const { error } = await adminClient
         .from('academic_sessions')
         .delete()

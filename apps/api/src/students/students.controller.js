@@ -2016,6 +2016,19 @@ export async function handleStudents(req, res, url) {
             .single();
 
           if (insertErr) throw insertErr;
+
+          // If the imported student has hours, log them as a carried-forward balance
+          const importedHours = Number(item.total_hours) || 0;
+          if (importedHours > 0) {
+            await adminClient.from('hour_ledger').insert({
+              student_id: student.id,
+              hours_delta: importedHours,
+              entry_type: 'student_credit',
+              notes: `Carried-Forward Balance (imported by coordinator)`,
+              created_at: student.joined_at
+            });
+          }
+
           imported.push(student);
 
         } catch (e) {
@@ -2249,6 +2262,29 @@ export async function handleStudents(req, res, url) {
       if (error) throw new Error(error.message);
 
       sendJson(res, 200, { ok: true, deleted: true });
+      return true;
+    }
+
+    // ─── GET /students/:id/hours-ledger ─────────────
+    if (req.method === 'GET' && parts.length === 3 && parts[0] === 'students' && parts[2] === 'hours-ledger') {
+      const studentId = parts[1];
+      
+      const { data: student, error: stuErr } = await adminClient.from('students').select('total_hours, remaining_hours').eq('id', studentId).single();
+      if (stuErr || !student) {
+        sendJson(res, 404, { ok: false, error: 'student not found' });
+        return true;
+      }
+
+      const { data: ledger, error: ledErr } = await adminClient
+        .from('hour_ledger')
+        .select('*, academic_sessions(subject, duration_hours)')
+        .eq('student_id', studentId)
+        .neq('entry_type', 'teacher_credit')
+        .order('created_at', { ascending: true });
+        
+      if (ledErr) throw new Error(ledErr.message);
+
+      sendJson(res, 200, { ok: true, items: ledger || [], student: student });
       return true;
     }
 
