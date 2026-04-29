@@ -66,7 +66,7 @@ export function TeacherDetailsPage({ teacherProfileId, actorRole, initialTab = '
       setTeacher(data.teacher);
       setFormData({
         full_name: data.teacher.users?.full_name || '',
-        phone: data.teacher.users?.phone || '',
+        phone: data.teacher.phone || data.teacher.users?.phone || '',
         experience_level: data.teacher.experience_level || '',
         experience_remark: data.teacher.experience_remark || '',
         experience_duration: data.teacher.experience_duration || '',
@@ -133,6 +133,17 @@ export function TeacherDetailsPage({ teacherProfileId, actorRole, initialTab = '
 
   if (loading && !teacher) {
     return <section className="panel"><p className="muted">Loading teacher details...</p></section>;
+  }
+
+  if (!teacher) {
+    return (
+      <section className="panel" style={{ padding: '20px' }}>
+        <button onClick={() => window.history.back()} className="secondary small" style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '20px' }}>
+          <Icon d={ICONS.chevronLeft} size={14} /> Back
+        </button>
+        <p className="error">{error || 'Teacher profile not found or access denied.'}</p>
+      </section>
+    );
   }
 
   const updateField = (field, val) => setFormData(p => ({ ...p, [field]: val }));
@@ -223,7 +234,7 @@ export function TeacherDetailsPage({ teacherProfileId, actorRole, initialTab = '
               <label>
                 Phone Number
                 {!isEditing ? (
-                  <input value={teacher.users?.phone || ''} disabled />
+                  <input value={teacher.phone || teacher.users?.phone || ''} disabled />
                 ) : (
                   <PhoneInput value={formData.phone} onChange={v => updateField('phone', v)} />
                 )}

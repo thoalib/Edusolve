@@ -2983,6 +2983,7 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
   const [loadingMyInstallments, setLoadingMyInstallments] = useState(false);
   const [showGenerateInvoice, setShowGenerateInvoice] = useState(false);
   const [receiptPayment, setReceiptPayment] = useState(null);
+  const [docFormat, setDocFormat] = useState('receipt');
   const [editingRequest, setEditingRequest] = useState(null);
   const [userId, setUserId] = useState('');
 
@@ -3234,10 +3235,16 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
                             <td style={{ fontSize: '12px', color: '#6b7280' }}>{new Date(inst.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                             <td>
                               {inst.status === 'verified' && (
-                                <button 
-                                  onClick={() => setReceiptPayment({ leads: { student_name: inst.student_name, contact_number: '—' }, amount: inst.amount, total_amount: inst.amount, hours: null, finance_note: inst.finance_note, created_at: inst.created_at, updated_at: inst.created_at, id: inst.id })}
-                                  style={{ fontSize: '11px', padding: '3px 10px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
-                                >🧾 Receipt</button>
+                                <div style={{ display: 'flex', gap: '4px' }}>
+                                  <button 
+                                    onClick={() => { setReceiptPayment({ leads: { student_name: inst.student_name, contact_number: '—' }, amount: inst.amount, total_amount: inst.amount, hours: null, finance_note: inst.finance_note, created_at: inst.created_at, updated_at: inst.created_at, id: inst.id }); setDocFormat('receipt'); }}
+                                    style={{ fontSize: '11px', padding: '3px 10px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
+                                  >🧾 Receipt</button>
+                                  <button 
+                                    onClick={() => { setReceiptPayment({ leads: { student_name: inst.student_name, contact_number: '—' }, amount: inst.amount, total_amount: inst.amount, hours: null, finance_note: inst.finance_note, created_at: inst.created_at, updated_at: inst.created_at, id: inst.id }); setDocFormat('invoice'); }}
+                                    style={{ fontSize: '11px', padding: '3px 10px', background: '#e0e7ff', border: '1px solid #a5b4fc', color: '#4338ca', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
+                                  >📄 Invoice</button>
+                                </div>
                               )}
                             </td>
                           </tr>
@@ -3275,10 +3282,16 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
                               <a href={inst.screenshot_url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '13px', color: '#4f46e5', fontWeight: 600 }}>🖼️ View Receipt</a>
                             )}
                             {inst.status === 'verified' && (
-                              <button 
-                                onClick={() => setReceiptPayment({ leads: { student_name: inst.student_name, contact_number: '—' }, amount: inst.amount, total_amount: inst.amount, hours: null, finance_note: inst.finance_note, created_at: inst.created_at, updated_at: inst.created_at, id: inst.id })}
-                                style={{ padding: '6px 12px', margin: '8px 0 0', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '11px', display: 'block', width: 'fit-content' }}
-                              >🧾 Download Receipt</button>
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                <button 
+                                  onClick={() => { setReceiptPayment({ leads: { student_name: inst.student_name, contact_number: '—' }, amount: inst.amount, total_amount: inst.amount, hours: null, finance_note: inst.finance_note, created_at: inst.created_at, updated_at: inst.created_at, id: inst.id }); setDocFormat('receipt'); }}
+                                  style={{ padding: '6px 12px', margin: '8px 0 0', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '11px', display: 'block', width: 'fit-content' }}
+                                >🧾 Receipt</button>
+                                <button 
+                                  onClick={() => { setReceiptPayment({ leads: { student_name: inst.student_name, contact_number: '—' }, amount: inst.amount, total_amount: inst.amount, hours: null, finance_note: inst.finance_note, created_at: inst.created_at, updated_at: inst.created_at, id: inst.id }); setDocFormat('invoice'); }}
+                                  style={{ padding: '6px 12px', margin: '8px 0 0', background: '#e0e7ff', border: '1px solid #a5b4fc', color: '#4338ca', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '11px', display: 'block', width: 'fit-content' }}
+                                >📄 Invoice</button>
+                              </div>
                             )}
                           </>
                         }
@@ -3398,7 +3411,10 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
                       </td>
                       <td>
                         {r.status === 'verified' && (
-                          <button onClick={() => setReceiptPayment(r)} style={{ fontSize: '11px', padding: '3px 10px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>🧾 Receipt</button>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button onClick={() => { setReceiptPayment(r); setDocFormat('receipt'); }} style={{ fontSize: '11px', padding: '3px 10px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>🧾 Receipt</button>
+                            <button onClick={() => { setReceiptPayment(r); setDocFormat('invoice'); }} style={{ fontSize: '11px', padding: '3px 10px', background: '#e0e7ff', border: '1px solid #a5b4fc', color: '#4338ca', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>📄 Invoice</button>
+                          </div>
                         )}
                         {canModify(r) && (
                           <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
@@ -3494,7 +3510,7 @@ export function PaymentRequestsPage({ initialLeadId, onReady }) {
         </>
       )}
       {showGenerateInvoice && <GenerateInvoiceModal onClose={() => setShowGenerateInvoice(false)} />}
-      {receiptPayment && <ReceiptModal payment={receiptPayment} type="payment" onClose={() => setReceiptPayment(null)} />}
+      {receiptPayment && <ReceiptModal payment={receiptPayment} type="payment" docFormat={docFormat} onClose={() => setReceiptPayment(null)} />}
     </section>
   );
 }

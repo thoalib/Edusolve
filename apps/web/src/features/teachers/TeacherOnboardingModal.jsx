@@ -354,7 +354,7 @@ export function TeacherOnboardingModal({ profile, onComplete, apiFetch }) {
                             </div>
                             <div>
                                 <label style={labelStyle}>GPay Number</label>
-                                <input value={formData.gpay_number} onChange={e => updateField('gpay_number', e.target.value)} style={inputStyle} />
+                                <PhoneInput value={formData.gpay_number} onChange={v => updateField('gpay_number', v)} style={inputStyle} />
                             </div>
                         </div>
                     </div>

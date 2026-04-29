@@ -4,6 +4,7 @@ import { getSessionStatusStyles } from '../academic/AcademicPages.jsx';
 import { TeacherOnboardingModal } from './TeacherOnboardingModal.jsx';
 import { DashboardDateFilter } from '../dashboards/CounselorDashboards.jsx';
 import { toLocalISO } from '../../lib/dateUtils.js';
+import { PhoneInput } from '../../components/PhoneInput.jsx';
 
 function getThisMonthRange() {
   const now = new Date();
@@ -927,6 +928,7 @@ export function TeacherMyProfilePage() {
     function startEditPersonal() {
         setEditForm({
             full_name: profile?.users?.full_name || '',
+            phone: profile?.phone || profile?.users?.phone || '',
             gender: profile?.gender || '',
             dob: profile?.dob || '',
             address: profile?.address || '',
@@ -1310,7 +1312,10 @@ export function TeacherMyProfilePage() {
                         }
                         <ReadOnlyField label="Teacher Code" value={profile?.teacher_code} />
                         <ReadOnlyField label="Email" value={profile?.users?.email} />
-                        <ReadOnlyField label="Phone" value={profile?.phone} />
+                        {editingPersonal
+                            ? <div><span style={editLabelStyle}>Phone</span><PhoneInput value={editForm.phone || ''} onChange={v => updateEditField('phone', v)} /></div>
+                            : <ReadOnlyField label="Phone" value={profile?.phone || profile?.users?.phone} />
+                        }
                     </div>
                     <div style={gridRow}>
                         {editingPersonal
