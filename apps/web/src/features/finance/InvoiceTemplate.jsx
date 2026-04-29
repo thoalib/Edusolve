@@ -76,7 +76,7 @@ export function CompanyBrandingSettings() {
 /* ═══════════════════════════════════════════════
    GENERATE INVOICE MODAL (on-demand, before payment)
 ═══════════════════════════════════════════════ */
-export function GenerateInvoiceModal({ onClose }) {
+export function GenerateInvoiceModal({ onClose, context = 'both' }) {
   const [accounts, setAccounts] = useState([]);
   const [selectedAccountId, setSelectedAccountId] = useState('');
 
@@ -98,17 +98,30 @@ export function GenerateInvoiceModal({ onClose }) {
     // Fetch counselor's assigned leads and finance accounts
     useEffect(() => {
     import('../../lib/api.js').then(({ apiFetch }) => {
-      Promise.all([
-        apiFetch('/leads?scope=my&limit=2000').catch(() => ({ items: [] })),
-        apiFetch('/finance/accounts').catch(() => ({ items: [] }))
-      ]).then(([leadsRes, accsRes]) => {
-        setLeads((leadsRes.items || []).filter(l => !l.deleted_at));
+      const promises = [apiFetch('/finance/accounts').catch(() => ({ items: [] }))];
+      
+      let fetchLeads = Promise.resolve({ items: [] });
+      let fetchStudents = Promise.resolve({ items: [] });
+
+      if (context === 'both' || context === 'lead') {
+        fetchLeads = apiFetch('/leads?scope=mine&limit=2000').catch(() => ({ items: [] }));
+      }
+      if (context === 'both' || context === 'student') {
+        fetchStudents = apiFetch('/students?limit=2000').catch(() => ({ items: [] }));
+      }
+
+      Promise.all([fetchLeads, fetchStudents, ...promises]).then(([leadsRes, studentsRes, accsRes]) => {
+        const merged = [
+          ...(leadsRes.items || []).filter(l => !l.deleted_at).map(l => ({ ...l, _type: 'lead', _key: `l_${l.id}` })),
+          ...(studentsRes.items || []).filter(s => !s.deleted_at).map(s => ({ ...s, _type: 'student', _key: `s_${s.id}` }))
+        ];
+        setLeads(merged);
         const accs = accsRes.items || [];
         setAccounts(accs);
         if (accs.length > 0) setSelectedAccountId(accs[0].id);
       }).finally(() => setLeadsLoading(false));
     });
-  }, []);
+  }, [context]);
 
   const filteredLeads = leads.filter(l =>
     (l.student_name || '').toLowerCase().includes(leadSearch.toLowerCase()) ||
@@ -167,8 +180,8 @@ export function GenerateInvoiceModal({ onClose }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
           {/* Lead Selector */}
-          <label style={labelStyle}>
-            Select Lead *
+          <div style={labelStyle}>
+            {context === 'student' ? 'Select Student *' : context === 'lead' ? 'Select Lead *' : 'Select Lead/Student *'}
             {selectedLead ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '6px', padding: '8px 12px' }}>
                 <div style={{ flex: 1 }}>
@@ -192,11 +205,11 @@ export function GenerateInvoiceModal({ onClose }) {
                     {leadsLoading ? (
                       <div style={{ padding: '12px', color: '#6b7280', fontSize: '13px' }}>Loading leads...</div>
                     ) : filteredLeads.length === 0 ? (
-                      <div style={{ padding: '12px', color: '#9ca3af', fontSize: '13px' }}>No leads found</div>
+                      <div style={{ padding: '12px', color: '#9ca3af', fontSize: '13px' }}>No {context === 'student' ? 'students' : 'leads'} found</div>
                     ) : filteredLeads.slice(0, 10).map(l => (
                       <div
-                        key={l.id}
-                        onClick={() => { setSelectedLead(l); setLeadSearch(''); }}
+                        key={l._key || l.id}
+                        onMouseDown={() => { setSelectedLead(l); setLeadSearch(''); }}
                         style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', fontSize: '13px' }}
                         onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
                         onMouseLeave={e => e.currentTarget.style.background = '#fff'}
@@ -209,7 +222,7 @@ export function GenerateInvoiceModal({ onClose }) {
                 )}
               </div>
             )}
-          </label>
+          </div>
 
           <label style={labelStyle}>
             Invoice From Account (Company) *

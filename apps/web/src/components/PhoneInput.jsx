@@ -16,29 +16,21 @@ const COUNTRY_CODES = [
 
 export function PhoneInput({ name = 'phone', required = false, value = '', onChange, placeholder = 'Phone Number', style = {} }) {
     const getInitState = (val) => {
-        if (!val) return { cc: '+91', num: '' };
+        if (!val) return { cc: '', num: '' };
         let clean = val.replace(/[^0-9+]/g, '');
         
-        // Handle variations of India code (91)
-        if (!clean.startsWith('+')) {
-            if (clean.startsWith('91') && clean.length > 10) {
-                return { cc: '+91', num: clean.slice(2) };
-            }
-            if (clean.length === 10) {
-                return { cc: '+91', num: clean };
-            }
-        }
-
-        for (const c of COUNTRY_CODES) {
-            if (clean.startsWith(c.code)) {
-                return { cc: c.code, num: clean.slice(c.code.length) };
+        if (clean.startsWith('+')) {
+            for (const c of COUNTRY_CODES) {
+                if (clean.startsWith(c.code)) {
+                    return { cc: c.code, num: clean.slice(c.code.length) };
+                }
             }
         }
         
-        return { cc: '+91', num: clean.replace(/^\+/, '') };
+        return { cc: '', num: clean };
     }
 
-    const [countryCode, setCountryCode] = useState('+91');
+    const [countryCode, setCountryCode] = useState('');
     const [number, setNumber] = useState('');
 
     useEffect(() => {
@@ -47,7 +39,7 @@ export function PhoneInput({ name = 'phone', required = false, value = '', onCha
         setNumber(init.num);
     }, [value]);
 
-    const activeCountry = COUNTRY_CODES.find(c => c.code === countryCode) || COUNTRY_CODES[0];
+    const activeCountry = COUNTRY_CODES.find(c => c.code === countryCode) || { length: 15 };
 
     const handleNumberChange = (e) => {
         let val = e.target.value.replace(/\D/g, ''); // strip non numeric
@@ -60,7 +52,7 @@ export function PhoneInput({ name = 'phone', required = false, value = '', onCha
 
     const handleCodeChange = (e) => {
         const cc = e.target.value;
-        const newMaxLen = (COUNTRY_CODES.find(c => c.code === cc) || COUNTRY_CODES[0]).length;
+        const newMaxLen = (COUNTRY_CODES.find(c => c.code === cc) || { length: 15 }).length;
         let num = number;
         if (num.length > newMaxLen) {
             num = num.slice(0, newMaxLen);
@@ -94,6 +86,7 @@ export function PhoneInput({ name = 'phone', required = false, value = '', onCha
                     color: '#333'
                 }}
             >
+                <option value="" disabled>Select</option>
                 {COUNTRY_CODES.map(c => (
                     <option key={c.code} value={c.code}>{c.label}</option>
                 ))}

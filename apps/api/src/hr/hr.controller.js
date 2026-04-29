@@ -466,6 +466,7 @@ export async function handleHR(req, res, url) {
         pf_deduction: payload.pf_deduction || 0,
         tax_deduction: payload.tax_deduction || 0,
         other_deduction: payload.other_deduction || 0,
+        monthly_paid_leave_quota: payload.monthly_paid_leave_quota != null ? Number(payload.monthly_paid_leave_quota) : 0,
         effective_from: payload.effective_from || new Date().toISOString().slice(0, 10),
         updated_at: nowIso()
       };
@@ -616,7 +617,7 @@ export async function handleHR(req, res, url) {
         user_id: payload.user_id,
         level_id: payload.level_id,
         updated_at: nowIso()
-      }).select('*').single();
+      }, { onConflict: 'user_id' }).select('*').single();
       if (error) throw new Error(error.message);
       sendJson(res, 200, { ok: true, item: data });
       return true;
@@ -892,21 +893,21 @@ export async function handleHR(req, res, url) {
         }
       }
 
-      let present = 0, half_day = 0, holidayCount = 0, absent = 0;
-      const holidayDates = new Set();
+      let present = 0, half_day = 0, absent = 0;
+      const leaveDates = new Set();
       attList.forEach(a => {
         if (a.status === 'present') present++;
         else if (a.status === 'half_day') half_day++;
         else if (a.status === 'leave') {
-          // Only count as holiday if it's not a Sunday (to avoid double subtraction)
+          // Only count as leave if it's not a Sunday
           const d = new Date(a.attendance_date);
           if (d.getDay() !== 0) {
-            holidayDates.add(a.attendance_date);
+            leaveDates.add(a.attendance_date);
           }
         }
         else if (a.status === 'absent') absent++;
       });
-      holidayCount = holidayDates.size;
+      const leaveDays = leaveDates.size;
 
       let baseSalary = sal ? Number(sal.base_salary) : 0;
       // Override basic salary from counselor level if applicable
@@ -916,15 +917,17 @@ export async function handleHR(req, res, url) {
 
       const totalAllowances = sal ? Number(sal.hra) + Number(sal.transport_allowance) + Number(sal.other_allowance) : 0;
       const monthlyQuota = sal ? Number(sal.monthly_paid_leave_quota || 0) : 0;
-      const coveredByQuota = Math.min(absent, monthlyQuota);
 
-      // Subtraction Method: Reduce workingDays by holidayCount, exclude leave from effectiveDays
-      const finalWorkingDays = Math.max(1, workingDays - holidayCount);
-      const effectiveDays = present + (half_day * 0.5) + coveredByQuota;
+      // Paid leave quota only covers absents
+      const coveredAbsents = Math.min(absent, monthlyQuota);
+
+      // Working days per employee = base WD - their own leave/holiday days
+      const finalWorkingDays = Math.max(1, workingDays - leaveDays);
+      const effectiveDays = present + (half_day * 0.5) + coveredAbsents;
       let proRatedGross = 0;
       let calcNet = 0;
 
-      if (effectiveDays === 0 && absent === 0 && holidayCount === 0) {
+      if (effectiveDays === 0 && absent === 0 && leaveDays === 0) {
         calcNet = Math.round(grossSalary - totalDeductions);
       } else {
         proRatedGross = finalWorkingDays > 0 ? (grossSalary * effectiveDays / finalWorkingDays) : 0;
@@ -1114,6 +1117,15 @@ export async function handleHR(req, res, url) {
       if (payload.status) updates.status = payload.status;
       if (payload.status === 'approved') updates.approved_at = nowIso();
       if (payload.finance_note !== undefined) updates.finance_note = payload.finance_note;
+      // HR edits — only allowed on pending requests
+      if (payload.total_amount !== undefined) updates.total_amount = Number(payload.total_amount);
+      if (payload.hr_note !== undefined) updates.hr_note = payload.hr_note;
+      // Update breakdown.adjustment if provided
+      if (payload.adjustment !== undefined) {
+        const { data: existing } = await adminClient.from('hr_payment_requests').select('breakdown').eq('id', prId).single();
+        const currentBreakdown = existing?.breakdown || {};
+        updates.breakdown = { ...currentBreakdown, adjustment: Number(payload.adjustment) };
+      }
 
       const { data, error } = await adminClient
         .from('hr_payment_requests')
@@ -1124,9 +1136,19 @@ export async function handleHR(req, res, url) {
 
       if (error) throw new Error(error.message);
 
-      // If cancelled/rejected, we should delete the payable ledger entry too
+      // If total_amount was edited, sync the ledger payable entry too
+      if (payload.total_amount !== undefined) {
+        const periodKey = `${data.year}/${String(data.month).padStart(2, '0')}`;
+        const ledgerFilter = adminClient.from('ledger_entries')
+          .update({ amount: Number(payload.total_amount), updated_at: nowIso() })
+          .eq('entry_type', 'payable')
+          .like('description', `%${periodKey}%`);
+        if (data.employee_id) await ledgerFilter.eq('employee_id', data.employee_id);
+        else if (data.teacher_id) await ledgerFilter.eq('teacher_id', data.teacher_id);
+      }
+
+      // If cancelled/rejected, delete the payable ledger entry
       if (payload.status === 'rejected' || payload.status === 'cancelled') {
-        // Optionally delete ledger entries if needed to keep financial records clean
         if (data.employee_id) {
           await adminClient.from('ledger_entries').delete()
             .eq('employee_id', data.employee_id)
@@ -1141,6 +1163,42 @@ export async function handleHR(req, res, url) {
       }
 
       sendJson(res, 200, { ok: true, request: data });
+      return true;
+    }
+
+    // DELETE payment request (HR only, pending requests)
+    if (req.method === 'DELETE' && prUpdateMatch) {
+      const prId = prUpdateMatch[1];
+
+      const { data: existing, error: fetchErr } = await adminClient
+        .from('hr_payment_requests')
+        .select('*')
+        .eq('id', prId)
+        .single();
+      if (fetchErr) throw new Error(fetchErr.message);
+
+      if (existing.status !== 'pending') {
+        sendJson(res, 400, { ok: false, error: 'Only pending requests can be deleted.' });
+        return true;
+      }
+
+      // Clean up related ledger payable entry
+      if (existing.employee_id) {
+        await adminClient.from('ledger_entries').delete()
+          .eq('employee_id', existing.employee_id)
+          .eq('entry_type', 'payable')
+          .like('description', `%${existing.year}/${String(existing.month).padStart(2, '0')}%`);
+      } else if (existing.teacher_id) {
+        await adminClient.from('ledger_entries').delete()
+          .eq('teacher_id', existing.teacher_id)
+          .eq('entry_type', 'payable')
+          .like('description', `%${existing.year}/${String(existing.month).padStart(2, '0')}%`);
+      }
+
+      const { error: delErr } = await adminClient.from('hr_payment_requests').delete().eq('id', prId);
+      if (delErr) throw new Error(delErr.message);
+
+      sendJson(res, 200, { ok: true });
       return true;
     }
 

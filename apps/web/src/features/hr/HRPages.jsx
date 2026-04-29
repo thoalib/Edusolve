@@ -1264,17 +1264,21 @@ export function ACIncentiveConfigPage() {
 function AssignCounselorLevelModal({ employee, onClose, onDone }) {
     const [levels, setLevels] = useState([]);
     const [selectedLevel, setSelectedLevel] = useState('');
+    const [paidLeaveQuota, setPaidLeaveQuota] = useState('0');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
         Promise.all([
             apiFetch('/hr/councilor-levels'),
-            apiFetch('/hr/councilor-profiles')
-        ]).then(([lvlRes, profRes]) => {
+            apiFetch('/hr/councilor-profiles'),
+            apiFetch('/hr/salary-structures')
+        ]).then(([lvlRes, profRes, salRes]) => {
             setLevels(lvlRes.items || []);
             const current = profRes.items?.find(p => p.user_id === employee.user_id);
             if (current) setSelectedLevel(current.level_id);
+            const existingSal = (salRes.items || []).find(s => s.employee_id === employee.id);
+            if (existingSal) setPaidLeaveQuota(String(existingSal.monthly_paid_leave_quota || '0'));
         }).finally(() => setLoading(false));
     }, []);
 
@@ -1286,6 +1290,11 @@ function AssignCounselorLevelModal({ employee, onClose, onDone }) {
                 method: 'POST',
                 body: JSON.stringify({ user_id: employee.user_id, level_id: selectedLevel })
             });
+            // Also save paid leave quota into salary structure
+            await apiFetch('/hr/salary-structures', {
+                method: 'POST',
+                body: JSON.stringify({ employee_id: employee.id, monthly_paid_leave_quota: Number(paidLeaveQuota) || 0 })
+            });
             onDone();
         } catch (err) { alert(err.message); }
         finally { setSaving(false); }
@@ -1294,7 +1303,7 @@ function AssignCounselorLevelModal({ employee, onClose, onDone }) {
     return (
         <div style={overlayStyle}>
             <div style={modalStyle}>
-                <h3>Assign Counselor Level</h3>
+                <h3>Counselor Level & Leave</h3>
                 <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>{employee.full_name}</p>
                 {loading ? <p>Loading...</p> : (
                     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1308,9 +1317,21 @@ function AssignCounselorLevelModal({ employee, onClose, onDone }) {
                                 ))}
                             </select>
                         </label>
+                        <label style={labelStyle}>Monthly Paid Leave Quota (Days)
+                            <input
+                                type="number" step="0.1" min="0"
+                                value={paidLeaveQuota}
+                                onChange={e => setPaidLeaveQuota(e.target.value)}
+                                style={inputStyle}
+                                placeholder="e.g. 1.5"
+                            />
+                        </label>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: -6 }}>
+                            Absent days up to this quota will be treated as paid for salary calculation.
+                        </div>
                         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
                             <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
-                            <button type="submit" disabled={saving || !selectedLevel} style={btnPrimary}>{saving ? 'Saving...' : 'Assign Level'}</button>
+                            <button type="submit" disabled={saving || !selectedLevel} style={btnPrimary}>{saving ? 'Saving...' : 'Save'}</button>
                         </div>
                     </form>
                 )}
@@ -1706,18 +1727,7 @@ export function SalaryCalculatorPage() {
                             )}
                         </div>
                     )}
-                    {activeTab === 'employees' && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, borderLeft: '1px solid var(--line)', paddingLeft: 12 }}>
-                            <span style={{ fontSize: 13, color: 'var(--muted)' }}>Working Days:</span>
-                            <input
-                                type="number"
-                                value={workingDaysOverride !== null ? workingDaysOverride : autoWorkingDays}
-                                onChange={e => setWorkingDaysOverride(Number(e.target.value))}
-                                style={{ width: 55, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line)', textAlign: 'center', fontSize: 13 }}
-                                min="0" max="31"
-                            />
-                        </div>
-                    )}
+
                 </div>
             </div>
 
@@ -1754,16 +1764,18 @@ export function SalaryCalculatorPage() {
 
                                     const att = attendanceMap[emp.id] || { present: 0, half_day: 0, leave: 0, absent: 0 };
                                     const monthlyQuota = salaryMap[emp.id] ? Number(salaryMap[emp.id].monthly_paid_leave_quota || 0) : 0;
-                                    const coveredByQuota = Math.min(att.absent || 0, monthlyQuota);
+                                    const leaveDays = att.leave || 0;
+                                    const absentDays = att.absent || 0;
 
-                                    // Subtraction Method: Holidays reduce the wd target, presence counts normally
-                                    const holidayCount = att.leave || 0;
-                                    const wd = Math.max(1, (workingDaysOverride !== null ? workingDaysOverride : autoWorkingDays) - holidayCount);
-                                    const presentDays = att.present + (att.half_day * 0.5) + coveredByQuota;
+                                    // Working days per employee = base WD - their leave/holiday days
+                                    const wd = Math.max(1, autoWorkingDays - leaveDays);
+                                    // Quota only covers absents
+                                    const coveredAbsents = Math.min(absentDays, monthlyQuota);
+                                    const presentDays = att.present + (att.half_day * 0.5) + coveredAbsents;
 
                                     let calcNet = 0;
-                                    if (presentDays === 0) {
-                                        calcNet = Math.round(gross - deductions);
+                                    if (presentDays === 0 && absentDays === 0 && leaveDays === 0) {
+                                        calcNet = Math.round(gross - deductions); // no attendance marked = full salary
                                     } else {
                                         const proRatedGross = wd > 0 ? (gross * presentDays / wd) : 0;
                                         calcNet = Math.round(proRatedGross - deductions);
@@ -1787,8 +1799,8 @@ export function SalaryCalculatorPage() {
                                                 </div>
                                             </td>
                                             <td style={{ textAlign: 'center' }}>
-                                                <div title="Absences covered by quota" style={{ color: coveredByQuota > 0 ? 'var(--success)' : 'var(--muted)', fontSize: 13, fontWeight: 600 }}>
-                                                    +{coveredByQuota}
+                                                <div title="Absences covered by quota" style={{ color: coveredAbsents > 0 ? 'var(--success)' : 'var(--muted)', fontSize: 13, fontWeight: 600 }}>
+                                                    +{coveredAbsents}
                                                 </div>
                                                 <div style={{ fontSize: 10, color: 'var(--muted)' }}>Quota: {monthlyQuota}</div>
                                             </td>
@@ -1847,15 +1859,20 @@ export function SalaryCalculatorPage() {
                                     const levelTarget = cLevel ? Number(cLevel.target_amount) : 0;
                                     const levelIncentivePct = cLevel ? Number(cLevel.incentive_percentage) : 0;
 
-                                    const att = attendanceMap[emp.id] || { present: 0, half_day: 0, leave: 0 };
+                                    const att = attendanceMap[emp.id] || { present: 0, half_day: 0, leave: 0, absent: 0 };
                                     const monthlyQuota = salaryMap[emp.id] ? Number(salaryMap[emp.id].monthly_paid_leave_quota || 0) : 0;
-                                    const coveredByQuota = Math.min(att.absent || 0, monthlyQuota);
-                                    const presentDays = att.present + (att.half_day * 0.5) + coveredByQuota;
-                                    const wd = Math.max(1, (workingDaysOverride !== null ? workingDaysOverride : autoWorkingDays) - (att.leave || 0));
+                                    const leaveDays = att.leave || 0;
+                                    const absentDays = att.absent || 0;
+
+                                    // Working days per employee = base WD - their leave/holiday days
+                                    const wd = Math.max(1, autoWorkingDays - leaveDays);
+                                    // Quota only covers absents
+                                    const coveredAbsents = Math.min(absentDays, monthlyQuota);
+                                    const presentDays = att.present + (att.half_day * 0.5) + coveredAbsents;
 
                                     let payableBasic = 0;
-                                    if (presentDays === 0) {
-                                        payableBasic = levelBasic; // Full if no attendance marked yet
+                                    if (presentDays === 0 && absentDays === 0 && leaveDays === 0) {
+                                        payableBasic = levelBasic; // no attendance marked = full salary
                                     } else {
                                         payableBasic = wd > 0 ? Math.round(levelBasic * presentDays / wd) : 0;
                                     }
@@ -1897,8 +1914,8 @@ export function SalaryCalculatorPage() {
                                                 </div>
                                             </td>
                                             <td style={{ textAlign: 'center' }}>
-                                                <div title="Absences covered by quota" style={{ color: coveredByQuota > 0 ? 'var(--success)' : 'var(--muted)', fontSize: 13, fontWeight: 600 }}>
-                                                    +{coveredByQuota}
+                                                <div title="Absences covered by quota" style={{ color: coveredAbsents > 0 ? 'var(--success)' : 'var(--muted)', fontSize: 13, fontWeight: 600 }}>
+                                                    +{coveredAbsents}
                                                 </div>
                                                 <div style={{ fontSize: 10, color: 'var(--muted)' }}>Quota: {monthlyQuota}</div>
                                             </td>
@@ -1966,15 +1983,20 @@ export function SalaryCalculatorPage() {
                                     const deductions = sal ? Number(sal.pf_deduction) + Number(sal.tax_deduction) + Number(sal.other_deduction) : 0;
                                     const gross = base + hra + allowances;
 
-                                    const att = attendanceMap[emp.id] || { present: 0, half_day: 0, leave: 0 };
+                                    const att = attendanceMap[emp.id] || { present: 0, half_day: 0, leave: 0, absent: 0 };
                                     const monthlyQuota = salaryMap[emp.id] ? Number(salaryMap[emp.id].monthly_paid_leave_quota || 0) : 0;
-                                    const coveredByQuota = Math.min(att.absent || 0, monthlyQuota);
-                                    const presentDays = att.present + (att.half_day * 0.5) + coveredByQuota;
-                                    const wd = Math.max(1, (workingDaysOverride !== null ? workingDaysOverride : autoWorkingDays) - (att.leave || 0));
+                                    const leaveDays = att.leave || 0;
+                                    const absentDays = att.absent || 0;
+
+                                    // Working days per employee = base WD - their leave/holiday days
+                                    const wd = Math.max(1, autoWorkingDays - leaveDays);
+                                    // Quota only covers absents
+                                    const coveredAbsents = Math.min(absentDays, monthlyQuota);
+                                    const presentDays = att.present + (att.half_day * 0.5) + coveredAbsents;
 
                                     let calcNet = 0;
-                                    if (presentDays === 0) {
-                                        calcNet = Math.round(gross - deductions);
+                                    if (presentDays === 0 && absentDays === 0 && leaveDays === 0) {
+                                        calcNet = Math.round(gross - deductions); // no attendance marked = full salary
                                     } else {
                                         const proRatedGross = wd > 0 ? (gross * presentDays / wd) : 0;
                                         calcNet = Math.round(proRatedGross - deductions);
@@ -2006,8 +2028,8 @@ export function SalaryCalculatorPage() {
                                                 </div>
                                             </td>
                                             <td style={{ textAlign: 'center' }}>
-                                                <div title="Absences covered by quota" style={{ color: coveredByQuota > 0 ? 'var(--success)' : 'var(--muted)', fontSize: 13, fontWeight: 600 }}>
-                                                    +{coveredByQuota}
+                                                <div title="Absences covered by quota" style={{ color: coveredAbsents > 0 ? 'var(--success)' : 'var(--muted)', fontSize: 13, fontWeight: 600 }}>
+                                                    +{coveredAbsents}
                                                 </div>
                                                 <div style={{ fontSize: 10, color: 'var(--muted)' }}>Quota: {monthlyQuota}</div>
                                             </td>
@@ -2778,6 +2800,9 @@ export function HRPaymentRequestsPage() {
     const [loading, setLoading] = useState(true);
     const [monthOffset, setMonthOffset] = useState(0);
     const [selectedRequest, setSelectedRequest] = useState(null);
+    const [editRequest, setEditRequest] = useState(null);
+    const [page, setPage] = useState(1);
+    const PAGE_SIZE = 15;
 
     const getMonthYearString = (offset) => {
         const d = new Date();
@@ -2787,16 +2812,30 @@ export function HRPaymentRequestsPage() {
 
     const currentMY = getMonthYearString(monthOffset);
 
-    useEffect(() => {
+    function load() {
         setLoading(true);
+        setPage(1);
         apiFetch(`/hr/payment-requests?month=${currentMY.month}&year=${currentMY.year}`)
             .then(r => setRequests(r.items || []))
             .catch(() => { })
             .finally(() => setLoading(false));
-    }, [currentMY.month, currentMY.year]);
+    }
+
+    useEffect(() => { load(); }, [currentMY.month, currentMY.year]);
+
+    async function handleDelete(req) {
+        if (!window.confirm(`Delete payment request for ${req.employees?.full_name || req.teacher_profiles?.users?.full_name}? This cannot be undone.`)) return;
+        try {
+            await apiFetch(`/hr/payment-requests/${req.id}`, { method: 'DELETE' });
+            load();
+        } catch (err) { alert(err.message); }
+    }
 
     const statusColors = { pending: '#f59e0b', approved: '#22c55e', rejected: '#ef4444', paid: '#8b5cf6' };
     const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    const totalPages = Math.max(1, Math.ceil(requests.length / PAGE_SIZE));
+    const pagedRequests = requests.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
     return (
         <section className="panel">
@@ -2812,75 +2851,197 @@ export function HRPaymentRequestsPage() {
 
             <div className="card">
                 {loading ? <div style={{ padding: 24 }}>Loading...</div> : (
-                    <div className="table-wrap">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Staff/Teacher</th>
-                                    <th>Type</th>
-                                    <th>Period</th>
-                                    <th>Calculated Amount</th>
-                                    <th>Adjustment</th>
-                                    <th>Total Payable</th>
-                                    <th>Status</th>
-                                    <th>Submitted At</th>
-                                    <th>HR Note</th>
-                                    <th>Finance Note</th>
-                                    <th></th> {/* For the Details button */}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {requests.map((req, idx) => {
-                                    const name = req.target_type === 'teacher' ? (req.teacher_profiles?.users?.full_name || 'Unknown Teacher') : (req.employees?.full_name || 'Unknown Employee');
-                                    const typeLabel = req.target_type === 'teacher' ? 'Teacher' : 'Staff';
-                                    const calcAmount = req.breakdown?.base_calculated || 0;
-                                    const adjustment = req.breakdown?.adjustment || 0;
+                    <>
+                        <div className="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Staff/Teacher</th>
+                                        <th>Type</th>
+                                        <th>Period</th>
+                                        <th>Calculated Amount</th>
+                                        <th>Adjustment</th>
+                                        <th>Total Payable</th>
+                                        <th>Status</th>
+                                        <th>Submitted At</th>
+                                        <th>HR Note</th>
+                                        <th>Finance Note</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {pagedRequests.map((req, idx) => {
+                                        const name = req.target_type === 'teacher' ? (req.teacher_profiles?.users?.full_name || 'Unknown Teacher') : (req.employees?.full_name || 'Unknown Employee');
+                                        const typeLabel = req.target_type === 'teacher' ? 'Teacher' : 'Staff';
+                                        const calcAmount = req.breakdown?.base_calculated || 0;
+                                        const adjustment = req.breakdown?.adjustment || 0;
+                                        const isPending = req.status === 'pending';
+                                        const globalIdx = (page - 1) * PAGE_SIZE + idx + 1;
 
-                                    return (
-                                        <tr key={req.id}>
-                                            <td>{idx + 1}</td>
-                                            <td><div style={{ fontWeight: 500 }}>{name}</div></td>
-                                            <td>
-                                                <span style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: req.target_type === 'teacher' ? 'rgba(139, 92, 246, 0.1)' : 'rgba(59, 130, 246, 0.1)', color: req.target_type === 'teacher' ? '#8b5cf6' : '#3b82f6', fontWeight: 600 }}>
-                                                    {typeLabel}
-                                                </span>
-                                            </td>
-                                            <td>{monthNames[req.month]} {req.year}</td>
-                                            <td style={{ color: '#64748b' }}>₹{Number(calcAmount).toLocaleString()}</td>
-                                            <td style={{ color: adjustment < 0 ? '#ef4444' : (adjustment > 0 ? '#22c55e' : '#94a3b8'), fontWeight: adjustment !== 0 ? 600 : 400 }}>
-                                                {adjustment !== 0 ? (adjustment > 0 ? `+₹${Number(adjustment).toLocaleString()}` : `-₹${Math.abs(Number(adjustment)).toLocaleString()}`) : '—'}
-                                            </td>
-                                            <td style={{ fontWeight: 700, color: '#10233f' }}>₹{Number(req.total_amount).toLocaleString()}</td>
-                                            <td>
-                                                <span style={{
-                                                    padding: '4px 10px', borderRadius: 20, fontSize: 12,
-                                                    background: (statusColors[req.status] || '#666') + '22',
-                                                    color: statusColors[req.status] || '#94a3b8',
-                                                    fontWeight: 600
-                                                }}>
-                                                    {req.status}
-                                                </span>
-                                            </td>
-                                            <td style={{ fontSize: 13, color: '#64748b' }}>{new Date(req.created_at).toLocaleDateString('en-IN')}</td>
-                                            <td style={{ fontSize: 13, maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={req.hr_note}>{req.hr_note || '—'}</td>
-                                            <td style={{ fontSize: 13, maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={req.finance_note}>{req.finance_note || '—'}</td>
-                                            <td>
-                                                <button onClick={() => setSelectedRequest(req)} className="secondary small">Details</button>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                                {requests.length === 0 && (
-                                    <tr><td colSpan={12} style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>No individual payment requests yet. Submit from the Salary Calculator.</td></tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
+                                        return (
+                                            <tr key={req.id}>
+                                                <td>{globalIdx}</td>
+                                                <td><div style={{ fontWeight: 500 }}>{name}</div></td>
+                                                <td>
+                                                    <span style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: req.target_type === 'teacher' ? 'rgba(139, 92, 246, 0.1)' : 'rgba(59, 130, 246, 0.1)', color: req.target_type === 'teacher' ? '#8b5cf6' : '#3b82f6', fontWeight: 600 }}>
+                                                        {typeLabel}
+                                                    </span>
+                                                </td>
+                                                <td>{monthNames[req.month]} {req.year}</td>
+                                                <td style={{ color: '#64748b' }}>₹{Number(calcAmount).toLocaleString()}</td>
+                                                <td style={{ color: adjustment < 0 ? '#ef4444' : (adjustment > 0 ? '#22c55e' : '#94a3b8'), fontWeight: adjustment !== 0 ? 600 : 400 }}>
+                                                    {adjustment !== 0 ? (adjustment > 0 ? `+₹${Number(adjustment).toLocaleString()}` : `-₹${Math.abs(Number(adjustment)).toLocaleString()}`) : '—'}
+                                                </td>
+                                                <td style={{ fontWeight: 700, color: '#10233f' }}>₹{Number(req.total_amount).toLocaleString()}</td>
+                                                <td>
+                                                    <span style={{
+                                                        padding: '4px 10px', borderRadius: 20, fontSize: 12,
+                                                        background: (statusColors[req.status] || '#666') + '22',
+                                                        color: statusColors[req.status] || '#94a3b8',
+                                                        fontWeight: 600
+                                                    }}>
+                                                        {req.status}
+                                                    </span>
+                                                </td>
+                                                <td style={{ fontSize: 13, color: '#64748b' }}>{new Date(req.created_at).toLocaleDateString('en-IN')}</td>
+                                                <td style={{ fontSize: 13, maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={req.hr_note}>{req.hr_note || '—'}</td>
+                                                <td style={{ fontSize: 13, maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={req.finance_note}>{req.finance_note || '—'}</td>
+                                                <td>
+                                                    <div style={{ display: 'flex', gap: 6 }}>
+                                                        <button onClick={() => setSelectedRequest(req)} className="secondary small">Details</button>
+                                                        {isPending && (
+                                                            <>
+                                                                <button onClick={() => setEditRequest(req)} className="secondary small" style={{ color: 'var(--primary)', borderColor: 'var(--primary)' }}>Edit</button>
+                                                                <button onClick={() => handleDelete(req)} className="secondary small" style={{ color: '#ef4444', borderColor: '#ef4444' }}>Delete</button>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                    {requests.length === 0 && (
+                                        <tr><td colSpan={12} style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>No individual payment requests yet. Submit from the Salary Calculator.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Pagination controls */}
+                        {totalPages > 1 && (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderTop: '1px solid var(--line)', marginTop: 4 }}>
+                                <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                                    Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, requests.length)} of {requests.length} requests
+                                </span>
+                                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                    <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="secondary small">← Prev</button>
+                                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                                        <button
+                                            key={p}
+                                            onClick={() => setPage(p)}
+                                            className={p === page ? 'primary small' : 'secondary small'}
+                                            style={{ minWidth: 32 }}
+                                        >{p}</button>
+                                    ))}
+                                    <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="secondary small">Next →</button>
+                                </div>
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
             {selectedRequest && <RequestDetailsModal request={selectedRequest} onClose={() => setSelectedRequest(null)} />}
+            {editRequest && <EditPaymentRequestModal request={editRequest} onClose={() => setEditRequest(null)} onDone={() => { setEditRequest(null); load(); }} />}
         </section>
+    );
+}
+
+function EditPaymentRequestModal({ request, onClose, onDone }) {
+    const name = request.target_type === 'teacher'
+        ? (request.teacher_profiles?.users?.full_name || 'Unknown Teacher')
+        : (request.employees?.full_name || 'Unknown Employee');
+
+    const baseCalculated = Number(request.breakdown?.base_calculated || request.total_amount);
+    const existingAdjustment = Number(request.breakdown?.adjustment || 0);
+
+    const [adjustment, setAdjustment] = useState(String(existingAdjustment));
+    const [hrNote, setHrNote] = useState(request.hr_note || '');
+    const [saving, setSaving] = useState(false);
+
+    const adjNum = Number(adjustment) || 0;
+    const newTotal = Math.max(0, baseCalculated + adjNum);
+
+    async function submit(e) {
+        e.preventDefault();
+        setSaving(true);
+        try {
+            await apiFetch(`/hr/payment-requests/${request.id}`, {
+                method: 'PATCH',
+                body: JSON.stringify({
+                    total_amount: newTotal,
+                    adjustment: adjNum,
+                    hr_note: hrNote
+                })
+            });
+            onDone();
+        } catch (err) { alert(err.message); }
+        finally { setSaving(false); }
+    }
+
+    return (
+        <div style={overlayStyle}>
+            <div style={{ ...modalStyle, maxWidth: 440 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                    <h3 style={{ margin: 0 }}>Edit Payment Request</h3>
+                    <button onClick={onClose} className="secondary small">✕</button>
+                </div>
+                <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>{name} — {request.month}/{request.year}</p>
+                <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+                    {/* Base calculated — read only */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid var(--line)' }}>
+                        <span style={{ fontSize: 13, color: 'var(--muted)' }}>Base Calculated</span>
+                        <span style={{ fontWeight: 600 }}>₹{baseCalculated.toLocaleString()}</span>
+                    </div>
+
+                    {/* Adjustment input */}
+                    <label style={labelStyle}>
+                        Adjustment (₹)
+                        <input
+                            type="number" step="1"
+                            value={adjustment}
+                            onChange={e => setAdjustment(e.target.value)}
+                            style={inputStyle}
+                            placeholder="e.g. -500 or +1000"
+                        />
+                        <span style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Use negative to deduct, positive to add</span>
+                    </label>
+
+                    {/* Live total preview */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 14px', background: adjNum < 0 ? '#fef2f2' : adjNum > 0 ? '#f0fdf4' : '#f8fafc', borderRadius: 8, border: `1px solid ${adjNum < 0 ? '#fca5a5' : adjNum > 0 ? '#86efac' : 'var(--line)'}` }}>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>New Total Payable</span>
+                        <span style={{ fontWeight: 700, fontSize: 16, color: adjNum < 0 ? '#ef4444' : adjNum > 0 ? '#22c55e' : '#10233f' }}>
+                            ₹{newTotal.toLocaleString()}
+                            {adjNum !== 0 && <span style={{ fontSize: 12, fontWeight: 400, marginLeft: 8 }}>({adjNum > 0 ? '+' : ''}₹{adjNum.toLocaleString()})</span>}
+                        </span>
+                    </div>
+
+                    <label style={labelStyle}>
+                        HR Note
+                        <textarea
+                            value={hrNote} onChange={e => setHrNote(e.target.value)}
+                            rows={3} style={{ ...inputStyle, resize: 'vertical' }}
+                            placeholder="Optional note for finance team..."
+                        />
+                    </label>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+                        <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
+                        <button type="submit" disabled={saving} style={btnPrimary}>{saving ? 'Saving...' : 'Save Changes'}</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     );
 }
 

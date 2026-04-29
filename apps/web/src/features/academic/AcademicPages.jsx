@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef, Fragment } from 'rea
 import { apiFetch, API_BASE_URL } from '../../lib/api.js';
 import { toLocalISO } from '../../lib/dateUtils.js';
 import { PhoneInput } from '../../components/PhoneInput.jsx';
-import { ReceiptModal } from '../finance/InvoiceTemplate.jsx';
+import { ReceiptModal, GenerateInvoiceModal } from '../finance/InvoiceTemplate.jsx';
 import { MultiSelectDropdown } from '../../components/ui/MultiSelectDropdown.jsx';
 import { getSession } from '../../lib/auth.js';
 import { EditPaymentRequestModal } from '../leads/LeadsPages.jsx';
@@ -3149,6 +3149,8 @@ export function NewStudentPipelinePage() {
   const [myInstallments, setMyInstallments] = useState([]);
   const [loadingMyInstallments, setLoadingMyInstallments] = useState(false);
   const [receiptItem, setReceiptItem] = useState(null);
+  const [showGenerateInvoice, setShowGenerateInvoice] = useState(false);
+  const [docFormat, setDocFormat] = useState('receipt');
   const [editingRequest, setEditingRequest] = useState(null);
 
   const session = getSession();
@@ -3238,12 +3240,18 @@ export function NewStudentPipelinePage() {
       {error ? <p className="error">{error}</p> : null}
 
       {/* Tabs */}
-      <div className="tabs-row" style={{ marginBottom: '8px', flexWrap: 'nowrap', overflowX: 'auto', paddingBottom: '4px' }}>
-        {[{ key: 'requests', label: 'Verification Requests' }, { key: 'pending', label: 'Pending Payments' }].map(t => (
-          <button key={t.key} type="button" className={`tab-btn ${pageView === t.key ? 'active' : ''}`} onClick={() => setPageView(t.key)} style={{ whiteSpace: 'nowrap' }}>
-            {t.label}
-          </button>
-        ))}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+        <div className="tabs-row" style={{ flexWrap: 'nowrap', overflowX: 'auto', paddingBottom: '4px', margin: 0, border: 'none' }}>
+          {[{ key: 'requests', label: 'Verification Requests' }, { key: 'pending', label: 'Pending Payments' }].map(t => (
+            <button key={t.key} type="button" className={`tab-btn ${pageView === t.key ? 'active' : ''}`} onClick={() => setPageView(t.key)} style={{ whiteSpace: 'nowrap' }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <button
+          style={{ flexShrink: 0, padding: '8px 12px', fontSize: '13px', whiteSpace: 'nowrap', background: '#f0fdf4', border: '1px solid #86efac', color: '#15803d', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+          onClick={() => setShowGenerateInvoice(true)}
+        >📄 Generate Invoice</button>
       </div>
 
       {/* ═══ Tab: Pending Payments ═══ */}
@@ -3316,10 +3324,16 @@ export function NewStudentPipelinePage() {
                               <td data-label="Submitted" style={{ fontSize: '12px', color: '#6b7280' }}>{new Date(inst.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                               <td data-label="Doc">
                                 {inst.status === 'verified' && (
-                                  <button
-                                    onClick={() => setReceiptItem({ leads: { student_name: inst.student_name, contact_number: inst.contact_number || '—' }, amount: inst.amount, total_amount: inst.amount, hours: null, finance_note: inst.finance_note, created_at: inst.created_at, updated_at: inst.created_at, id: inst.id })}
-                                    style={{ fontSize: '11px', padding: '3px 10px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
-                                  >🧾 Receipt</button>
+                                  <div style={{ display: 'flex', gap: '4px' }}>
+                                    <button
+                                      onClick={() => { setReceiptItem({ leads: { student_name: inst.student_name, contact_number: inst.contact_number || '—' }, amount: inst.amount, total_amount: inst.amount, hours: null, finance_note: inst.finance_note, created_at: inst.created_at, updated_at: inst.created_at, id: inst.id }); setDocFormat('receipt'); }}
+                                      style={{ fontSize: '11px', padding: '3px 10px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
+                                    >🧾 Receipt</button>
+                                    <button
+                                      onClick={() => { setReceiptItem({ leads: { student_name: inst.student_name, contact_number: inst.contact_number || '—' }, amount: inst.amount, total_amount: inst.amount, hours: null, finance_note: inst.finance_note, created_at: inst.created_at, updated_at: inst.created_at, id: inst.id }); setDocFormat('invoice'); }}
+                                      style={{ fontSize: '11px', padding: '3px 10px', background: '#e0e7ff', border: '1px solid #a5b4fc', color: '#4338ca', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
+                                    >📄 Invoice</button>
+                                  </div>
                                 )}
                               </td>
                             </tr>
@@ -3412,7 +3426,10 @@ export function NewStudentPipelinePage() {
                       </td>
                       <td data-label="Actions">
                         {r.status === 'verified' && (
-                          <button onClick={() => setReceiptItem(r)} style={{ fontSize: '11px', padding: '3px 10px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>🧾 Receipt</button>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button onClick={() => { setReceiptItem(r); setDocFormat('receipt'); }} style={{ fontSize: '11px', padding: '3px 10px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>🧾 Receipt</button>
+                            <button onClick={() => { setReceiptItem(r); setDocFormat('invoice'); }} style={{ fontSize: '11px', padding: '3px 10px', background: '#e0e7ff', border: '1px solid #a5b4fc', color: '#4338ca', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>📄 Invoice</button>
+                          </div>
                         )}
                         {canModify(r) && (
                           <div style={{ display: 'flex', gap: '4px', marginTop: r.status === 'verified' ? '4px' : '0' }}>
@@ -3443,7 +3460,8 @@ export function NewStudentPipelinePage() {
         />
       )}
 
-      {receiptItem && <ReceiptModal payment={receiptItem} type="payment" onClose={() => setReceiptItem(null)} />}
+      {showGenerateInvoice && <GenerateInvoiceModal context="student" onClose={() => setShowGenerateInvoice(false)} />}
+      {receiptItem && <ReceiptModal payment={receiptItem} type="payment" docFormat={docFormat} onClose={() => setReceiptItem(null)} />}
     </section>
   );
 }
@@ -5070,6 +5088,8 @@ export function TopUpsPage() {
   const [myInstallments, setMyInstallments] = useState([]);
   const [loadingMyInstallments, setLoadingMyInstallments] = useState(false);
   const [receiptItem, setReceiptItem] = useState(null);
+  const [showGenerateInvoice, setShowGenerateInvoice] = useState(false);
+  const [docFormat, setDocFormat] = useState('receipt');
   const [submitting, setSubmitting] = useState(false);
   const [editingRequest, setEditingRequest] = useState(null);
 
@@ -5175,7 +5195,14 @@ export function TopUpsPage() {
   return (
     <section className="panel">
       {error ? <p className="error">{error}</p> : null}
-      <article className="card"><h3>Create Top-Up</h3>
+      <article className="card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ margin: 0 }}>Create Top-Up</h3>
+          <button
+            style={{ padding: '8px 12px', fontSize: '13px', whiteSpace: 'nowrap', background: '#f0fdf4', border: '1px solid #86efac', color: '#15803d', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+            onClick={() => setShowGenerateInvoice(true)}
+          >📄 Generate Invoice</button>
+        </div>
         {pendingWarning && (
           <div style={{ padding: '12px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', marginBottom: '16px', opacity: submitting ? 0.7 : 1 }}>
             <h4 style={{ margin: 0, color: '#d97706', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -5238,7 +5265,10 @@ export function TopUpsPage() {
                     <td data-label="Date">{new Date(r.created_at).toLocaleDateString('en-IN')}</td>
                     <td data-label="Actions">
                       {r.status === 'verified' && (
-                        <button onClick={() => setReceiptItem(r)} style={{ fontSize: '11px', padding: '3px 8px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>🧾 Receipt</button>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button onClick={() => { setReceiptItem(r); setDocFormat('receipt'); }} style={{ fontSize: '11px', padding: '3px 8px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>🧾 Receipt</button>
+                          <button onClick={() => { setReceiptItem(r); setDocFormat('invoice'); }} style={{ fontSize: '11px', padding: '3px 8px', background: '#e0e7ff', border: '1px solid #a5b4fc', color: '#4338ca', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>📄 Invoice</button>
+                        </div>
                       )}
                       {canModify(r) && (
                         <div style={{ display: 'flex', gap: '4px', marginTop: r.status === 'verified' ? '4px' : '0' }}>
@@ -5298,10 +5328,16 @@ export function TopUpsPage() {
                               <td style={{ fontSize: '12px', color: '#6b7280' }}>{new Date(inst.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                               <td>
                                 {inst.status === 'verified' && (
-                                  <button 
-                                    onClick={() => setReceiptItem({ students: { student_name: inst.student_name, contact_number: '—' }, amount: inst.amount, total_amount: inst.amount, hours: null, finance_note: inst.finance_note, created_at: inst.created_at, updated_at: inst.created_at, id: inst.id })}
-                                    style={{ fontSize: '11px', padding: '3px 10px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
-                                  >🧾 Receipt</button>
+                                  <div style={{ display: 'flex', gap: '4px' }}>
+                                    <button 
+                                      onClick={() => { setReceiptItem({ students: { student_name: inst.student_name, contact_number: '—' }, amount: inst.amount, total_amount: inst.amount, hours: null, finance_note: inst.finance_note, created_at: inst.created_at, updated_at: inst.created_at, id: inst.id }); setDocFormat('receipt'); }}
+                                      style={{ fontSize: '11px', padding: '3px 10px', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
+                                    >🧾 Receipt</button>
+                                    <button 
+                                      onClick={() => { setReceiptItem({ students: { student_name: inst.student_name, contact_number: '—' }, amount: inst.amount, total_amount: inst.amount, hours: null, finance_note: inst.finance_note, created_at: inst.created_at, updated_at: inst.created_at, id: inst.id }); setDocFormat('invoice'); }}
+                                      style={{ fontSize: '11px', padding: '3px 10px', background: '#e0e7ff', border: '1px solid #a5b4fc', color: '#4338ca', borderRadius: '5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
+                                    >📄 Invoice</button>
+                                  </div>
                                 )}
                               </td>
                             </tr>
@@ -5334,7 +5370,8 @@ export function TopUpsPage() {
         />
       )}
       
-      {receiptItem && <ReceiptModal payment={receiptItem} type="topup" onClose={() => setReceiptItem(null)} />}
+      {showGenerateInvoice && <GenerateInvoiceModal context="student" onClose={() => setShowGenerateInvoice(false)} />}
+      {receiptItem && <ReceiptModal payment={receiptItem} type="topup" docFormat={docFormat} onClose={() => setReceiptItem(null)} />}
     </section>
   );
 }

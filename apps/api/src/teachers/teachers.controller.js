@@ -1022,7 +1022,7 @@ export async function handleTeachers(req, res, url) {
       const { full_name } = payload;
       
       // Fields allowed for self-edit after onboarding
-      const selfAllowedAfterOnboarding = ['gender', 'dob', 'address', 'pincode', 'city', 'place', 'meeting_link'];
+      const selfAllowedAfterOnboarding = ['phone', 'gender', 'dob', 'address', 'pincode', 'city', 'place', 'meeting_link'];
       
       // Fields allowed during onboarding (includes professional and bank details)
       const onboardingAllowed = [
