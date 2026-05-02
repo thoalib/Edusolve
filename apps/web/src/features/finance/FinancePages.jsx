@@ -867,6 +867,10 @@ function LedgerPage({ type, party, onBack }) {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [filterType, setFilterType] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const PAGE_SIZE = 50;
 
   useEffect(() => {
@@ -879,14 +883,14 @@ function LedgerPage({ type, party, onBack }) {
   const isStudent = type === 'students';
   const isPayroll = type === 'teachers' || type === 'employees';
 
-  // Compute summary
+  // Compute summary using full 4-way formulas
   const totalReceivable = history.filter(r => r.__type === 'receivable').reduce((s, r) => s + Number(r.amount), 0);
   const totalReceived = history.filter(r => r.__type === 'income').reduce((s, r) => s + Number(r.amount), 0);
-  const outstanding = totalReceivable - totalReceived;
-
   const totalPayable = history.filter(r => r.__type === 'payable').reduce((s, r) => s + Number(r.amount), 0);
   const totalExpense = history.filter(r => r.__type === 'expense').reduce((s, r) => s + Number(r.amount), 0);
-  const balanceOwed = totalPayable - totalExpense;
+  
+  const outstanding = totalReceivable + totalExpense - totalReceived - totalPayable;
+  const balanceOwed = totalPayable + totalReceived - totalExpense - totalReceivable;
 
   // Running balance: sort so payable/receivable come before expense/income on the same date
   const typePriority = { receivable: 0, payable: 0, income: 1, expense: 1 };
@@ -896,18 +900,33 @@ function LedgerPage({ type, party, onBack }) {
     return (typePriority[a.__type] || 0) - (typePriority[b.__type] || 0);
   });
   let runningBalance = 0;
-  const rows = sorted.map(row => {
-    if (type === 'others') {
-      if (row.__type === 'expense') runningBalance += Number(row.amount);
+  const allRows = sorted.map(row => {
+    if (isStudent) {
+      if (row.__type === 'receivable') runningBalance += Number(row.amount);
+      else if (row.__type === 'expense') runningBalance += Number(row.amount);
       else if (row.__type === 'income') runningBalance -= Number(row.amount);
+      else if (row.__type === 'payable') runningBalance -= Number(row.amount);
     } else {
-      if (row.__type === 'income') runningBalance -= Number(row.amount);
-      else if (row.__type === 'receivable') runningBalance += Number(row.amount);
-      else if (row.__type === 'payable') runningBalance += Number(row.amount);
+      if (row.__type === 'payable') runningBalance += Number(row.amount);
+      else if (row.__type === 'income') runningBalance += Number(row.amount);
       else if (row.__type === 'expense') runningBalance -= Number(row.amount);
+      else if (row.__type === 'receivable') runningBalance -= Number(row.amount);
     }
     return { ...row, runningBalance };
   }).reverse();
+
+  const filteredRows = allRows.filter(r => {
+    if (dateFrom && r.date.split('T')[0] < dateFrom) return false;
+    if (dateTo && r.date.split('T')[0] > dateTo) return false;
+    if (filterType !== 'all' && r.__type !== filterType) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const desc = (r.description || '').toLowerCase();
+      const amt = String(r.amount);
+      if (!desc.includes(q) && !amt.includes(q)) return false;
+    }
+    return true;
+  });
 
   const typeStyle = {
     income: { bg: '#dcfce7', color: '#166534', label: 'Payment' },
@@ -916,8 +935,8 @@ function LedgerPage({ type, party, onBack }) {
     expense: { bg: '#fee2e2', color: '#991b1b', label: 'Paid Out' },
   };
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-  const paginatedRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const paginatedRows = filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <section className="panel" style={{ animation: 'fade-in 0.2s ease-out' }}>
@@ -958,14 +977,46 @@ function LedgerPage({ type, party, onBack }) {
             <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 700, color: '#15803d' }}>₹{totalExpense.toLocaleString('en-IN')}</p>
           </div>
           <div style={{ background: balanceOwed > 0 ? '#fee2e2' : '#dcfce7', borderRadius: '8px', padding: '12px', textAlign: 'center' }}>
-            <p style={{ margin: 0, fontSize: '11px', color: balanceOwed > 0 ? '#991b1b' : '#166534', fontWeight: 600 }}>BALANCE OWED</p>
-            <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 700, color: balanceOwed > 0 ? '#dc2626' : '#15803d' }}>₹{balanceOwed.toLocaleString('en-IN')}</p>
+            <p style={{ margin: 0, fontSize: '11px', color: balanceOwed > 0 ? '#991b1b' : '#166534', fontWeight: 600 }}>
+              {balanceOwed > 0 ? 'TO BE PAID' : balanceOwed < 0 ? 'OVERPAID (ADVANCE)' : 'NET DUE'}
+            </p>
+            <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 700, color: balanceOwed > 0 ? '#dc2626' : '#15803d' }}>
+              ₹{Math.abs(balanceOwed).toLocaleString('en-IN')}
+            </p>
           </div>
         </div>
       )}
 
       {loading ? <p>Loading ledger...</p> : (
         <article className="card" style={{ padding: '16px' }}>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'nowrap', marginBottom: '16px', alignItems: 'center', overflowX: 'auto', whiteSpace: 'nowrap', paddingBottom: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+              <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1); }} style={{ padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }} title="From Date" />
+              <span style={{ color: '#6b7280', fontSize: '13px' }}>to</span>
+              <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1); }} style={{ padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }} title="To Date" />
+            </div>
+            
+            <select value={filterType} onChange={e => { setFilterType(e.target.value); setPage(1); }} style={{ padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', outline: 'none', flexShrink: 0, width: '130px' }}>
+              <option value="all">All Types</option>
+              {isStudent && <option value="receivable">Receivable</option>}
+              {isPayroll && <option value="payable">Payable</option>}
+              <option value={isStudent ? 'income' : 'expense'}>{isStudent ? 'Payment Received' : 'Paid Out'}</option>
+              {type === 'others' && (
+                <>
+                  <option value="receivable">Receivable</option>
+                  <option value="payable">Payable</option>
+                  <option value="income">Payment Received</option>
+                  <option value="expense">Paid Out</option>
+                </>
+              )}
+            </select>
+            
+            <input type="text" placeholder="Search..." value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setPage(1); }} style={{ padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', width: '150px', flexShrink: 0 }} />
+            
+            {(dateFrom || dateTo || filterType !== 'all' || searchQuery) && (
+              <button onClick={() => { setDateFrom(''); setDateTo(''); setFilterType('all'); setSearchQuery(''); setPage(1); }} style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline', flexShrink: 0 }}>Clear Filters</button>
+            )}
+          </div>
           <div className="table-wrap mobile-friendly-table">
             <table>
               <thead><tr><th>Date</th><th>Type</th><th>Description</th><th style={{ textAlign: 'right' }}>Amount</th><th style={{ textAlign: 'right' }}>Balance</th></tr></thead>
@@ -990,8 +1041,8 @@ function LedgerPage({ type, party, onBack }) {
                   </tr>
                 );
               })}
-                {!rows.length ? <tr><td colSpan="5" style={{ textAlign: 'center' }}>No ledger entries found.</td></tr> : null}
-                {rows.length > 0 && totalPages > 1 && (
+                {!filteredRows.length ? <tr><td colSpan="5" style={{ textAlign: 'center' }}>No ledger entries found matching filters.</td></tr> : null}
+                {filteredRows.length > 0 && totalPages > 1 && (
                   <tr>
                     <td colSpan={5} style={{ padding: '16px 0 0' }}>
                       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
@@ -1202,17 +1253,11 @@ export function PartiesPage() {
                     <th style={{ textAlign: 'right' }}>Received</th>
                     <th style={{ textAlign: 'right' }}>Outstanding</th>
                   </>
-                ) : (activeTab === 'teachers' || activeTab === 'employees') ? (
+                ) : (
                   <>
                     <th style={{ textAlign: 'right' }}>Total Payable</th>
                     <th style={{ textAlign: 'right' }}>Paid</th>
-                    <th style={{ textAlign: 'right' }}>Balance Owed</th>
-                  </>
-                ) : (
-                  <>
-                    <th style={{ textAlign: 'right' }}>Total Income</th>
-                    <th style={{ textAlign: 'right' }}>Total Expense</th>
-                    <th style={{ textAlign: 'right' }}>Net Balance</th>
+                    <th style={{ textAlign: 'right' }}>Net Due</th>
                   </>
                 )}
                 <th style={{ textAlign: 'center' }}>Action</th>
@@ -1250,19 +1295,13 @@ export function PartiesPage() {
                             ₹{Number(p.outstanding || 0).toLocaleString('en-IN')}
                           </td>
                         </>
-                      ) : (activeTab === 'teachers' || activeTab === 'employees') ? (
+                      ) : (
                         <>
                           <td data-label="Total Payable" style={{ textAlign: 'right' }}>₹{Number(p.total_payable || 0).toLocaleString('en-IN')}</td>
                           <td data-label="Paid" style={{ color: '#15803d', fontWeight: 600, textAlign: 'right' }}>₹{Number(p.total_paid || p.total_expense || 0).toLocaleString('en-IN')}</td>
-                          <td data-label="Balance Owed" style={{ fontWeight: 700, textAlign: 'right', color: Number(p.balance_owed || 0) > 0 ? '#dc2626' : '#15803d' }}>
-                            ₹{Number(p.balance_owed || 0).toLocaleString('en-IN')}
+                          <td data-label="Net Due" style={{ fontWeight: 700, textAlign: 'right', color: Number(p.balance_owed || p.balance || 0) > 0 ? '#dc2626' : '#15803d' }}>
+                            {Number(p.balance_owed || p.balance || 0) < 0 ? '(Advance) ' : ''}₹{Math.abs(Number(p.balance_owed || p.balance || 0)).toLocaleString('en-IN')}
                           </td>
-                        </>
-                      ) : (
-                        <>
-                          <td data-label="Income" style={{ color: '#15803d', textAlign: 'right' }}>₹{Number(p.total_income || 0).toLocaleString('en-IN')}</td>
-                          <td data-label="Expense" style={{ color: '#dc2626', textAlign: 'right' }}>₹{Number(p.total_expense || 0).toLocaleString('en-IN')}</td>
-                          <td data-label="Net Balance" style={{ fontWeight: 700, textAlign: 'right' }}>₹{Number(p.balance || 0).toLocaleString('en-IN')}</td>
                         </>
                       )}
                       <td data-label="Action" style={{ textAlign: 'center' }}>

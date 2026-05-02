@@ -298,7 +298,15 @@ export async function calculateAllTeacherSalaries(month, year) {
       total_hours: Math.round(totalHours * 100) / 100,
       total_salary: Math.round(totalSalary * 100) / 100,
       breakdown_by_subject: breakdownBySubject,
-      breakdown_by_level: breakdownByLevel
+      breakdown_by_level: breakdownByLevel,
+      bank_details: {
+        account_holder_name: t.account_holder_name || '',
+        account_number: t.account_number || '',
+        ifsc_code: t.ifsc_code || '',
+        gpay_holder_name: t.gpay_holder_name || '',
+        gpay_number: t.gpay_number || '',
+        upi_id: t.upi_id || ''
+      }
     };
   });
 

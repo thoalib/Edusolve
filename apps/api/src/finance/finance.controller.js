@@ -743,9 +743,9 @@ export async function handleFinance(req, res, url) {
             total_receivable: receivable,
             total_payable: payable,
             total_expense: expense,
-            balance: expense - income,                // for parties: net = what we spent - what they gave back
-            outstanding: receivable - income,        // for students: still owed to us
-            balance_owed: payable - expense           // for employees/teachers: we still owe them
+            balance: payable + income - expense - receivable, // for parties: Net Due (like employees)
+            outstanding: receivable + expense - income - payable, // for students: still owed to us
+            balance_owed: payable + income - expense - receivable  // for employees/teachers: we owe them
           };
         });
       };
@@ -787,12 +787,18 @@ export async function handleFinance(req, res, url) {
             adminClient.from('expenses').select('teacher_id, amount').in('teacher_id', allIds)
           ]);
           const payableTotals2 = {};
+          const incomeTotals2 = {};
+          const receivableTotals2 = {};
           (ledgersRes.data || []).forEach(l => {
             if (!l.teacher_id) return;
             const uid = idToUserId[l.teacher_id];
             if (!uid) return;
             if (l.entry_type === 'payable') {
               payableTotals2[uid] = (payableTotals2[uid] || 0) + Number(l.amount || 0);
+            } else if (l.entry_type === 'income') {
+              incomeTotals2[uid] = (incomeTotals2[uid] || 0) + Number(l.amount || 0);
+            } else if (l.entry_type === 'receivable') {
+              receivableTotals2[uid] = (receivableTotals2[uid] || 0) + Number(l.amount || 0);
             }
           });
           const expenseTotals = {};
@@ -809,7 +815,7 @@ export async function handleFinance(req, res, url) {
             teacher_code: p.teacher_code || '',
             total_payable: payableTotals2[p.user_id] || 0,
             total_paid: expenseTotals[p.user_id] || 0,
-            balance_owed: (payableTotals2[p.user_id] || 0) - (expenseTotals[p.user_id] || 0)
+            balance_owed: (payableTotals2[p.user_id] || 0) + (incomeTotals2[p.user_id] || 0) - (expenseTotals[p.user_id] || 0) - (receivableTotals2[p.user_id] || 0)
           }));
         }
         sendJson(res, 200, { ok: true, items });
