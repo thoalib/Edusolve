@@ -859,11 +859,13 @@ export async function handleHR(req, res, url) {
       const attList = attRes.data || [];
 
       // Fetch employee info for counselor check
-      const { data: empInfo } = await adminClient.from('employees').select('user_id').eq('id', payload.employeeId).single();
+      const { data: empInfo } = await adminClient.from('employees').select('user_id, designation, department').eq('id', payload.employeeId).single();
+
+      const isCounselor = empInfo && ((empInfo.designation || '').toLowerCase().includes('counselor') || (empInfo.department || '').toLowerCase().includes('sales'));
 
       // Check if employee is a counselor with a level — default to Level 1
       let counselorLevel = null;
-      if (empInfo?.user_id) {
+      if (empInfo?.user_id && isCounselor) {
         const { data: cProf } = await adminClient
           .from('councilor_profiles')
           .select('*, councilor_levels(*)')
@@ -909,13 +911,15 @@ export async function handleHR(req, res, url) {
       });
       const leaveDays = leaveDates.size;
 
-      let baseSalary = sal ? Number(sal.base_salary) : 0;
+      let baseSalary = sal ? Number(sal.base_salary || 0) : 0;
       // Override basic salary from counselor level if applicable
       if (counselorLevel) {
         baseSalary = Number(counselorLevel.basic_salary);
       }
 
-      const totalAllowances = sal ? Number(sal.hra) + Number(sal.transport_allowance) + Number(sal.other_allowance) : 0;
+      const totalAllowances = sal ? Number(sal.hra || 0) + Number(sal.transport_allowance || 0) + Number(sal.other_allowance || 0) : 0;
+      const grossSalary = baseSalary + totalAllowances;
+      const totalDeductions = sal ? Number(sal.pf_deduction || 0) + Number(sal.tax_deduction || 0) + Number(sal.other_deduction || 0) : 0;
       const monthlyQuota = sal ? Number(sal.monthly_paid_leave_quota || 0) : 0;
 
       // Paid leave quota only covers absents
@@ -1051,9 +1055,9 @@ export async function handleHR(req, res, url) {
             working_days: finalWorkingDays,
             present_days: present,
             half_days: half_day,
-            leave_days: holidayCount,
+            leave_days: leaveDays,
             absent_days: absent,
-            quota_covered_leaves: coveredByQuota,
+            quota_covered_leaves: coveredAbsents,
             base_salary: baseSalary,
             total_allowances: totalAllowances,
             total_deductions: totalDeductions,
@@ -1089,7 +1093,7 @@ export async function handleHR(req, res, url) {
 
       const { data, error } = await adminClient
         .from('hr_payment_requests')
-        .select('*, employees(id, full_name), teacher_profiles(id, user_id, users!teacher_profiles_user_id_fkey(id, full_name, phone))')
+        .select('*, employees(id, full_name), teacher_profiles(id, user_id, account_holder_name, account_number, ifsc_code, gpay_holder_name, gpay_number, upi_id, users!teacher_profiles_user_id_fkey(id, full_name, phone))')
         .eq('year', year)
         .eq('month', month)
         .order('created_at', { ascending: false });

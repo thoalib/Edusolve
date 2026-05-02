@@ -3,6 +3,66 @@ import { apiFetch } from '../../lib/api.js';
 import { toLocalISO } from '../../lib/dateUtils.js';
 import { PhoneInput, isValidEmail } from '../../components/PhoneInput.jsx';
 
+function exportToCSV(filename, rows) {
+    if (!rows || rows.length === 0) return;
+    
+    // Ensure .csv extension
+    const finalFilename = filename.toLowerCase().endsWith('.csv') ? filename : `${filename}.csv`;
+
+    const headers = Object.keys(rows[0]);
+    const csvData = [
+        headers.join(','),
+        ...rows.map(row => 
+            headers.map(header => {
+                const val = row[header] !== null && row[header] !== undefined ? String(row[header]) : '';
+                return `"${val.replace(/"/g, '""')}"`;
+            }).join(',')
+        )
+    ].join('\n');
+
+    const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', finalFilename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+function ExportModal({ defaultFilename, rows, onClose }) {
+    const [filename, setFilename] = useState(defaultFilename.replace('.csv', ''));
+
+    function handleConfirm() {
+        if (!filename.trim()) return;
+        exportToCSV(filename, rows);
+        onClose();
+    }
+
+    return (
+        <div className="modal-overlay" onClick={onClose} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px', width: '100%', padding: '24px' }}>
+                <h2 style={{ fontSize: '18px', marginBottom: '16px', color: '#10233f' }}>Export to Sheets</h2>
+                <div style={{ marginBottom: '20px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '8px' }}>Filename</label>
+                    <input 
+                        type="text" 
+                        value={filename}
+                        onChange={e => setFilename(e.target.value)}
+                        style={{ width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', outline: 'none' }}
+                        autoFocus
+                    />
+                    <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '6px' }}>The file will be saved as a .csv automatically.</div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                    <button className="secondary" onClick={onClose}>Cancel</button>
+                    <button className="primary" onClick={handleConfirm} style={{ background: '#10b981', color: 'white', border: 'none' }}>Download</button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 /* ═══════ HR DASHBOARD ═══════ */
 
 /** Tiny SVG donut chart — no external dependencies */
@@ -1527,6 +1587,8 @@ export function SalaryCalculatorPage() {
     const [counselorLevels, setCounselorLevels] = useState([]);
     const [counselorSalesMap, setCounselorSalesMap] = useState({});
     const [searchQuery, setSearchQuery] = useState('');
+    const [hideZero, setHideZero] = useState(false);
+    const [exportPayload, setExportPayload] = useState(null);
 
     const matchesSearch = (item) => {
         if (!searchQuery) return true;
@@ -1627,6 +1689,95 @@ export function SalaryCalculatorPage() {
         return map;
     }, [counselorProfiles]);
 
+    function handleExportSalaryData() {
+        if (activeTab === 'teachers') {
+            const rows = teacherReport.filter(matchesSearch).map(t => {
+                const pr = prMap.teacher[t.id];
+                const isSubmitted = !!pr;
+                const displayVal = isSubmitted ? pr.total_amount : (t.total_salary || 0);
+
+                if (hideZero && displayVal === 0) return null;
+
+                const bd = t.bank_details || {};
+                return {
+                    'Teacher Name': t.full_name,
+                    'Teacher Code': t.teacher_code || '',
+                    'Experience': (t.experience_level || '').replace(/_/g, ' '),
+                    'Total Hours': t.total_hours,
+                    'Total Salary (₹)': displayVal,
+                    'Status': isSubmitted ? 'Submitted' : 'Pending',
+                    'Account Holder': bd.account_holder_name || '',
+                    'Account No': bd.account_number || '',
+                    'IFSC': bd.ifsc_code || '',
+                    'GPay Name': bd.gpay_holder_name || '',
+                    'GPay Number': bd.gpay_number || '',
+                    'UPI ID': bd.upi_id || ''
+                };
+            }).filter(Boolean);
+            setExportPayload({ defaultFilename: `Teachers_Salary_${currentMY.label.replace(' ', '_')}.csv`, rows });
+        } else if (activeTab === 'employees') {
+            // Build for staff, counselors, acs
+            const rows = [];
+            employees.filter(e => e.is_active && matchesSearch(e)).forEach(emp => {
+                const pr = prMap.employee[emp.id];
+                const isSubmitted = !!pr;
+                const sal = salaryMap[emp.id];
+                const base = sal ? Number(sal.base_salary || 0) : 0;
+                const hra = sal ? Number(sal.hra || 0) : 0;
+                const allowances = sal ? Number(sal.transport_allowance || 0) + Number(sal.other_allowance || 0) : 0;
+                const deductions = sal ? Number(sal.pf_deduction || 0) + Number(sal.tax_deduction || 0) + Number(sal.other_deduction || 0) : 0;
+                const gross = base + hra + allowances;
+
+                const att = attendanceMap[emp.id] || { present: 0, half_day: 0, leave: 0, absent: 0 };
+                const monthlyQuota = sal ? Number(sal.monthly_paid_leave_quota || 0) : 0;
+                const leaveDays = att.leave || 0;
+                const absentDays = att.absent || 0;
+                const wd = Math.max(1, autoWorkingDays - leaveDays);
+                const coveredAbsents = Math.min(absentDays, monthlyQuota);
+                const presentDays = att.present + (att.half_day * 0.5) + coveredAbsents;
+
+                let calcNet = 0;
+                if (presentDays === 0 && absentDays === 0 && leaveDays === 0) {
+                    calcNet = Math.round(gross - deductions);
+                } else {
+                    const proRatedGross = wd > 0 ? (gross * presentDays / wd) : 0;
+                    calcNet = Math.round(proRatedGross - deductions);
+                }
+
+                let displayNet = Math.max(0, calcNet);
+                let extraIncentive = 0;
+
+                // If Counselor or AC, add incentives
+                if (isCounselor(emp) || isAc(emp)) {
+                    if (isCounselor(emp)) {
+                        const level = assignLevelEmp?.id === emp.id ? assignLevelEmp.level : counselorProfileMap[emp.user_id]?.councilor_levels;
+                        if (level && counselorSalesMap[emp.user_id]) {
+                            const achieved = counselorSalesMap[emp.user_id];
+                            const extraSales = Math.max(0, achieved - Number(level.target_amount));
+                            extraIncentive = Math.round(extraSales * Number(level.incentive_percentage) / 100);
+                        }
+                    }
+                    displayNet = Math.max(0, calcNet + extraIncentive);
+                }
+
+                if (isSubmitted) displayNet = pr.total_amount;
+                if (hideZero && displayNet === 0) return;
+
+                rows.push({
+                    'Employee Name': emp.full_name,
+                    'Role': emp.designation || emp.employee_type || '',
+                    'Gross Salary (₹)': gross,
+                    'Deductions (₹)': deductions,
+                    'Attendance': `${presentDays} / ${wd}`,
+                    'Incentives (₹)': extraIncentive || 0,
+                    'Net Salary (₹)': displayNet,
+                    'Status': isSubmitted ? 'Submitted' : 'Pending'
+                });
+            });
+            setExportPayload({ defaultFilename: `Employees_Salary_${currentMY.label.replace(' ', '_')}.csv`, rows });
+        }
+    }
+
     async function handleSubmitRequest(e) {
         e.preventDefault();
         if (!confirmSubmit || submitting) return;
@@ -1709,13 +1860,19 @@ export function SalaryCalculatorPage() {
 
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                     {(activeTab === 'employees' || activeTab === 'teachers') && (
-                        <input 
-                            type="text" 
-                            placeholder="🔍 Name or ID..." 
-                            value={searchQuery} 
-                            onChange={e => setSearchQuery(e.target.value)}
-                            style={{ padding: '7px 12px', border: '1px solid var(--line)', borderRadius: '8px', fontSize: '13px', width: '180px' }} 
-                        />
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <input 
+                                type="text" 
+                                placeholder="🔍 Name or ID..." 
+                                value={searchQuery} 
+                                onChange={e => setSearchQuery(e.target.value)}
+                                style={{ padding: '7px 12px', border: '1px solid var(--line)', borderRadius: '8px', fontSize: '13px', width: '180px' }} 
+                            />
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', background: hideZero ? '#e0e7ff' : '#f1f5f9', padding: '6px 10px', borderRadius: 6, color: hideZero ? '#4338ca' : '#475569', fontWeight: 500 }}>
+                                <input type="checkbox" checked={hideZero} onChange={e => setHideZero(e.target.checked)} style={{ margin: 0, accentColor: '#4f46e5' }} />
+                                Hide 0 Pay
+                            </label>
+                        </div>
                     )}
                     {(activeTab === 'employees' || activeTab === 'teachers') && (
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -1725,6 +1882,9 @@ export function SalaryCalculatorPage() {
                             {teacherMonthOffset !== 0 && (
                                 <button onClick={() => setTeacherMonthOffset(0)} className="secondary small" style={{ marginLeft: 4 }}>Today</button>
                             )}
+                            <button onClick={handleExportSalaryData} className="primary small" style={{ marginLeft: 8, background: '#10b981', color: 'white', border: 'none' }}>
+                                Export to Sheets
+                            </button>
                         </div>
                     )}
 
@@ -1751,7 +1911,9 @@ export function SalaryCalculatorPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {employees.filter(e => e.is_active && isStaff(e) && matchesSearch(e)).map((emp, idx) => {
+                                {(() => {
+                                    let rowIdx = 0;
+                                    return employees.filter(e => e.is_active && isStaff(e) && matchesSearch(e)).map((emp) => {
                                     const pr = prMap.employee[emp.id];
                                     const isSubmitted = !!pr;
 
@@ -1783,9 +1945,12 @@ export function SalaryCalculatorPage() {
 
                                     const net = isSubmitted ? pr.total_amount : Math.max(0, calcNet);
 
+                                    if (hideZero && net === 0) return null;
+                                    const currentIdx = rowIdx++;
+
                                     return (
                                         <tr key={emp.id}>
-                                            <td>{idx + 1}</td>
+                                            <td>{currentIdx + 1}</td>
                                             <td>
                                                 <div style={{ fontWeight: 500 }}>{emp.full_name}</div>
                                                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>{emp.designation || ''}</div>
@@ -1819,7 +1984,8 @@ export function SalaryCalculatorPage() {
                                             </td>
                                         </tr>
                                     );
-                                })}
+                                    });
+                                })()}
                                 {employees.filter(e => e.is_active && isStaff(e) && matchesSearch(e)).length === 0 && (
                                     <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}>No staff employees match</td></tr>
                                 )}
@@ -1834,20 +2000,23 @@ export function SalaryCalculatorPage() {
                             <thead>
                                 <tr>
                                     <th>#</th>
-                                    <th>Counselor</th>
+                                    <th>Counselor Name</th>
                                     <th>Level</th>
-                                    <th>Basic Salary</th>
+                                    <th>Gross (₹)</th>
                                     <th>Target (₹)</th>
+                                    <th>Deductions</th>
                                     <th style={{ textAlign: 'center' }}>Attendance</th>
                                     <th style={{ textAlign: 'center' }}>Leve Adj.</th>
-                                    <th>Payable Basic</th>
+                                    <th>Pro-rated Pay</th>
                                     <th>Incentive</th>
                                     <th>Total Net</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {employees.filter(e => e.is_active && isCounselor(e) && matchesSearch(e)).map((emp, idx) => {
+                                {(() => {
+                                    let rowIdx = 0;
+                                    return employees.filter(e => e.is_active && isCounselor(e) && matchesSearch(e)).map((emp) => {
                                     const pr = prMap.employee[emp.id];
                                     const isSubmitted = !!pr;
 
@@ -1859,8 +2028,14 @@ export function SalaryCalculatorPage() {
                                     const levelTarget = cLevel ? Number(cLevel.target_amount) : 0;
                                     const levelIncentivePct = cLevel ? Number(cLevel.incentive_percentage) : 0;
 
+                                    const sal = salaryMap[emp.id];
+                                    const hra = sal ? Number(sal.hra) : 0;
+                                    const allowances = sal ? Number(sal.transport_allowance) + Number(sal.other_allowance) : 0;
+                                    const deductions = sal ? Number(sal.pf_deduction) + Number(sal.tax_deduction) + Number(sal.other_deduction) : 0;
+                                    const gross = levelBasic + hra + allowances;
+
+                                    const monthlyQuota = sal ? Number(sal.monthly_paid_leave_quota || 0) : 0;
                                     const att = attendanceMap[emp.id] || { present: 0, half_day: 0, leave: 0, absent: 0 };
-                                    const monthlyQuota = salaryMap[emp.id] ? Number(salaryMap[emp.id].monthly_paid_leave_quota || 0) : 0;
                                     const leaveDays = att.leave || 0;
                                     const absentDays = att.absent || 0;
 
@@ -1870,11 +2045,12 @@ export function SalaryCalculatorPage() {
                                     const coveredAbsents = Math.min(absentDays, monthlyQuota);
                                     const presentDays = att.present + (att.half_day * 0.5) + coveredAbsents;
 
-                                    let payableBasic = 0;
+                                    let calcNet = 0;
                                     if (presentDays === 0 && absentDays === 0 && leaveDays === 0) {
-                                        payableBasic = levelBasic; // no attendance marked = full salary
+                                        calcNet = Math.round(gross - deductions);
                                     } else {
-                                        payableBasic = wd > 0 ? Math.round(levelBasic * presentDays / wd) : 0;
+                                        const proRatedGross = wd > 0 ? (gross * presentDays / wd) : 0;
+                                        calcNet = Math.round(proRatedGross - deductions);
                                     }
 
                                     // For submitted ones, show the submitted breakdown
@@ -1891,11 +2067,14 @@ export function SalaryCalculatorPage() {
                                         displayIncentive = Math.round(extraSales * levelIncentivePct / 100);
                                     }
 
-                                    const displayNet = isSubmitted ? pr.total_amount : (payableBasic + displayIncentive);
+                                    const displayNet = isSubmitted ? pr.total_amount : Math.max(0, calcNet + displayIncentive);
+
+                                    if (hideZero && displayNet === 0) return null;
+                                    const currentIdx = rowIdx++;
 
                                     return (
                                         <tr key={emp.id}>
-                                            <td>{idx + 1}</td>
+                                            <td>{currentIdx + 1}</td>
                                             <td>
                                                 <div style={{ fontWeight: 500 }}>{emp.full_name}</div>
                                                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>{emp.designation || ''}</div>
@@ -1905,8 +2084,9 @@ export function SalaryCalculatorPage() {
                                                     {cLevel ? cLevel.level_name : '—'}
                                                 </span>
                                             </td>
-                                            <td>₹{levelBasic.toLocaleString()}</td>
+                                            <td>₹{gross.toLocaleString()}</td>
                                             <td>₹{levelTarget.toLocaleString()}</td>
+                                            <td style={{ color: '#ef4444' }}>₹{deductions.toLocaleString()}</td>
                                             <td style={{ textAlign: 'center' }}>
                                                 <div style={{ fontWeight: 600 }}>{presentDays} / {wd}</div>
                                                 <div style={{ fontSize: 10, color: 'var(--muted)' }}>
@@ -1919,7 +2099,7 @@ export function SalaryCalculatorPage() {
                                                 </div>
                                                 <div style={{ fontSize: 10, color: 'var(--muted)' }}>Quota: {monthlyQuota}</div>
                                             </td>
-                                            <td>₹{payableBasic.toLocaleString()}</td>
+                                            <td>₹{calcNet.toLocaleString()}</td>
                                             <td>
                                                 <div style={{ fontWeight: 600, color: displayIncentive > 0 ? (isSubmitted ? 'var(--success)' : '#4f46e5') : 'var(--muted)' }}>
                                                     ₹{displayIncentive.toLocaleString()}
@@ -1936,16 +2116,17 @@ export function SalaryCalculatorPage() {
                                                     <span className="badge success" style={{ padding: '4px 8px', fontSize: 11, borderRadius: 12 }}>Submitted ✓</span>
                                                 ) : (
                                                     <div style={{ display: 'flex', gap: 6 }}>
-                                                        <button onClick={() => setAssignLevelEmp(emp)} className="secondary small" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}>
-                                                            Change Level
+                                                        <button onClick={() => setEditEmp(emp)} className={sal || cLevel ? "secondary small" : "primary small"} style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}>
+                                                            {sal || cLevel ? 'Edit Salary' : 'Set Salary'}
                                                         </button>
-                                                        <button onClick={() => setConfirmSubmit({ type: 'employee', data: { ...emp, calcNet: payableBasic, workingDays: wd, presentDays, levelBasic, levelTarget, displayAchieved, displayIncentive, roleType: 'counselor' } })} className="primary small">Submit</button>
+                                                        <button onClick={() => setConfirmSubmit({ type: 'employee', data: { ...emp, calcNet, workingDays: wd, presentDays, levelBasic, levelTarget, displayAchieved, displayIncentive, roleType: 'counselor', gross, deductions } })} className="primary small">Submit</button>
                                                     </div>
                                                 )}
                                             </td>
                                         </tr>
                                     );
-                                })}
+                                    });
+                                })()}
                                 {employees.filter(e => e.is_active && isCounselor(e) && matchesSearch(e)).length === 0 && (
                                     <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}>No counselors match</td></tr>
                                 )}
@@ -1972,7 +2153,9 @@ export function SalaryCalculatorPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {employees.filter(e => e.is_active && isAc(e) && matchesSearch(e)).map((emp, idx) => {
+                                {(() => {
+                                    let rowIdx = 0;
+                                    return employees.filter(e => e.is_active && isAc(e) && matchesSearch(e)).map((emp) => {
                                     const pr = prMap.employee[emp.id];
                                     const isSubmitted = !!pr;
 
@@ -2012,9 +2195,12 @@ export function SalaryCalculatorPage() {
 
                                     const displayNet = isSubmitted ? pr.total_amount : Math.max(0, calcNet);
 
+                                    if (hideZero && displayNet === 0) return null;
+                                    const currentIdx = rowIdx++;
+
                                     return (
                                         <tr key={emp.id}>
-                                            <td>{idx + 1}</td>
+                                            <td>{currentIdx + 1}</td>
                                             <td>
                                                 <div style={{ fontWeight: 500 }}>{emp.full_name}</div>
                                                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>{emp.designation || ''}</div>
@@ -2065,7 +2251,8 @@ export function SalaryCalculatorPage() {
                                             </td>
                                         </tr>
                                     );
-                                })}
+                                    });
+                                })()}
                                 {employees.filter(e => e.is_active && isAc(e) && matchesSearch(e)).length === 0 && (
                                     <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}>No academic coordinators match</td></tr>
                                 )}
@@ -2100,17 +2287,22 @@ export function SalaryCalculatorPage() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {teacherReport.filter(matchesSearch).map((t, idx) => {
-                                            const pr = prMap.teacher[t.id];
-                                            const isSubmitted = !!pr;
-                                            const displayVal = isSubmitted ? pr.total_amount : (t.total_salary || 0);
+                                        {(() => {
+                                            let rowIdx = 0;
+                                            return teacherReport.filter(matchesSearch).map((t) => {
+                                                const pr = prMap.teacher[t.id];
+                                                const isSubmitted = !!pr;
+                                                const displayVal = isSubmitted ? pr.total_amount : (t.total_salary || 0);
 
-                                            return (
-                                                <tr key={t.id} onClick={() => {
-                                                    if (pr && (pr.status === 'approved' || pr.status === 'paid')) return;
-                                                    setSelectedTeacher(t);
-                                                }} style={{ cursor: pr && (pr.status === 'approved' || pr.status === 'paid') ? 'default' : 'pointer' }}>
-                                                    <td>{idx + 1}</td>
+                                                if (hideZero && displayVal === 0) return null;
+                                                const currentIdx = rowIdx++;
+
+                                                return (
+                                                    <tr key={t.id} onClick={() => {
+                                                        if (pr && (pr.status === 'approved' || pr.status === 'paid')) return;
+                                                        setSelectedTeacher(t);
+                                                    }} style={{ cursor: pr && (pr.status === 'approved' || pr.status === 'paid') ? 'default' : 'pointer' }}>
+                                                        <td>{currentIdx + 1}</td>
                                                     <td>
                                                         <div style={{ fontWeight: 500 }}>{t.full_name}</div>
                                                         <div style={{ fontSize: 12, color: 'var(--muted)' }}>{t.teacher_code || 'No Code'}</div>
@@ -2128,8 +2320,9 @@ export function SalaryCalculatorPage() {
                                                         )}
                                                     </td>
                                                 </tr>
-                                            )
-                                        })}
+                                            );
+                                            });
+                                        })()}
                                         {teacherReport.filter(matchesSearch).length === 0 && (
                                             <tr>
                                                 <td colSpan={6} style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>No teachers match</td>
@@ -2307,6 +2500,14 @@ export function SalaryCalculatorPage() {
                     employee={assignLevelEmp}
                     onClose={() => setAssignLevelEmp(null)}
                     onDone={() => { setAssignLevelEmp(null); reload(); }}
+                />
+            )}
+
+            {exportPayload && (
+                <ExportModal
+                    defaultFilename={exportPayload.defaultFilename}
+                    rows={exportPayload.rows}
+                    onClose={() => setExportPayload(null)}
                 />
             )}
         </section >
@@ -2548,6 +2749,23 @@ function TeacherSalaryDetail({ teacher, month, year, onClose, onRatesUpdated }) 
 }
 
 function SalaryModal({ employee, existing, onClose, onDone }) {
+    const isCounselor = (employee.designation || '').toLowerCase().includes('counselor') || (employee.department || '').toLowerCase().includes('sales');
+    const [counselorLevelId, setCounselorLevelId] = useState('');
+    const [levels, setLevels] = useState([]);
+    
+    useEffect(() => {
+        if (isCounselor) {
+            Promise.all([
+                apiFetch('/hr/councilor-levels'),
+                apiFetch('/hr/councilor-profiles')
+            ]).then(([lvlRes, profRes]) => {
+                setLevels(lvlRes.items || []);
+                const current = profRes.items?.find(p => p.user_id === employee.user_id);
+                if (current) setCounselorLevelId(current.level_id);
+            });
+        }
+    }, [employee.user_id, isCounselor]);
+
     const [form, setForm] = useState({
         base_salary: existing?.base_salary || '',
         hra: existing?.hra || '',
@@ -2561,14 +2779,27 @@ function SalaryModal({ employee, existing, onClose, onDone }) {
     const [saving, setSaving] = useState(false);
     const upd = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
 
+    const selectedLvlObj = levels.find(l => l.id === counselorLevelId);
+    const displayBase = (isCounselor && selectedLvlObj) ? Number(selectedLvlObj.basic_salary) : Number(form.base_salary || 0);
+
     async function submit(e) {
         e.preventDefault();
         setSaving(true);
         try {
             await apiFetch('/hr/salary-structures', {
                 method: 'POST',
-                body: JSON.stringify({ employee_id: employee.id, ...form })
+                body: JSON.stringify({ 
+                    employee_id: employee.id, 
+                    ...form,
+                    base_salary: isCounselor && selectedLvlObj ? selectedLvlObj.basic_salary : form.base_salary 
+                })
             });
+            if (isCounselor && counselorLevelId) {
+                await apiFetch('/hr/councilor-profiles', {
+                    method: 'POST',
+                    body: JSON.stringify({ user_id: employee.user_id, level_id: counselorLevelId })
+                });
+            }
             onDone();
         } catch (err) {
             alert(err.message);
@@ -2577,7 +2808,7 @@ function SalaryModal({ employee, existing, onClose, onDone }) {
         }
     }
 
-    const gross = Number(form.base_salary || 0) + Number(form.hra || 0) + Number(form.transport_allowance || 0) + Number(form.other_allowance || 0);
+    const gross = displayBase + Number(form.hra || 0) + Number(form.transport_allowance || 0) + Number(form.other_allowance || 0);
     const deductions = Number(form.pf_deduction || 0) + Number(form.tax_deduction || 0) + Number(form.other_deduction || 0);
     const net = gross - deductions;
 
@@ -2587,8 +2818,20 @@ function SalaryModal({ employee, existing, onClose, onDone }) {
                 <h3 style={{ marginBottom: 4 }}>Salary Structure</h3>
                 <p style={{ color: '#64748b', marginBottom: 16, fontSize: 14 }}>{employee.full_name} — {employee.designation || 'No designation'}</p>
                 <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {isCounselor && (
+                        <label style={labelStyle}>Counselor Level
+                            <select value={counselorLevelId} onChange={e => setCounselorLevelId(e.target.value)} style={inputStyle}>
+                                <option value="">— Select Level —</option>
+                                {levels.map(lvl => (
+                                    <option key={lvl.id} value={lvl.id}>
+                                        {lvl.level_name} (Base: ₹{lvl.basic_salary})
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    )}
                     <label style={labelStyle}>Base Salary (₹)
-                        <input type="number" step="0.01" value={form.base_salary} onChange={e => upd('base_salary', e.target.value)} style={inputStyle} />
+                        <input type="number" step="0.01" value={isCounselor && selectedLvlObj ? selectedLvlObj.basic_salary : form.base_salary} onChange={e => upd('base_salary', e.target.value)} style={inputStyle} disabled={!!(isCounselor && selectedLvlObj)} />
                     </label>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                         <label style={labelStyle}>HRA (₹)
@@ -2802,6 +3045,9 @@ export function HRPaymentRequestsPage() {
     const [selectedRequest, setSelectedRequest] = useState(null);
     const [editRequest, setEditRequest] = useState(null);
     const [page, setPage] = useState(1);
+    const [filterType, setFilterType] = useState('all');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [exportPayload, setExportPayload] = useState(null);
     const PAGE_SIZE = 15;
 
     const getMonthYearString = (offset) => {
@@ -2831,21 +3077,77 @@ export function HRPaymentRequestsPage() {
         } catch (err) { alert(err.message); }
     }
 
+    function handleExportPaymentRequests() {
+        const rows = filteredRequests.map(r => {
+            const isTeacher = !!r.teacher_id;
+            const bd = isTeacher && r.teacher_profiles ? r.teacher_profiles : {};
+            return {
+                'ID': r.id,
+                'Name': r.employees?.full_name || r.teacher_profiles?.users?.full_name || 'Unknown',
+                'Type': isTeacher ? 'Teacher' : 'Employee',
+                'Status': r.status,
+                'Total Amount (₹)': r.total_amount,
+                'Adjustment (₹)': r.adjustment || 0,
+                'Calculated Payload (₹)': r.calculated_payload || 0,
+                'HR Note': r.hr_note || '',
+                'Created At': new Date(r.created_at).toLocaleString(),
+                // Bank Details
+                'Account Holder': bd.account_holder_name || '',
+                'Account No': bd.account_number || '',
+                'IFSC': bd.ifsc_code || '',
+                'GPay Name': bd.gpay_holder_name || '',
+                'GPay Number': bd.gpay_number || '',
+                'UPI ID': bd.upi_id || ''
+            };
+        });
+        setExportPayload({ defaultFilename: `Payment_Requests_${currentMY.label.replace(' ', '_')}.csv`, rows });
+    }
+
     const statusColors = { pending: '#f59e0b', approved: '#22c55e', rejected: '#ef4444', paid: '#8b5cf6' };
     const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-    const totalPages = Math.max(1, Math.ceil(requests.length / PAGE_SIZE));
-    const pagedRequests = requests.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    const filteredRequests = requests.filter(req => {
+        const typeMatch = filterType === 'all' || req.target_type === filterType;
+        if (!typeMatch) return false;
+
+        if (!searchQuery) return true;
+        
+        const lowerQuery = searchQuery.toLowerCase();
+        const name = req.target_type === 'teacher' ? (req.teacher_profiles?.users?.full_name || '') : (req.employees?.full_name || '');
+        const code = req.target_type === 'teacher' ? (req.teacher_profiles?.teacher_code || '') : (req.employees?.employee_code || '');
+
+        return name.toLowerCase().includes(lowerQuery) || code.toLowerCase().includes(lowerQuery);
+    });
+
+    const totalPages = Math.max(1, Math.ceil(filteredRequests.length / PAGE_SIZE));
+    const pagedRequests = filteredRequests.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
     return (
         <section className="panel">
-            <div className="card filters-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', marginBottom: 20 }}>
-                <h2 style={{ margin: 0, fontSize: '18px', color: '#10233f' }}>Payment Requests to Finance</h2>
+            <div className="card filters-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', marginBottom: 20, gap: '16px', overflowX: 'auto', whiteSpace: 'nowrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                    <h2 style={{ margin: 0, fontSize: '18px', color: '#10233f', marginRight: '8px' }}>Payment Requests</h2>
+                    <select value={filterType} onChange={e => { setFilterType(e.target.value); setPage(1); }} style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #d1d5db', outline: 'none', fontSize: '13px' }}>
+                        <option value="all">All Types</option>
+                        <option value="teacher">Teachers</option>
+                        <option value="staff">Staff</option>
+                    </select>
+                    <input 
+                        type="text" 
+                        placeholder="Search Name or ID..." 
+                        value={searchQuery} 
+                        onChange={e => { setSearchQuery(e.target.value); setPage(1); }} 
+                        style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #d1d5db', outline: 'none', width: '200px', fontSize: '13px' }} 
+                    />
+                </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
                     <button onClick={() => setMonthOffset(o => o - 1)} className="secondary" style={{ padding: '4px 12px' }}>&larr; Prev</button>
                     <span style={{ fontWeight: 600, fontSize: 14 }}>{currentMY.label}</span>
                     <button onClick={() => setMonthOffset(o => o + 1)} className="secondary" style={{ padding: '4px 12px' }}>Next &rarr;</button>
+                    <button onClick={handleExportPaymentRequests} className="primary" style={{ padding: '4px 12px', background: '#10b981', color: 'white', border: 'none' }}>
+                        Export to Sheets
+                    </button>
                 </div>
             </div>
 
@@ -2953,6 +3255,14 @@ export function HRPaymentRequestsPage() {
             </div>
             {selectedRequest && <RequestDetailsModal request={selectedRequest} onClose={() => setSelectedRequest(null)} />}
             {editRequest && <EditPaymentRequestModal request={editRequest} onClose={() => setEditRequest(null)} onDone={() => { setEditRequest(null); load(); }} />}
+
+            {exportPayload && (
+                <ExportModal
+                    defaultFilename={exportPayload.defaultFilename}
+                    rows={exportPayload.rows}
+                    onClose={() => setExportPayload(null)}
+                />
+            )}
         </section>
     );
 }
