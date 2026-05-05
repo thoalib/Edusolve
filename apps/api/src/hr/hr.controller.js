@@ -370,9 +370,12 @@ export async function handleHR(req, res, url) {
       // Fetch approved sessions with student info
       const { data: verifications, error: vErr } = await adminClient
         .from('session_verifications')
-        .select('session_id, status, verified_at, academic_sessions!inner(id, teacher_id, duration_hours, session_date, subject, status, students(student_name, class_level, board))')
+        .select('session_id, status, new_duration, verified_at, academic_sessions!inner(id, teacher_id, duration_hours, session_date, subject, status, students(student_name, class_level, board))')
         .eq('type', 'approval')
-        .eq('status', 'approved');
+        .eq('status', 'approved')
+        .eq('academic_sessions.teacher_id', teacher.user_id)
+        .gte('academic_sessions.session_date', startDate)
+        .lte('academic_sessions.session_date', endDate);
       if (vErr) throw new Error(vErr.message);
 
       const { getRate, classToLevel, getRateConfig } = await import('./salary.service.js');
@@ -387,7 +390,7 @@ export async function handleHR(req, res, url) {
         const level = classToLevel(sess.students?.class_level);
         const studentBoard = sess.students?.board || '';
         const rate = getRate(teacher, studentBoard, sess.subject, level, config);
-        const hours = Number(sess.duration_hours || 0);
+        const hours = sv.new_duration !== null && sv.new_duration !== undefined ? Number(sv.new_duration) : Number(sess.duration_hours || 0);
 
         sessions.push({
           session_id: sess.id,
@@ -925,8 +928,8 @@ export async function handleHR(req, res, url) {
       // Paid leave quota only covers absents
       const coveredAbsents = Math.min(absent, monthlyQuota);
 
-      // Working days per employee = base WD - their own leave/holiday days
-      const finalWorkingDays = Math.max(1, workingDays - leaveDays);
+      // If workingDays is passed from frontend, it's already pro-rated (leaves subtracted)
+      const finalWorkingDays = payload.workingDays ? Number(payload.workingDays) : Math.max(1, workingDays - leaveDays);
       const effectiveDays = present + (half_day * 0.5) + coveredAbsents;
       let proRatedGross = 0;
       let calcNet = 0;
