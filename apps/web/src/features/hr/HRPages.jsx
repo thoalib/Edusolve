@@ -1589,6 +1589,7 @@ export function SalaryCalculatorPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [hideZero, setHideZero] = useState(false);
     const [exportPayload, setExportPayload] = useState(null);
+    const [acConfig, setAcConfig] = useState(null);
 
     const matchesSearch = (item) => {
         if (!searchQuery) return true;
@@ -1653,8 +1654,9 @@ export function SalaryCalculatorPage() {
             apiFetch(`/hr/attendance/report?month=${currentMY.month}&year=${currentMY.year}`),
             apiFetch('/hr/councilor-profiles'),
             apiFetch('/hr/councilor-levels'),
-            apiFetch(`/hr/councilors/sales-report?month=${currentMY.month}&year=${currentMY.year}`)
-        ]).then(([empRes, salRes, teachRes, prRes, attRes, cpRes, clRes, salesRes]) => {
+            apiFetch(`/hr/councilors/sales-report?month=${currentMY.month}&year=${currentMY.year}`),
+            apiFetch('/hr/ac-incentive-config')
+        ]).then(([empRes, salRes, teachRes, prRes, attRes, cpRes, clRes, salesRes, acConfigRes]) => {
             setEmployees(empRes.items || []);
             setSalaries(salRes.items || []);
             setTeacherReport(teachRes.items || []);
@@ -1665,6 +1667,7 @@ export function SalaryCalculatorPage() {
             setCounselorProfiles(cpRes.items || []);
             setCounselorLevels(clRes.items || []);
             setCounselorSalesMap(salesRes.report || {});
+            setAcConfig(acConfigRes.item || null);
         }).catch(() => { });
     }
 
@@ -1813,12 +1816,14 @@ export function SalaryCalculatorPage() {
 
     const isCounselor = (e) => {
         const d = e.designation?.toLowerCase() || '';
-        return d.includes('counselor') && !d.includes('head');
+        const dept = e.department?.toLowerCase() || '';
+        return (d.includes('counselor') || dept.includes('sales')) && !d.includes('head');
     };
 
     const isAc = (e) => {
         const d = e.designation?.toLowerCase() || '';
-        if (d.includes('teacher')) return false; // Exclude Teacher Coordinator
+        if (d.includes('teacher')) return false; 
+        if (isCounselor(e)) return false;
         return d.includes('academic') || d.includes('coordinator') || d.includes('cordinator');
     };
 
@@ -2191,9 +2196,13 @@ export function SalaryCalculatorPage() {
                                     if (isSubmitted) {
                                         displayAcMetrics = pr.breakdown?.details?.ac_incentive || null;
                                         displayIncentive = displayAcMetrics?.total_ac_incentive || 0;
+                                    } else if (acConfig) {
+                                        // Note: Real-time AC metrics are not fetched for performance, 
+                                        // so we show 0 or a note that it's added on submission
+                                        displayIncentive = 0; 
                                     }
 
-                                    const displayNet = isSubmitted ? pr.total_amount : Math.max(0, calcNet);
+                                    const displayNet = isSubmitted ? pr.total_amount : Math.max(0, calcNet + displayIncentive);
 
                                     if (hideZero && displayNet === 0) return null;
                                     const currentIdx = rowIdx++;

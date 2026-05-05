@@ -233,14 +233,31 @@ export async function calculateAllTeacherSalaries(month, year) {
 
   if (tErr) throw new Error(tErr.message);
 
-  // Fetch approved sessions with their student class_level and board
-  const { data: verifications, error: vErr } = await adminClient
-    .from('session_verifications')
-    .select('session_id, new_duration, academic_sessions!inner(id, teacher_id, duration_hours, session_date, subject, students(class_level, board))')
-    .eq('type', 'approval')
-    .eq('status', 'approved');
+  // Fetch approved sessions with their student class_level and board (with pagination)
+  let verifications = [];
+  let page = 0;
+  const PAGE_SIZE = 1000;
+  let hasMore = true;
 
-  if (vErr) throw new Error(vErr.message);
+  while (hasMore) {
+    const { data, error: vErr } = await adminClient
+      .from('session_verifications')
+      .select('session_id, new_duration, academic_sessions!inner(id, teacher_id, duration_hours, session_date, subject, students(class_level, board))')
+      .eq('type', 'approval')
+      .eq('status', 'approved')
+      .gte('academic_sessions.session_date', startDate)
+      .lte('academic_sessions.session_date', endDate)
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+    if (vErr) throw new Error(vErr.message);
+    if (!data || data.length === 0) {
+      hasMore = false;
+    } else {
+      verifications = verifications.concat(data);
+      if (data.length < PAGE_SIZE) hasMore = false;
+      page++;
+    }
+  }
 
   // Filter sessions to the target month
   const sessionsByTeacher = {};
@@ -249,13 +266,16 @@ export async function calculateAllTeacherSalaries(month, year) {
     if (!sess || !sess.teacher_id) return;
     if (sess.session_date < startDate || sess.session_date > endDate) return;
 
+    // Handle student as object or array
+    const studentInfo = Array.isArray(sess.students) ? sess.students[0] : sess.students;
+
     if (!sessionsByTeacher[sess.teacher_id]) sessionsByTeacher[sess.teacher_id] = [];
     const actualHours = sv.new_duration !== null && sv.new_duration !== undefined ? Number(sv.new_duration) : Number(sess.duration_hours || 0);
     sessionsByTeacher[sess.teacher_id].push({
       duration_hours: actualHours,
       subject: sess.subject || '_default',
-      class_level: sess.students?.class_level || '',
-      board: sess.students?.board || ''
+      class_level: studentInfo?.class_level || '',
+      board: studentInfo?.board || ''
     });
   });
 
