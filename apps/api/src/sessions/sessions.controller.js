@@ -42,26 +42,47 @@ export async function handleSessions(req, res, url) {
   const actor = actorFromHeaders(req);
 
   try {
+    async function fetchAllPaginated(buildQuery, maxLimit = 10000) {
+      let allData = [];
+      let page = 0;
+      const PAGE_SIZE = 1000;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await buildQuery().range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) {
+          hasMore = false;
+        } else {
+          allData = allData.concat(data);
+          if (data.length < PAGE_SIZE || allData.length >= maxLimit) hasMore = false;
+          page++;
+        }
+      }
+      return { data: allData, error: null };
+    }
+
     if (req.method === 'GET' && url.pathname === '/sessions/verification-queue') {
       if (!canViewSessionPages(actor)) {
         sendJson(res, 403, { ok: false, error: 'session queue access is not allowed for this role' });
         return true;
       }
 
-      let query = adminClient
-        .from('academic_sessions')
-        .select('*, students(student_code,student_name,academic_coordinator_id), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(id,type,status,reason,verified_at,new_date,new_time,new_duration,created_at)')
-        .eq('status', 'completed')
-        .order('session_date', { ascending: false })
-        .limit(2000);
-      const fromParam = url.searchParams.get('from');
-      const toParam = url.searchParams.get('to');
-      if (fromParam && toParam) {
-        query = query.gte('session_date', fromParam.includes('T') ? fromParam.split('T')[0] : fromParam)
-                     .lte('session_date', toParam.includes('T') ? toParam.split('T')[0] : toParam);
-      }
+      const buildQuery = () => {
+        let query = adminClient
+          .from('academic_sessions')
+          .select('*, students(student_code,student_name,academic_coordinator_id), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(id,type,status,reason,verified_at,new_date,new_time,new_duration,created_at)')
+          .eq('status', 'completed')
+          .order('session_date', { ascending: false });
+        const fromParam = url.searchParams.get('from');
+        const toParam = url.searchParams.get('to');
+        if (fromParam && toParam) {
+          query = query.gte('session_date', fromParam.includes('T') ? fromParam.split('T')[0] : fromParam)
+                       .lte('session_date', toParam.includes('T') ? toParam.split('T')[0] : toParam);
+        }
+        return query;
+      };
 
-      const { data, error } = await query;
+      const { data, error } = await fetchAllPaginated(buildQuery);
       if (error) throw new Error(error.message);
 
       // Only show sessions with pending approval-type verification
@@ -89,15 +110,25 @@ export async function handleSessions(req, res, url) {
         return true;
       }
 
-      const { data, error } = await adminClient
-        .from('session_verifications')
-        .select('*, academic_sessions:session_id(*, students(student_code,student_name,academic_coordinator_id), users!academic_sessions_teacher_id_fkey(id,full_name,email))')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false })
-        .limit(2000);
+      const buildQuery = () => {
+        let query = adminClient
+          .from('session_verifications')
+          .select('*, academic_sessions:session_id(*, students(student_code,student_name,academic_coordinator_id), users!academic_sessions_teacher_id_fkey(id,full_name,email))')
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false });
+
+        const fromParam = url.searchParams.get('from');
+        const toParam = url.searchParams.get('to');
+        if (fromParam && toParam) {
+          query = query.gte('created_at', (fromParam.includes('T') ? fromParam.split('T')[0] : fromParam) + 'T00:00:00.000Z')
+                       .lte('created_at', (toParam.includes('T') ? toParam.split('T')[0] : toParam) + 'T23:59:59.999Z');
+        }
+        return query;
+      };
+
+      const { data, error } = await fetchAllPaginated(buildQuery);
       if (error) throw new Error(error.message);
 
-      // Filter for reschedule type client-side (avoids schema cache issues with new column)
       let items = (data || []).filter(v => v.type === 'reschedule');
       // Coordinator filtering
       const requestedUserId = url.searchParams.get('user_id');
@@ -117,13 +148,22 @@ export async function handleSessions(req, res, url) {
         return true;
       }
 
-      let query = adminClient
-        .from('session_verifications')
-        .select('*, academic_sessions:session_id(id, session_date, started_at, subject, student_id, students(student_code, student_name, academic_coordinator_id), users!academic_sessions_teacher_id_fkey(full_name))')
-        .order('created_at', { ascending: false })
-        .limit(2000);
+      const buildQuery = () => {
+        let query = adminClient
+          .from('session_verifications')
+          .select('*, academic_sessions:session_id(id, session_date, started_at, duration_hours, subject, student_id, teacher_id, students(student_code, student_name, academic_coordinator_id), users!academic_sessions_teacher_id_fkey(full_name))')
+          .order('created_at', { ascending: false });
 
-      const { data, error } = await query;
+        const fromParam = url.searchParams.get('from');
+        const toParam = url.searchParams.get('to');
+        if (fromParam && toParam) {
+          query = query.gte('created_at', (fromParam.includes('T') ? fromParam.split('T')[0] : fromParam) + 'T00:00:00.000Z')
+                       .lte('created_at', (toParam.includes('T') ? toParam.split('T')[0] : toParam) + 'T23:59:59.999Z');
+        }
+        return query;
+      };
+
+      const { data, error } = await fetchAllPaginated(buildQuery);
       if (error) throw new Error(error.message);
 
       let items = data || [];
@@ -143,12 +183,13 @@ export async function handleSessions(req, res, url) {
         return true;
       }
 
-      const { data, error } = await adminClient
+      const buildQuery = () => adminClient
         .from('academic_sessions')
-        .select('*, students(student_code,student_name), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(status,reason,verified_at)')
+        .select('*, students(student_code,student_name), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(status,reason,verified_at,new_duration)')
         .eq('status', 'completed')
-        .order('session_date', { ascending: false })
-        .limit(2000);
+        .order('session_date', { ascending: false });
+
+      const { data, error } = await fetchAllPaginated(buildQuery);
       if (error) throw new Error(error.message);
 
       let items = (data || []).map((item) => ({
@@ -176,7 +217,7 @@ export async function handleSessions(req, res, url) {
 
       let query = adminClient
         .from('academic_sessions')
-        .select('*, students!inner(student_code,student_name,academic_coordinator_id), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(status,reason,verified_at)');
+        .select('*, students!inner(student_code,student_name,academic_coordinator_id), users!academic_sessions_teacher_id_fkey(id,full_name,email), session_verifications(status,reason,verified_at,new_duration)');
 
       if (startDate) query = query.gte('session_date', startDate);
       if (endDate) query = query.lte('session_date', endDate);
@@ -190,8 +231,8 @@ export async function handleSessions(req, res, url) {
       }
 
 
-      const { data, error } = await (async () => {
-        let q = query.order('session_date', { ascending: false }).limit(2000);
+      const buildQuery = () => {
+        let q = query.order('session_date', { ascending: false });
         const requestedUserId = url.searchParams.get('user_id');
         
         if (isAC(actor)) {
@@ -200,7 +241,9 @@ export async function handleSessions(req, res, url) {
           q = q.eq('students.academic_coordinator_id', requestedUserId);
         }
         return q;
-      })();
+      };
+
+      const { data, error } = await fetchAllPaginated(buildQuery);
 
       if (error) throw new Error(error.message);
 
@@ -333,11 +376,11 @@ export async function handleSessions(req, res, url) {
         const newSessionStatus = approved ? 'completed' : 'scheduled';
 
         let sessionUpdate = { status: newSessionStatus, updated_at: nowIso() };
-        const duration = payload.override_duration ? Number(payload.override_duration) : Number(session.duration_hours || 0);
-
-        // Always update duration_hours on approval to ensure consistency across all tables/dashboards
-        if (approved) {
-          sessionUpdate.duration_hours = duration;
+        let duration = Number(session.duration_hours || 0);
+        if (payload.override_duration) {
+            duration = Number(payload.override_duration);
+        } else if (existing.new_duration !== null && existing.new_duration !== undefined) {
+            duration = Number(existing.new_duration);
         }
 
         const { error: sessUpdateErr } = await adminClient.from('academic_sessions').update(sessionUpdate).eq('id', sessionId);
@@ -490,6 +533,71 @@ export async function handleSessions(req, res, url) {
     }
 
     // ── Delete session (AC / super_admin) ──
+    if (req.method === 'PUT' && url.pathname === '/sessions/edit-verification') {
+      if (!['academic_coordinator', 'super_admin'].includes(actor.role)) {
+        sendJson(res, 403, { ok: false, error: 'Not allowed to edit verifications' });
+        return true;
+      }
+      const payload = await readJson(req);
+      if (!payload || !payload.verification_id || typeof payload.new_duration !== 'number') {
+        sendJson(res, 400, { ok: false, error: 'invalid payload' });
+        return true;
+      }
+
+      const { data: vRecord, error: vErr } = await adminClient
+        .from('session_verifications')
+        .select('*, academic_sessions:session_id(*)')
+        .eq('id', payload.verification_id)
+        .single();
+      if (vErr || !vRecord) throw new Error(vErr?.message || 'verification record not found');
+
+      const session = vRecord.academic_sessions;
+      if (!session) throw new Error('academic session not found');
+      if (vRecord.status !== 'approved') {
+        throw new Error('can only edit approved verifications');
+      }
+
+      const newDur = payload.new_duration;
+      const oldDur = vRecord.new_duration !== null && vRecord.new_duration !== undefined ? Number(vRecord.new_duration) : Number(session.duration_hours);
+      const delta = newDur - oldDur;
+
+      if (delta !== 0) {
+        const { error: svError } = await adminClient.from('session_verifications').update({ new_duration: newDur }).eq('id', payload.verification_id);
+        if (svError) throw new Error(`Failed to update verification: ${svError.message}`);
+
+        const { error: hlError } = await adminClient.from('hour_ledger').insert([
+          {
+            student_id: session.student_id,
+            teacher_id: session.teacher_id,
+            session_id: session.id,
+            hours_delta: -delta,
+            entry_type: 'student_debit',
+            notes: `Correction from ${oldDur}h to ${newDur}h`,
+            created_at: nowIso()
+          },
+          {
+            student_id: session.student_id,
+            teacher_id: session.teacher_id,
+            session_id: session.id,
+            hours_delta: delta,
+            entry_type: 'teacher_credit',
+            notes: `Correction from ${oldDur}h to ${newDur}h`,
+            created_at: nowIso()
+          }
+        ]);
+        if (hlError) throw new Error(`Failed to update ledger: ${hlError.message}`);
+
+        const { data: student } = await adminClient.from('students').select('id, remaining_hours').eq('id', session.student_id).maybeSingle();
+        if (student) {
+          const remaining = Number(student.remaining_hours || 0) - delta;
+          await adminClient.from('students').update({ remaining_hours: remaining, updated_at: nowIso() }).eq('id', student.id);
+        }
+      }
+
+      sendJson(res, 200, { ok: true });
+      return true;
+    }
+
     if (req.method === 'DELETE' && parts.length === 2 && parts[0] === 'sessions') {
       if (!['academic_coordinator', 'super_admin'].includes(actor.role)) {
         sendJson(res, 403, { ok: false, error: 'Not allowed to delete sessions' });
@@ -524,6 +632,80 @@ export async function handleSessions(req, res, url) {
         .eq('id', sessionId);
 
       if (error) throw new Error(error.message);
+      sendJson(res, 200, { ok: true });
+      return true;
+    }
+
+    if (req.method === 'PUT' && parts.length === 3 && parts[0] === 'sessions' && parts[1] === 'ledger') {
+      if (actor.role !== 'super_admin') {
+        sendJson(res, 403, { ok: false, error: 'Only super_admin can edit ledger entries' });
+        return true;
+      }
+      
+      const payload = await readJson(req);
+      if (!payload || typeof payload.new_hours_delta !== 'number') {
+        sendJson(res, 400, { ok: false, error: 'invalid payload' });
+        return true;
+      }
+
+      const ledgerId = parts[2];
+      const { data: ledgerEntry, error: ledgerError } = await adminClient.from('hour_ledger').select('*').eq('id', ledgerId).single();
+      if (ledgerError || !ledgerEntry) {
+        sendJson(res, 404, { ok: false, error: 'Ledger entry not found' });
+        return true;
+      }
+
+      const oldDelta = Number(ledgerEntry.hours_delta || 0);
+      const newDelta = Number(payload.new_hours_delta);
+      const difference = newDelta - oldDelta;
+
+      if (difference !== 0) {
+        // Adjust the student's remaining hours
+        // Example: old = -1.5, new = -2.0. Difference = -0.5.
+        // We add difference to remaining_hours. (remaining + (-0.5) = remaining - 0.5).
+        if (ledgerEntry.student_id) {
+          const { data: student } = await adminClient.from('students').select('id, remaining_hours').eq('id', ledgerEntry.student_id).single();
+          if (student) {
+            const newRemaining = Number(student.remaining_hours || 0) + difference;
+            await adminClient.from('students').update({ remaining_hours: newRemaining, updated_at: nowIso() }).eq('id', student.id);
+          }
+        }
+
+        const { error: updateError } = await adminClient.from('hour_ledger').update({ hours_delta: newDelta }).eq('id', ledgerId);
+        if (updateError) throw new Error(updateError.message);
+      }
+
+      sendJson(res, 200, { ok: true });
+      return true;
+    }
+
+    if (req.method === 'DELETE' && parts.length === 3 && parts[0] === 'sessions' && parts[1] === 'ledger') {
+      if (actor.role !== 'super_admin') {
+        sendJson(res, 403, { ok: false, error: 'Only super_admin can delete ledger entries' });
+        return true;
+      }
+      
+      const ledgerId = parts[2];
+      const { data: ledgerEntry, error: ledgerError } = await adminClient.from('hour_ledger').select('*').eq('id', ledgerId).single();
+      if (ledgerError || !ledgerEntry) {
+        sendJson(res, 404, { ok: false, error: 'Ledger entry not found' });
+        return true;
+      }
+
+      // Restore the student's remaining hours
+      // If we are deleting a deduction (hours_delta < 0), we ADD it back to remaining_hours (remaining - delta)
+      // If we are deleting an addition (hours_delta > 0), we SUBTRACT it from remaining_hours (remaining - delta)
+      if (ledgerEntry.student_id && ledgerEntry.hours_delta) {
+        const { data: student } = await adminClient.from('students').select('id, remaining_hours').eq('id', ledgerEntry.student_id).single();
+        if (student) {
+          const newRemaining = Number(student.remaining_hours || 0) - Number(ledgerEntry.hours_delta);
+          await adminClient.from('students').update({ remaining_hours: newRemaining, updated_at: nowIso() }).eq('id', student.id);
+        }
+      }
+
+      const { error: delError } = await adminClient.from('hour_ledger').delete().eq('id', ledgerId);
+      if (delError) throw new Error(delError.message);
+
       sendJson(res, 200, { ok: true });
       return true;
     }

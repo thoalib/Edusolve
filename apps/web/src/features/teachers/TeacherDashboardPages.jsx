@@ -43,6 +43,30 @@ export function isSessionEnded(s) {
     }
 }
 
+export function isWithinSubmissionWindow(s, approvalVer) {
+    if (approvalVer?.status === 'rejected') return true;
+    if (!s.started_at || !s.duration_hours || !s.session_date) return false;
+    try {
+        let startTime;
+        if (typeof s.started_at === 'string' && s.started_at.includes('T')) {
+            startTime = new Date(s.started_at);
+        } else if (typeof s.started_at === 'string') {
+            startTime = new Date(`${s.session_date}T${s.started_at.slice(0, 5)}:00+05:30`);
+        } else {
+            return false;
+        }
+        
+        if (isNaN(startTime.getTime())) return false;
+
+        const dur = Number(s.duration_hours);
+        const endTime = new Date(startTime.getTime() + dur * 60 * 60 * 1000);
+        const limitTime = new Date(endTime.getTime() + 24 * 60 * 60 * 1000);
+        return new Date() <= limitTime;
+    } catch (e) {
+        return false;
+    }
+}
+
 export function getSessionDisplayStatus(session) {
     // Forward to the shared logic in AcademicPages if needed, or keep local if they differ
     // For consistency, let's use a similar mapping.
@@ -449,15 +473,21 @@ export function TeacherTodaySessionsPage() {
 
                             {/* Actions */}
                             {isScheduled && ended && !hasPendingReschedule && !hasPendingApproval ? (
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    <button className="small primary" style={{ flex: 1, fontSize: '12px' }}
-                                        onClick={() => {
-                                            setConfirmSession(s);
-                                            setActualHours(approvalVer?.new_duration || s.duration_hours || '');
-                                        }}>
-                                        {isRejected ? '🔄 Resubmit Approval' : '✅ Send Approval'}
-                                    </button>
-                                </div>
+                                isWithinSubmissionWindow(s, approvalVer) ? (
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button className="small primary" style={{ flex: 1, fontSize: '12px' }}
+                                            onClick={() => {
+                                                setConfirmSession(s);
+                                                setActualHours(approvalVer?.new_duration || s.duration_hours || '');
+                                            }}>
+                                            {isRejected ? '🔄 Resubmit Approval' : '✅ Send Approval'}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <p style={{ fontSize: '12px', color: '#dc2626', fontWeight: 600, margin: '8px 0 0', textAlign: 'center' }}>
+                                        Approval time exceeded. Please contact AC.
+                                    </p>
+                                )
                             ) : null}
                             {isScheduled && !ended && !hasPendingReschedule && !hasPendingApproval ? (
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -2959,8 +2989,8 @@ export function TeacherApprovalsPage() {
             const ended = isSessionEnded(s);
 
             if (activeTab === 'not_done') {
-                // Ended AND (no approval sent OR rejected)
-                return ended && (!approvalVer || approvalVer.status === 'rejected');
+                // Ended AND not cancelled AND (no approval sent OR rejected)
+                return s.status !== 'cancelled' && ended && (!approvalVer || approvalVer.status === 'rejected');
             }
             if (activeTab === 'waiting') {
                 // Pending approval
@@ -3017,7 +3047,7 @@ export function TeacherApprovalsPage() {
                     Not Done ({sessions.filter(s => {
                         const svs = Array.isArray(s.session_verifications) ? s.session_verifications : (s.session_verifications ? [s.session_verifications] : []);
                         const approval = svs.find(v => v.type === 'approval');
-                        return isSessionEnded(s) && (!approval || approval.status === 'rejected');
+                        return s.status !== 'cancelled' && isSessionEnded(s) && (!approval || approval.status === 'rejected');
                     }).length})
                 </button>
                 <button 
@@ -3087,11 +3117,17 @@ export function TeacherApprovalsPage() {
                                     </p>
                                 </div>
                                 <div>
-                                    <span className="text-muted" style={{ fontSize: '11px' }}>
-                                        {activeTab === 'verified' ? 'Verified Hrs' : 'Sched. Hrs'}
-                                    </span>
+                                    <span className="text-muted" style={{ fontSize: '11px' }}>Sched. Hrs</span>
                                     <p style={{ margin: 0, fontSize: '12px', fontWeight: 500 }}>{s.duration_hours}h</p>
                                 </div>
+                                {activeTab === 'verified' && approvalVer && approvalVer.new_duration !== null && (
+                                    <div>
+                                        <span className="text-muted" style={{ fontSize: '11px', color: '#15803d' }}>Verified Hrs</span>
+                                        <p style={{ margin: 0, fontSize: '12px', fontWeight: 700, color: '#15803d' }}>
+                                            {approvalVer.new_duration}h
+                                        </p>
+                                    </div>
+                                )}
                                 {activeTab !== 'verified' && approvalVer && (
                                     <div>
                                         <span className="text-muted" style={{ fontSize: '11px' }}>Sent Hours</span>
@@ -3109,13 +3145,19 @@ export function TeacherApprovalsPage() {
                             )}
 
                             {activeTab === 'not_done' && (
-                                <button className="small primary" style={{ width: '100%', fontSize: '12px' }}
-                                    onClick={() => {
-                                        setConfirmSession(s);
-                                        setActualHours(approvalVer?.new_duration || s.duration_hours || '');
-                                    }}>
-                                    {isRejected ? '🔄 Resubmit Approval' : '✅ Send Approval'}
-                                </button>
+                                isWithinSubmissionWindow(s, approvalVer) ? (
+                                    <button className="small primary" style={{ width: '100%', fontSize: '12px' }}
+                                        onClick={() => {
+                                            setConfirmSession(s);
+                                            setActualHours(approvalVer?.new_duration || s.duration_hours || '');
+                                        }}>
+                                        {isRejected ? '🔄 Resubmit Approval' : '✅ Send Approval'}
+                                    </button>
+                                ) : (
+                                    <p style={{ fontSize: '12px', color: '#dc2626', fontWeight: 600, margin: '8px 0 0', textAlign: 'center' }}>
+                                        Approval time exceeded. Please contact AC.
+                                    </p>
+                                )
                             )}
                         </div>
                     );

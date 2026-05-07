@@ -901,7 +901,7 @@ export async function handleStudents(req, res, url) {
       const studentId = parts[1];
       const { data, error } = await adminClient
         .from('academic_sessions')
-        .select('*, users!academic_sessions_teacher_id_fkey(id,full_name), session_verifications!inner(status)')
+        .select('*, users!academic_sessions_teacher_id_fkey(id,full_name), session_verifications!inner(status, new_duration)')
         .eq('student_id', studentId)
         .eq('status', 'completed')
         .eq('session_verifications.status', 'approved')
