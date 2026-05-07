@@ -1150,6 +1150,32 @@ export async function handleTeachers(req, res, url) {
         sendJson(res, 404, { ok: false, error: 'session not found or not yours' });
         return true;
       }
+      if (session.status === 'cancelled') {
+        sendJson(res, 400, { ok: false, error: 'Cannot submit a cancelled session' });
+        return true;
+      }
+
+      // 24-hour limit check from session end time (unless recently rejected)
+      const { data: verifications } = await adminClient.from('session_verifications').select('status, type').eq('session_id', sessionId).order('created_at', { ascending: false });
+      const latestApproval = (verifications || []).find(v => v.type === 'approval');
+      
+      if (!latestApproval || latestApproval.status !== 'rejected') {
+        let startTime;
+        if (typeof session.started_at === 'string' && session.started_at.includes('T')) {
+            startTime = new Date(session.started_at);
+        } else if (typeof session.started_at === 'string') {
+            startTime = new Date(`${session.session_date}T${session.started_at.slice(0, 5)}:00+05:30`);
+        }
+        
+        if (startTime && !isNaN(startTime.getTime()) && session.duration_hours) {
+            const endTime = new Date(startTime.getTime() + Number(session.duration_hours) * 60 * 60 * 1000);
+            const limitTime = new Date(endTime.getTime() + 24 * 60 * 60 * 1000);
+            if (new Date() > limitTime) {
+                sendJson(res, 400, { ok: false, error: 'Submission window closed. Please contact AC.' });
+                return true;
+            }
+        }
+      }
 
       const rawBody = await readJson(req);
       const { actual_hours, reason } = rawBody;
@@ -1197,6 +1223,10 @@ export async function handleTeachers(req, res, url) {
       if (sErr) throw new Error(sErr.message);
       if (!session) {
         sendJson(res, 404, { ok: false, error: 'session not found or not yours' });
+        return true;
+      }
+      if (session.status === 'cancelled') {
+        sendJson(res, 400, { ok: false, error: 'Cannot reschedule a cancelled session' });
         return true;
       }
 

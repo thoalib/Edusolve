@@ -1836,6 +1836,7 @@ function StudentDetailPage({ studentId, onBack }) {
       <HoursLedgerPage
         studentId={hoursLedgerStudentId}
         studentName={student?.student_name}
+        currentUser={currentUser}
         onBack={() => setHoursLedgerStudentId(null)}
       />
     );
@@ -2078,7 +2079,24 @@ function StudentDetailPage({ studentId, onBack }) {
 
       {tab === 'session_logs' ? (
         <article className="card">
-          <h3>Verified Session Logs</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+            <h3 style={{ margin: 0 }}>Verified Session Logs</h3>
+            {verifiedSessions.length > 0 && (() => {
+              const totalSched = verifiedSessions.reduce((acc, vs) => acc + Number(vs.duration_hours || 0), 0);
+              const totalVerif = verifiedSessions.reduce((acc, vs) => {
+                const vArray = Array.isArray(vs.session_verifications) ? vs.session_verifications : [vs.session_verifications].filter(Boolean);
+                const approvedV = vArray.find(v => v.status === 'approved') || vArray[0];
+                const vh = (approvedV && approvedV.new_duration !== null && approvedV.new_duration !== undefined) ? approvedV.new_duration : vs.duration_hours;
+                return acc + Number(vh || 0);
+              }, 0);
+              return (
+                <div style={{ fontSize: '13px', background: '#f8fafc', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', gap: '12px' }}>
+                  <span><strong style={{ color: '#475569' }}>Total Scheduled:</strong> {totalSched.toFixed(1)}h</span>
+                  <span><strong style={{ color: '#15803d' }}>Total Verified:</strong> {totalVerif.toFixed(1)}h</span>
+                </div>
+              );
+            })()}
+          </div>
           <div className="table-wrap mobile-friendly-table">
             <table>
               <thead>
@@ -2091,17 +2109,29 @@ function StudentDetailPage({ studentId, onBack }) {
                 </tr>
               </thead>
               <tbody>
-                {verifiedSessions.slice((logPage - 1) * 10, logPage * 10).map(vs => (
-                  <tr key={vs.id}>
-                    <td data-label="Date">{vs.session_date} {vs.started_at ? getISTTimeForInput(vs.started_at) : ''}</td>
-                    <td data-label="Teacher">{vs.users?.full_name || vs.teacher_id}</td>
-                    <td data-label="Subject">{vs.subject || '—'}</td>
-                    <td data-label="Hours">{vs.duration_hours}h</td>
-                    <td data-label="Status">
-                      <span className="status-tag primary">Verified</span>
-                    </td>
-                  </tr>
-                ))}
+                {verifiedSessions.slice((logPage - 1) * 10, logPage * 10).map(vs => {
+                  // Handle case where session_verifications is an array or object
+                  const vArray = Array.isArray(vs.session_verifications) ? vs.session_verifications : [vs.session_verifications].filter(Boolean);
+                  const approvedV = vArray.find(v => v.status === 'approved') || vArray[0];
+                  const verifHours = (approvedV && approvedV.new_duration !== null && approvedV.new_duration !== undefined) ? approvedV.new_duration : vs.duration_hours;
+                  
+                  return (
+                    <tr key={vs.id}>
+                      <td data-label="Date">{vs.session_date} {vs.started_at ? getISTTimeForInput(vs.started_at) : ''}</td>
+                      <td data-label="Teacher">{vs.users?.full_name || vs.teacher_id}</td>
+                      <td data-label="Subject">{vs.subject || '—'}</td>
+                      <td data-label="Hours">
+                        <div style={{ whiteSpace: 'nowrap', fontSize: '13px' }}>
+                          <span style={{ color: '#475569' }}>{vs.duration_hours}h Sched.</span>
+                          <br/><span style={{ color: '#15803d', fontWeight: 600 }}>{verifHours}h Verif.</span>
+                        </div>
+                      </td>
+                      <td data-label="Status">
+                        <span className="status-tag primary">Verified</span>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {!verifiedSessions.length && <tr><td colSpan="5">No verified sessions found.</td></tr>}
               </tbody>
             </table>
@@ -2265,28 +2295,56 @@ function StudentDetailPage({ studentId, onBack }) {
 }
 
 /* ─── Hours Ledger Page ─── */
-function HoursLedgerPage({ studentId, studentName, onBack }) {
+function HoursLedgerPage({ studentId, studentName, currentUser, onBack }) {
   const [items, setItems] = useState([]);
   const [student, setStudent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
+  const [editingLedgerId, setEditingLedgerId] = useState(null);
+  const [editLedgerDelta, setEditLedgerDelta] = useState('');
   const PAGE_SIZE = 20;
 
   useEffect(() => {
-    async function load() {
-      try {
-        const res = await apiFetch(`/students/${studentId}/hours-ledger`);
-        setItems(res.items || []);
-        setStudent(res.student || null);
-      } catch (e) {
-        setError(e.message);
-      } finally {
-        setLoading(false);
-      }
-    }
     load();
   }, [studentId]);
+
+  async function load() {
+    try {
+      setLoading(true);
+      const res = await apiFetch(`/students/${studentId}/hours-ledger`);
+      setItems(res.items || []);
+      setStudent(res.student || null);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDeleteEntry(id) {
+    if (!window.confirm("Are you sure you want to delete this ledger entry? This will reverse its effect on the student's remaining balance. Warning: This breaks the audit trail. Use carefully.")) return;
+    try {
+      await apiFetch(`/sessions/ledger/${id}`, { method: 'DELETE' });
+      await load();
+    } catch (err) {
+      alert(`Failed to delete: ${err.message}`);
+    }
+  }
+
+  async function handleEditEntry(id) {
+    if (editLedgerDelta === '' || isNaN(Number(editLedgerDelta))) return alert('Please enter a valid number');
+    try {
+      await apiFetch(`/sessions/ledger/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ new_hours_delta: Number(editLedgerDelta) })
+      });
+      setEditingLedgerId(null);
+      await load();
+    } catch (err) {
+      alert(`Failed to edit: ${err.message}`);
+    }
+  }
 
   const typeConfig = {
     student_credit:    { label: 'Hours Added',      color: '#059669', bg: '#d1fae5' },
@@ -2349,6 +2407,7 @@ function HoursLedgerPage({ studentId, studentName, onBack }) {
                   <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Note / Reason</th>
                   <th style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Hours</th>
                   <th style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Running Balance</th>
+                  {currentUser?.role === 'super_admin' && <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -2370,11 +2429,37 @@ function HoursLedgerPage({ studentId, studentName, onBack }) {
                         {item.notes || (item.academic_sessions?.subject ? `Class: ${item.academic_sessions.subject}` : '—')}
                       </td>
                       <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, fontSize: '15px', color: delta >= 0 ? '#059669' : '#dc2626', whiteSpace: 'nowrap' }}>
-                        {delta >= 0 ? '+' : ''}{delta.toFixed(1)}
+                        {editingLedgerId === item.id ? (
+                          <input 
+                            type="number" 
+                            step="0.1" 
+                            value={editLedgerDelta} 
+                            onChange={e => setEditLedgerDelta(e.target.value)} 
+                            style={{ width: '70px', padding: '4px', fontSize: '14px', textAlign: 'right' }} 
+                            autoFocus
+                          />
+                        ) : (
+                          <>{delta >= 0 ? '+' : ''}{delta.toFixed(1)}</>
+                        )}
                       </td>
                       <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, fontSize: '15px', color: '#0f172a', whiteSpace: 'nowrap' }}>
                         {item.running_balance.toFixed(1)}
                       </td>
+                      {currentUser?.role === 'super_admin' && (
+                        <td style={{ padding: '12px 16px', textAlign: 'center', display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                          {editingLedgerId === item.id ? (
+                            <>
+                              <button type="button" onClick={() => handleEditEntry(item.id)} style={{ background: 'none', border: 'none', color: '#16a34a', cursor: 'pointer', fontSize: '14px' }}>💾</button>
+                              <button type="button" onClick={() => setEditingLedgerId(null)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '14px' }}>✖</button>
+                            </>
+                          ) : (
+                            <>
+                              <button type="button" onClick={() => { setEditingLedgerId(item.id); setEditLedgerDelta(item.hours_delta); }} style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '14px' }}>✏️</button>
+                              <button type="button" onClick={() => handleDeleteEntry(item.id)} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '14px' }}>🗑️</button>
+                            </>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -3672,7 +3757,16 @@ export function TodayClassesPage() {
                     <td data-label="Student">{s.leads?.student_name || (Array.isArray(s.students) ? s.students[0]?.student_name : s.students?.student_name) || s.student_name || s.student_id}</td>
                     <td data-label="Teacher">{s.users?.full_name || s.teacher_id}</td>
                     <td data-label="Subject">{s.subject || '—'}</td>
-                    <td data-label="Hrs">{s.duration_hours}h</td>
+                    <td data-label="Hrs">
+                      <div style={{ whiteSpace: 'nowrap', fontSize: '13px' }}>
+                        <span style={{ color: '#475569' }}>{s.duration_hours}h Sched.</span>
+                        {s.verification_status === 'approved' && s.session_verifications && (() => {
+                          const sv = Array.isArray(s.session_verifications) ? s.session_verifications[0] : s.session_verifications;
+                          const newDur = sv?.new_duration !== null && sv?.new_duration !== undefined ? Number(sv.new_duration) : Number(s.duration_hours);
+                          return <><br/><span style={{ color: '#15803d', fontWeight: 600 }}>{newDur}h Verif.</span></>;
+                        })()}
+                      </div>
+                    </td>
                     <td data-label="Status">
                       {(() => {
                         const style = getSessionStatusStyles(s.status, s.verification_status);
@@ -4257,7 +4351,16 @@ export function SessionsManagePage() {
                     <td data-label="Student">{s.leads?.student_name || (Array.isArray(s.students) ? s.students[0]?.student_name : s.students?.student_name) || s.student_name || s.student_id}</td>
                     <td data-label="Teacher">{s.users?.full_name || s.teacher_id}</td>
                     <td data-label="Subject">{s.subject || '—'}</td>
-                    <td data-label="Hrs">{s.duration_hours}h</td>
+                    <td data-label="Hrs">
+                      <div style={{ whiteSpace: 'nowrap', fontSize: '13px' }}>
+                        <span style={{ color: '#475569' }}>{s.duration_hours}h Sched.</span>
+                        {s.verification_status === 'approved' && s.session_verifications && (() => {
+                          const sv = Array.isArray(s.session_verifications) ? s.session_verifications[0] : s.session_verifications;
+                          const newDur = sv?.new_duration !== null && sv?.new_duration !== undefined ? Number(sv.new_duration) : Number(s.duration_hours);
+                          return <><br/><span style={{ color: '#15803d', fontWeight: 600 }}>{newDur}h Verif.</span></>;
+                        })()}
+                      </div>
+                    </td>
                     <td data-label="Status">
                       {(() => {
                         const style = getSessionStatusStyles(s.status, s.verification_status);
@@ -4544,10 +4647,11 @@ function ApprovalTable({ items, fTeacher, fStudent, onVerify }) {
   );
 }
 
-function ApprovalModal({ item, onClose, onVerify }) {
+function ApprovalModal({ item, onClose, onVerify, isReadOnly, onEditSubmit }) {
   const [loading, setLoading] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const pendingV = Array.isArray(item.session_verifications)
-    ? item.session_verifications.find(v => v.status === 'pending' && v.type === 'approval')
+    ? item.session_verifications.find(v => v.status === 'pending' && v.type === 'approval') || item.session_verifications[0]
     : item.session_verifications;
   
   const [duration, setDuration] = useState(pendingV?.new_duration || item.duration_hours || 1);
@@ -4581,8 +4685,14 @@ function ApprovalModal({ item, onClose, onVerify }) {
             </div>
             <div>
               <span style={{ color: '#64748b', fontWeight: 500 }}>Session Date</span>
-              <p style={{ margin: '2px 0 0', fontWeight: 600 }}>{item.session_date || '—'}</p>
+              <p style={{ margin: '2px 0 0', fontWeight: 600 }}>{item.session_date ? new Date(item.session_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</p>
             </div>
+            {isReadOnly && (
+              <div>
+                <span style={{ color: '#64748b', fontWeight: 500 }}>Actioned At</span>
+                <p style={{ margin: '2px 0 0', fontWeight: 600 }}>{pendingV?.verified_at ? new Date(pendingV.verified_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</p>
+              </div>
+            )}
             <div>
               <span style={{ color: '#64748b', fontWeight: 500 }}>Subject</span>
               <p style={{ margin: '2px 0 0', fontWeight: 600 }}>{item.subject || '—'}</p>
@@ -4605,30 +4715,62 @@ function ApprovalModal({ item, onClose, onVerify }) {
             <p style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>{item.duration_hours || '—'} hrs</p>
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '4px', textTransform: 'uppercase' }}>Final Approval</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <input
-                type="number"
-                step="0.25"
-                min="0.25"
-                value={duration}
-                onChange={e => setDuration(e.target.value)}
-                style={{ width: '80px', padding: '6px 10px', borderRadius: '6px', border: '2px solid #3b82f6', fontSize: '15px', fontWeight: 700 }}
-              />
-              <span style={{ fontSize: '14px', fontWeight: 600, color: '#475569' }}>hrs</span>
-            </div>
-            {pendingV?.new_duration && Number(pendingV.new_duration) !== Number(item.duration_hours) && (
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '4px', textTransform: 'uppercase' }}>{isReadOnly ? 'Final Approved Duration' : 'Final Approval'}</label>
+            {isReadOnly ? (
+              isEditing ? (
+                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                   <input type="number" step="0.25" min="0" value={duration} onChange={e => setDuration(e.target.value)} style={{ width: '80px', padding: '6px 10px', borderRadius: '6px', border: '2px solid #3b82f6', fontSize: '15px', fontWeight: 700 }} />
+                   <span style={{ fontSize: '14px', fontWeight: 600 }}>hrs</span>
+                 </div>
+              ) : (
+                <p style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#10b981' }}>{pendingV?.new_duration || item.duration_hours || duration} hrs</p>
+              )
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="number"
+                  step="0.25"
+                  min="0.25"
+                  value={duration}
+                  onChange={e => setDuration(e.target.value)}
+                  style={{ width: '80px', padding: '6px 10px', borderRadius: '6px', border: '2px solid #3b82f6', fontSize: '15px', fontWeight: 700 }}
+                />
+                <span style={{ fontSize: '14px', fontWeight: 600, color: '#475569' }}>hrs</span>
+              </div>
+            )}
+            {!isReadOnly && pendingV?.new_duration && Number(pendingV.new_duration) !== Number(item.duration_hours) && (
               <p style={{ margin: '4px 0 0', fontSize: '10px', color: '#2563eb', fontWeight: 600 }}>Teacher proposed {pendingV.new_duration}h</p>
             )}
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button type="button" className="danger" style={{ flex: 1, padding: '12px' }} onClick={() => onVerify(false)} disabled={loading}>Reject</button>
-          <button type="button" className="primary" style={{ flex: 2, padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} onClick={handleApprove} disabled={loading}>
-            {loading ? <><span className="spinner" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}></span> Approving...</> : 'Approve Session'}
-          </button>
-        </div>
+        {isReadOnly ? (
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
+            {pendingV?.status === 'approved' && onEditSubmit ? (
+              isEditing ? (
+                 <div style={{ display: 'flex', gap: '8px' }}>
+                   <button type="button" className="primary" onClick={async () => {
+                     setLoading(true);
+                     await onEditSubmit(pendingV.id, duration);
+                     setLoading(false);
+                     setIsEditing(false);
+                   }} disabled={loading}>Save Correction</button>
+                   <button type="button" className="secondary" onClick={() => setIsEditing(false)} disabled={loading}>Cancel</button>
+                 </div>
+              ) : (
+                 <button type="button" className="secondary" onClick={() => setIsEditing(true)}>✎ Correct Verified Hours</button>
+              )
+            ) : <div />}
+            <button type="button" className="secondary" onClick={onClose} disabled={loading}>Close</button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button type="button" className="danger" style={{ flex: 1, padding: '12px' }} onClick={() => onVerify(false)} disabled={loading}>Reject</button>
+            <button type="button" className="primary" style={{ flex: 2, padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} onClick={handleApprove} disabled={loading}>
+              {loading ? <><span className="spinner" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}></span> Approving...</> : 'Approve Session'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -4709,22 +4851,32 @@ export function VerificationsPage() {
   const [msg, setMsg] = useState('');
   const [fTeacher, setFTeacher] = useState('');
   const [fStudent, setFStudent] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [logPage, setLogPage] = useState(1);
+  const [selectedLogItem, setSelectedLogItem] = useState(null);
 
   const loadAll = useCallback(async () => {
     setError('');
     try {
+      const qs = new URLSearchParams();
+      if (dateFrom) qs.set('from', dateFrom);
+      if (dateTo) qs.set('to', dateTo);
+      const queryStr = qs.toString() ? `?${qs.toString()}` : '';
+
       const [approvals, reschedules, logs] = await Promise.all([
-        apiFetch('/sessions/verification-queue'),
-        apiFetch('/sessions/reschedule-queue'),
-        apiFetch('/sessions/verification-logs')
+        apiFetch(`/sessions/verification-queue${queryStr}`),
+        apiFetch(`/sessions/reschedule-queue${queryStr}`),
+        apiFetch(`/sessions/verification-logs${queryStr}`)
       ]);
       setApprovalItems(approvals.items || []);
       setRescheduleItems(reschedules.items || []);
       setLogItems(logs.items || []);
+      setLogPage(1); // reset page on load
     } catch (err) {
       setError(err.message);
     }
-  }, []);
+  }, [dateFrom, dateTo]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
@@ -4753,6 +4905,30 @@ export function VerificationsPage() {
     }
   }
 
+  async function handleEditSubmit(verificationId, newDuration) {
+    try {
+      await apiFetch('/sessions/edit-verification', {
+        method: 'PUT',
+        body: JSON.stringify({ verification_id: verificationId, new_duration: Number(newDuration) })
+      });
+      setMsg('Verification hours updated successfully.');
+      setTimeout(() => setMsg(''), 4000);
+      
+      setSelectedLogItem(prev => {
+        if (!prev) return prev;
+        const v = Array.isArray(prev.session_verifications) ? prev.session_verifications[0] : prev.session_verifications;
+        return { 
+          ...prev, 
+          session_verifications: { ...v, new_duration: Number(newDuration) }
+        };
+      });
+      
+      await loadAll();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   const teacherOpts = useMemo(() => {
     const m = new Map();
     approvalItems.forEach(s => { if (s.users?.full_name) m.set(s.teacher_id, s.users.full_name); });
@@ -4760,8 +4936,12 @@ export function VerificationsPage() {
       const s = item.academic_sessions || {};
       if (s.users?.full_name) m.set(s.teacher_id, s.users.full_name);
     });
+    logItems.forEach(item => {
+      const s = item.academic_sessions || {};
+      if (s.users?.full_name && s.teacher_id) m.set(s.teacher_id, s.users.full_name);
+    });
     return [...m.entries()].map(([value, label]) => ({ value, label }));
-  }, [approvalItems, rescheduleItems]);
+  }, [approvalItems, rescheduleItems, logItems]);
 
   const studentOpts = useMemo(() => {
     const m = new Map();
@@ -4770,8 +4950,12 @@ export function VerificationsPage() {
       const s = item.academic_sessions || {};
       if (s.students?.student_name) m.set(s.student_id, s.students.student_name);
     });
+    logItems.forEach(item => {
+      const s = item.academic_sessions || {};
+      if (s.students?.student_name && s.student_id) m.set(s.student_id, s.students.student_name);
+    });
     return [...m.entries()].map(([value, label]) => ({ value, label }));
-  }, [approvalItems, rescheduleItems]);
+  }, [approvalItems, rescheduleItems, logItems]);
 
   const tabs = [
     { key: 'approvals', label: `Session Approvals (${approvalItems.length})` },
@@ -4803,6 +4987,16 @@ export function VerificationsPage() {
         <div className="filter-bar">
           <SearchSelect label="Teacher" value={fTeacher} onChange={setFTeacher} options={teacherOpts} placeholder="All Teachers" />
           <SearchSelect label="Student" value={fStudent} onChange={setFStudent} options={studentOpts} placeholder="All Students" />
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151' }}>Date From</label>
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+              style={{ display: 'block', width: '100%', padding: '8px 10px', marginTop: 4, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+          </div>
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151' }}>Date To</label>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+              style={{ display: 'block', width: '100%', padding: '8px 10px', marginTop: 4, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+          </div>
           {activeTab === 'logs' && (
             <>
               <div>
@@ -4843,56 +5037,105 @@ export function VerificationsPage() {
                     <th>Student</th>
                     <th>Teacher</th>
                     <th>Subject</th>
+                    <th>Duration</th>
                     <th>Session Date</th>
                     <th>Received At</th>
                     <th>Actioned At</th>
                     <th>Status</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {logItems
-                    .filter(v => logFilterType === 'all' || v.type === logFilterType)
-                    .filter(v => logFilterStatus === 'all' || v.status === logFilterStatus)
-                    .map(v => {
-                      const sess = v.academic_sessions || {};
-                      const typeLabel = v.type === 'approval' ? '✅ Approval' : '🔄 Reschedule';
-                      const statusColor = v.status === 'approved' ? '#15803d' : v.status === 'rejected' ? '#dc2626' : '#92400e';
-                      const statusBg = v.status === 'approved' ? '#dcfce7' : v.status === 'rejected' ? '#fee2e2' : '#fef9c3';
-                      return (
-                        <tr key={v.id}>
-                          <td data-label="Type">
-                            <span style={{ fontSize: 12, fontWeight: 600 }}>{typeLabel}</span>
-                          </td>
-                          <td data-label="Student">{sess.leads?.student_name || (Array.isArray(sess.students) ? sess.students[0]?.student_name : sess.students?.student_name) || sess.student_name || '—'}</td>
-                          <td data-label="Teacher">{sess.users?.full_name || '—'}</td>
-                          <td data-label="Subject">{sess.subject || '—'}</td>
-                          <td data-label="Session Date" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-                            {sess.session_date ? new Date(sess.session_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
-                          </td>
-                          <td data-label="Received At" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-                            {v.created_at ? new Date(v.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
-                          </td>
-                          <td data-label="Actioned At" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-                            {v.verified_at ? new Date(v.verified_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : <span style={{ color: '#9ca3af' }}>Pending</span>}
-                          </td>
-                          <td data-label="Status">
-                            <span style={{ background: statusBg, color: statusColor, padding: '2px 8px', borderRadius: 10, fontSize: 12, fontWeight: 600 }}>
-                              {v.status}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  }
-                  {logItems.filter(v => logFilterType === 'all' || v.type === logFilterType).filter(v => logFilterStatus === 'all' || v.status === logFilterStatus).length === 0 && (
-                    <tr><td colSpan="8" style={{ textAlign: 'center', padding: 28, color: '#6b7280' }}>No verification logs found.</td></tr>
-                  )}
+                  {(() => {
+                    const filteredLogs = logItems
+                      .filter(v => logFilterType === 'all' || v.type === logFilterType)
+                      .filter(v => logFilterStatus === 'all' || v.status === logFilterStatus)
+                      .filter(v => {
+                        const sess = v.academic_sessions || {};
+                        if (fTeacher && sess.teacher_id !== fTeacher) return false;
+                        if (fStudent && sess.student_id !== fStudent) return false;
+                        return true;
+                      });
+                    
+                    return (
+                      <>
+                        {filteredLogs.slice((logPage - 1) * 10, logPage * 10).map(v => {
+                          const sess = v.academic_sessions || {};
+                          const typeLabel = v.type === 'approval' ? '✅ Approval' : '🔄 Reschedule';
+                          const statusColor = v.status === 'approved' ? '#15803d' : v.status === 'rejected' ? '#dc2626' : '#92400e';
+                          const statusBg = v.status === 'approved' ? '#dcfce7' : v.status === 'rejected' ? '#fee2e2' : '#fef9c3';
+                          return (
+                            <tr key={v.id}>
+                              <td data-label="Type">
+                                <span style={{ fontSize: 12, fontWeight: 600 }}>{typeLabel}</span>
+                              </td>
+                              <td data-label="Student">{sess.leads?.student_name || (Array.isArray(sess.students) ? sess.students[0]?.student_name : sess.students?.student_name) || sess.student_name || '—'}</td>
+                              <td data-label="Teacher">{sess.users?.full_name || '—'}</td>
+                              <td data-label="Subject">{sess.subject || '—'}</td>
+                              <td data-label="Duration">
+                                <div style={{ whiteSpace: 'nowrap', fontSize: '13px' }}>
+                                  <span style={{ color: '#475569' }}>{sess.duration_hours}h Sched.</span>
+                                  {v.status === 'approved' && v.new_duration !== null && v.new_duration !== undefined && (
+                                    <><br/><span style={{ color: '#15803d', fontWeight: 600 }}>{v.new_duration}h Verif.</span></>
+                                  )}
+                                </div>
+                              </td>
+                              <td data-label="Session Date" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                                {sess.session_date ? new Date(sess.session_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                              </td>
+                              <td data-label="Received At" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                                {v.created_at ? new Date(v.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                              </td>
+                              <td data-label="Actioned At" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                                {v.verified_at ? new Date(v.verified_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : <span style={{ color: '#9ca3af' }}>Pending</span>}
+                              </td>
+                              <td data-label="Status">
+                                <span style={{ background: statusBg, color: statusColor, padding: '2px 8px', borderRadius: 10, fontSize: 12, fontWeight: 600 }}>
+                                  {v.status}
+                                </span>
+                              </td>
+                              <td data-label="Actions">
+                                <button type="button" className="secondary" onClick={() => setSelectedLogItem({ ...sess, session_verifications: v })}>View Details</button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {filteredLogs.length === 0 && (
+                          <tr><td colSpan="9" style={{ textAlign: 'center', padding: 28, color: '#6b7280' }}>No verification logs found.</td></tr>
+                        )}
+                      </>
+                    );
+                  })()}
                 </tbody>
               </table>
+              {(() => {
+                const filteredLogs = logItems
+                  .filter(v => logFilterType === 'all' || v.type === logFilterType)
+                  .filter(v => logFilterStatus === 'all' || v.status === logFilterStatus)
+                  .filter(v => {
+                    const sess = v.academic_sessions || {};
+                    if (fTeacher && sess.teacher_id !== fTeacher) return false;
+                    if (fStudent && sess.student_id !== fStudent) return false;
+                    return true;
+                  });
+                return filteredLogs.length > 10 ? (
+                  <Pagination page={logPage} limit={10} total={filteredLogs.length} onPageChange={setLogPage} />
+                ) : null;
+              })()}
             </div>
           </div>
         )}
       </article>
+
+      {selectedLogItem && (
+        <ApprovalModal
+          item={selectedLogItem}
+          isReadOnly={true}
+          onClose={() => setSelectedLogItem(null)}
+          onVerify={() => {}}
+          onEditSubmit={handleEditSubmit}
+        />
+      )}
     </section>
   );
 }
