@@ -1366,6 +1366,10 @@ export function PayrollRequestsPage() {
   const [typeFilter, setTypeFilter] = useState('all');
   const [payslipRequest, setPayslipRequest] = useState(null);
   const [page, setPage] = useState(1);
+  const [paymentDate, setPaymentDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
   const PAGE_SIZE = 50;
 
   async function loadData() {
@@ -1390,11 +1394,12 @@ export function PayrollRequestsPage() {
 
   async function payRequest() {
     if (!selectedAccountId) return alert('Select an account to pay from');
+    if (!paymentDate) return alert('Please select a payment date');
     if (!confirm(`Are you sure you want to pay ₹${selectedRequest.total_amount.toLocaleString()}?`)) return;
     setPaying(true);
     try {
       await apiFetch(`/finance/hr-payment-requests/${selectedRequest.id}/pay`, {
-        method: 'POST', body: JSON.stringify({ account_id: selectedAccountId })
+        method: 'POST', body: JSON.stringify({ account_id: selectedAccountId, payment_date: paymentDate })
       });
       alert('Payroll Paid successfully.');
       setSelectedRequest(null);
@@ -1515,14 +1520,19 @@ export function PayrollRequestsPage() {
             <h3 style={{ margin: '0 0 16px', fontSize: '18px' }}>Process Payment</h3>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
               {selectedRequest.status === 'pending' ? (
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
-                  <select className="input" style={{ flex: 1, padding: '6px 12px', fontSize: '13px' }} value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)}>
-                    <option value="">-- Select Account to Deduct --</option>
-                    {accounts.map(a => <option key={a.id} value={a.id}>{a.name} (₹{Number(a.balance).toLocaleString()})</option>)}
-                  </select>
-                  <button className="primary" onClick={payRequest} disabled={paying || !selectedAccountId}>
-                    {paying ? 'Processing...' : `Pay ₹${Number(selectedRequest.total_amount).toLocaleString()}`}
-                  </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
+                    <select className="input" style={{ flex: 1, padding: '6px 12px', fontSize: '13px' }} value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)}>
+                      <option value="">-- Select Account to Deduct --</option>
+                      {accounts.map(a => <option key={a.id} value={a.id}>{a.name} (₹{Number(a.balance).toLocaleString()})</option>)}
+                    </select>
+                    <input type="date" className="input" style={{ width: '140px', padding: '6px 12px', fontSize: '13px' }} value={paymentDate} onChange={e => setPaymentDate(e.target.value)} required title="Payment Date" />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button className="primary" onClick={payRequest} disabled={paying || !selectedAccountId || !paymentDate}>
+                      {paying ? 'Processing...' : `Pay ₹${Number(selectedRequest.total_amount).toLocaleString()}`}
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <span style={{ color: '#10b981', fontWeight: 600, fontSize: '14px' }}>Paid on: {new Date(selectedRequest.updated_at).toLocaleDateString()}</span>

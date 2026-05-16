@@ -1210,8 +1210,8 @@ function EditLeadModal({ lead, onClose, onDone }) {
         subjects: parseSubjects(lead.subjects || lead.subject),
         boards: parseSubjects(lead.boards),
         mediums: parseSubjects(lead.mediums),
-        experience_level: lead.experience_level || 'fresher',
-        experience_remark: lead.experience_remark || 'Fresher',
+        experience_level: lead.experience_level || '',
+        experience_remark: lead.experience_remark || '',
         experience_type: lead.experience_type || '', experience_duration: lead.experience_duration || '',
         qualification: lead.qualification || '', place: lead.place || '', city: lead.city || '', notes: lead.notes || '',
         // Additional Details

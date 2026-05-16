@@ -485,7 +485,7 @@ export function TeacherTodaySessionsPage() {
                                     </div>
                                 ) : (
                                     <p style={{ fontSize: '12px', color: '#dc2626', fontWeight: 600, margin: '8px 0 0', textAlign: 'center' }}>
-                                        Approval time exceeded. Please contact AC.
+                                        24h limit hit. Ask AC to manually verify this session.
                                     </p>
                                 )
                             ) : null}
@@ -3155,7 +3155,7 @@ export function TeacherApprovalsPage() {
                                     </button>
                                 ) : (
                                     <p style={{ fontSize: '12px', color: '#dc2626', fontWeight: 600, margin: '8px 0 0', textAlign: 'center' }}>
-                                        Approval time exceeded. Please contact AC.
+                                        24h limit hit. Ask AC to manually verify this session.
                                     </p>
                                 )
                             )}

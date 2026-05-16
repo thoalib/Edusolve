@@ -94,6 +94,24 @@ function isSessionOverdue(s) {
   } catch { return false; }
 }
 
+/** Check if a scheduled session is 24 hours past its scheduled completion time */
+function isSession24hOverdue(s) {
+  if (s.status !== 'scheduled') return false;
+  if (!s.session_date) return false;
+  try {
+    const dur = Number(s.duration_hours || 1);
+    let endMs;
+    if (s.started_at && s.started_at.includes('T')) {
+      endMs = new Date(s.started_at).getTime() + dur * 3600000;
+    } else if (s.started_at) {
+      endMs = new Date(`${s.session_date}T${s.started_at.slice(0, 5)}:00+05:30`).getTime() + dur * 3600000;
+    } else {
+      endMs = new Date(s.session_date + 'T23:59:59+05:30').getTime();
+    }
+    return Date.now() > (endMs + 24 * 3600000);
+  } catch { return false; }
+}
+
 
 import { DashboardDateFilter } from '../dashboards/CounselorDashboards.jsx';
 
@@ -343,7 +361,14 @@ export function AcademicCoordinatorDashboardPage({ targetUserId }) {
       const tid = sess.teacher_id;
       const name = sess.users?.full_name || tid;
       if (!map[tid]) map[tid] = { name, hours: 0 };
-      map[tid].hours += Number(sess.duration_hours) || 0;
+      
+      const svs = Array.isArray(sess.session_verifications) ? sess.session_verifications : (sess.session_verifications ? [sess.session_verifications] : []);
+      const approvedVer = svs.find(v => v.type === 'approval' && v.status === 'approved');
+      const verifiedDur = approvedVer && approvedVer.new_duration !== null && approvedVer.new_duration !== undefined 
+          ? Number(approvedVer.new_duration) 
+          : Number(sess.duration_hours || 0);
+
+      map[tid].hours += verifiedDur;
     });
     return Object.values(map).sort((a, b) => b.hours - a.hours).slice(0, 5);
   }, [rangeSessions]);
@@ -619,6 +644,21 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
   const [editTeacherClasses, setEditTeacherClasses] = useState([]);
   const [editTeacherDemos, setEditTeacherDemos] = useState([]);
   const [editLoadingSlots, setEditLoadingSlots] = useState(false);
+  const [forceCompleteData, setForceCompleteData] = useState(null);
+
+  async function handleForceComplete(e) {
+    e.preventDefault();
+    try {
+      await apiFetch(`/academic/sessions/${forceCompleteData.id}/force-complete`, {
+        method: 'POST',
+        body: JSON.stringify({ actual_hours: forceCompleteData.actual_hours })
+      });
+      setMsg('Session force completed successfully');
+      setTimeout(() => setMsg(''), 4000);
+      setForceCompleteData(null);
+      if (onClassesChanged) onClassesChanged();
+    } catch (err) { alert(err.message); }
+  }
 
   // Compute previously assigned teachers
   const assignedTeacherIds = useMemo(() => {
@@ -1442,6 +1482,12 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
                   });
                 }}>Reschedule</button>
               )}
+              {isSession24hOverdue(selectedSession) && selectedSession.status === 'scheduled' && (
+                <button type="button" style={{ background: '#10b981', color: '#fff', border: 'none' }} onClick={() => {
+                  setForceCompleteData({ id: selectedSession.id, scheduled_hours: selectedSession.duration_hours || 1, actual_hours: selectedSession.duration_hours || 1 });
+                  setSelectedSession(null);
+                }}>Force Complete</button>
+              )}
               {selectedSession.status !== 'completed' && (
                 <button type="button" title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}
                   onClick={() => setSessionEditData({
@@ -1471,12 +1517,15 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
             <h3>Reschedule Session</h3>
             <form onSubmit={handleRescheduleSave}>
               <div style={{ display: 'grid', gap: '12px', marginBottom: '20px' }}>
-                <label>Teacher
-                  <select value={rescheduleData.teacher_id} onChange={e => setRescheduleData({ ...rescheduleData, teacher_id: e.target.value, subject: '', time: '' })} required>
-                    <option value="">Select Teacher</option>
-                    {teachers.map(t => <option key={t.user_id} value={t.user_id}>{t.users?.full_name || t.teacher_code}</option>)}
-                  </select>
-                </label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <SearchSelect
+                    label="Teacher"
+                    value={rescheduleData.teacher_id}
+                    onChange={val => setRescheduleData({ ...rescheduleData, teacher_id: val, subject: '', time: '' })}
+                    options={teachers.map(t => ({ value: t.user_id, label: t.users?.full_name || t.teacher_code || t.user_id }))}
+                    placeholder="Select Teacher"
+                  />
+                </div>
                 <label>Subject
                   <select value={rescheduleData.subject} onChange={e => setRescheduleData({ ...rescheduleData, subject: e.target.value })} required>
                     <option value="">{rescheduleData.teacher_id ? 'Select subject' : 'Pick teacher first'}</option>
@@ -1562,7 +1611,7 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
                     </label>
                     <label>Duration (hrs)
                       <select value={sessionEditData.duration} onChange={e => setSessionEditData({ ...sessionEditData, duration: e.target.value })}>
-                        {[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4].map(h => <option key={h} value={h}>{h}h</option>)}
+                        {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4].map(h => <option key={h} value={h}>{h}h</option>)}
                       </select>
                     </label>
                   </div>
@@ -1598,6 +1647,31 @@ function StudentClassesTab({ studentId, initialSessions, teachers, onClassesChan
           </div>
         );
       })()}
+
+      {/* Force Complete Modal */}
+      {forceCompleteData && (
+        <div className="modal-overlay" onClick={() => setForceCompleteData(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <h3>Force Complete Session</h3>
+            <p style={{ color: '#4b5563', fontSize: '13px', marginBottom: '16px' }}>
+              Scheduled Duration: <strong>{forceCompleteData.scheduled_hours}h</strong>
+            </p>
+            <form onSubmit={handleForceComplete}>
+              <div style={{ marginBottom: '20px' }}>
+                <label>Actual Taken Hours
+                  <select value={forceCompleteData.actual_hours} onChange={e => setForceCompleteData({ ...forceCompleteData, actual_hours: Number(e.target.value) })} required>
+                    {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4].map(h => <option key={h} value={h}>{h}h</option>)}
+                  </select>
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <button type="button" className="secondary" onClick={() => setForceCompleteData(null)}>Cancel</button>
+                <button type="submit" style={{ background: '#10b981', color: '#fff', border: 'none' }}>Confirm Complete</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Delete Session Confirmation (Classes tab) */}
       {sessionDeleteId && (
@@ -3575,6 +3649,20 @@ export function TodayClassesPage() {
   const [editLoadingSlots, setEditLoadingSlots] = useState(false);
   // Delete
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  // Force Complete
+  const [forceCompleteData, setForceCompleteData] = useState(null);
+
+  async function handleForceComplete(e) {
+    e.preventDefault();
+    try {
+      await apiFetch(`/academic/sessions/${forceCompleteData.id}/force-complete`, {
+        method: 'POST',
+        body: JSON.stringify({ actual_hours: forceCompleteData.actual_hours })
+      });
+      setForceCompleteData(null);
+      load();
+    } catch (err) { alert(err.message); }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -3795,6 +3883,10 @@ export function TodayClassesPage() {
                             <button type="button" title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', width: '28px' }}
                               onClick={() => setDeleteConfirmId(s.id)}>🗑️</button>
                           )}
+                          {isSession24hOverdue(s) && s.status === 'scheduled' && (
+                            <button type="button" title="Force Complete" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', width: '28px' }}
+                              onClick={() => setForceCompleteData({ id: s.id, scheduled_hours: s.duration_hours || 1, actual_hours: s.duration_hours || 1 })}>✅</button>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -3817,12 +3909,15 @@ export function TodayClassesPage() {
             <h3>Reschedule Session</h3>
             <form onSubmit={submitReschedule}>
               <div style={{ display: 'grid', gap: '12px', marginBottom: '18px' }}>
-                <label>Teacher
-                  <select value={rescheduleData.teacher_id} onChange={e => setRescheduleData({ ...rescheduleData, teacher_id: e.target.value, subject: '', time: '' })} required>
-                    <option value="">Select teacher</option>
-                    {allTeachers.map(t => <option key={t.user_id} value={t.user_id}>{t.users?.full_name || t.user_id}</option>)}
-                  </select>
-                </label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <SearchSelect
+                    label="Teacher"
+                    value={rescheduleData.teacher_id}
+                    onChange={val => setRescheduleData({ ...rescheduleData, teacher_id: val, subject: '', time: '' })}
+                    options={allTeachers.map(t => ({ value: t.user_id, label: t.users?.full_name || t.user_id }))}
+                    placeholder="Select teacher"
+                  />
+                </div>
                 {(() => {
                   const rTeacher = allTeachers.find(t => t.user_id === rescheduleData.teacher_id); const rSubjects = rTeacher ? (Array.isArray(rTeacher.subjects_taught) ? rTeacher.subjects_taught : (typeof rTeacher.subjects_taught === 'string' ? JSON.parse(rTeacher.subjects_taught || '[]') : [])) : []; return (
                     <label>Subject
@@ -3853,7 +3948,7 @@ export function TodayClassesPage() {
                   </label>
                   <label>Duration (hrs)
                     <select value={rescheduleData.duration} onChange={e => setRescheduleData({ ...rescheduleData, duration: e.target.value })}>
-                      {[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4].map(h => <option key={h} value={h}>{h}h</option>)}
+                      {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4].map(h => <option key={h} value={h}>{h}h</option>)}
                     </select>
                   </label>
                 </div>
@@ -3898,7 +3993,7 @@ export function TodayClassesPage() {
                     </label>
                     <label>Duration (hrs)
                       <select value={editData.duration} onChange={e => setEditData({ ...editData, duration: e.target.value })}>
-                        {[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4].map(h => <option key={h} value={h}>{h}h</option>)}
+                        {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4].map(h => <option key={h} value={h}>{h}h</option>)}
                       </select>
                     </label>
                   </div>
@@ -3934,6 +4029,31 @@ export function TodayClassesPage() {
           </div>
         );
       })()}
+
+      {/* Force Complete Modal */}
+      {forceCompleteData && (
+        <div className="modal-overlay" onClick={() => setForceCompleteData(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <h3>Force Complete Session</h3>
+            <p style={{ color: '#4b5563', fontSize: '13px', marginBottom: '16px' }}>
+              Scheduled Duration: <strong>{forceCompleteData.scheduled_hours}h</strong>
+            </p>
+            <form onSubmit={handleForceComplete}>
+              <div style={{ marginBottom: '20px' }}>
+                <label>Actual Taken Hours
+                  <select value={forceCompleteData.actual_hours} onChange={e => setForceCompleteData({ ...forceCompleteData, actual_hours: Number(e.target.value) })} required>
+                    {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4].map(h => <option key={h} value={h}>{h}h</option>)}
+                  </select>
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <button type="button" className="secondary" onClick={() => setForceCompleteData(null)}>Cancel</button>
+                <button type="submit" style={{ background: '#10b981', color: '#fff', border: 'none' }}>Confirm Complete</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirmation */}
       {deleteConfirmId && (
@@ -4025,6 +4145,20 @@ export function SessionsManagePage() {
   const [editLoadingSlots, setEditLoadingSlots] = useState(false);
   // Delete confirmation
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  // Force complete
+  const [forceCompleteData, setForceCompleteData] = useState(null);
+
+  async function handleForceComplete(e) {
+    e.preventDefault();
+    try {
+      await apiFetch(`/academic/sessions/${forceCompleteData.id}/force-complete`, {
+        method: 'POST',
+        body: JSON.stringify({ actual_hours: forceCompleteData.actual_hours })
+      });
+      setForceCompleteData(null);
+      loadAllSessions();
+    } catch (err) { alert(err.message); }
+  }
 
   // Master lists
   const [allTeachers, setAllTeachers] = useState([]);
@@ -4410,6 +4544,12 @@ export function SessionsManagePage() {
                               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', width: '28px' }}
                               onClick={() => setDeleteConfirmId(s.id)}>🗑️</button>
                           )}
+                          {isSession24hOverdue(s) && s.status === 'scheduled' && (
+                            <button
+                              type="button" title="Force Complete"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '15px', padding: '2px 5px', width: '28px' }}
+                              onClick={() => setForceCompleteData({ id: s.id, scheduled_hours: s.duration_hours || 1, actual_hours: s.duration_hours || 1 })}>✅</button>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -4434,12 +4574,16 @@ export function SessionsManagePage() {
               <h3>Reschedule Session</h3>
               <form onSubmit={submitReschedule}>
                 <div style={{ display: 'grid', gap: '12px', marginBottom: '18px' }}>
-                  <label>Teacher
-                    <select value={rescheduleData.teacher_id} onChange={e => setRescheduleData({ ...rescheduleData, teacher_id: e.target.value, subject: '', time: '' })} required>
-                      <option value="">Select teacher</option>
-                      {allTeachers.map(t => <option key={t.user_id} value={t.user_id}>{t.users?.full_name || t.user_id}</option>)}
-                    </select>
-                  </label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <SearchSelect
+                      label="Teacher"
+                      value={rescheduleData.teacher_id}
+                      onChange={val => setRescheduleData({ ...rescheduleData, teacher_id: val, subject: '', time: '' })}
+                      options={allTeachers.map(t => ({ value: t.user_id, label: t.users?.full_name || t.user_id }))}
+                      placeholder="Select teacher"
+                      required
+                    />
+                  </div>
                   {(() => {
                     const rTeacher = allTeachers.find(t => t.user_id === rescheduleData.teacher_id); const rSubjects = rTeacher ? (Array.isArray(rTeacher.subjects_taught) ? rTeacher.subjects_taught : (typeof rTeacher.subjects_taught === 'string' ? JSON.parse(rTeacher.subjects_taught || '[]') : [])) : []; return (
                       <label>Subject
@@ -4470,7 +4614,7 @@ export function SessionsManagePage() {
                     </label>
                     <label>Duration (hrs)
                       <select value={rescheduleData.duration} onChange={e => setRescheduleData({ ...rescheduleData, duration: e.target.value })}>
-                        {[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4].map(h => <option key={h} value={h}>{h}h</option>)}
+                        {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4].map(h => <option key={h} value={h}>{h}h</option>)}
                       </select>
                     </label>
                   </div>
@@ -4524,7 +4668,7 @@ export function SessionsManagePage() {
                     </label>
                     <label>Duration (hrs)
                       <select value={editData.duration} onChange={e => setEditData({ ...editData, duration: e.target.value })}>
-                        {[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4].map(h => <option key={h} value={h}>{h}h</option>)}
+                        {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4].map(h => <option key={h} value={h}>{h}h</option>)}
                       </select>
                     </label>
                   </div>
@@ -4561,6 +4705,31 @@ export function SessionsManagePage() {
           </div>
         );
       })()}
+
+      {/* Force Complete Modal */}
+      {forceCompleteData && (
+        <div className="modal-overlay" onClick={() => setForceCompleteData(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <h3>Force Complete Session</h3>
+            <p style={{ color: '#4b5563', fontSize: '13px', marginBottom: '16px' }}>
+              Scheduled Duration: <strong>{forceCompleteData.scheduled_hours}h</strong>
+            </p>
+            <form onSubmit={handleForceComplete}>
+              <div style={{ marginBottom: '20px' }}>
+                <label>Actual Taken Hours
+                  <select value={forceCompleteData.actual_hours} onChange={e => setForceCompleteData({ ...forceCompleteData, actual_hours: Number(e.target.value) })} required>
+                    {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4].map(h => <option key={h} value={h}>{h}h</option>)}
+                  </select>
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <button type="button" className="secondary" onClick={() => setForceCompleteData(null)}>Cancel</button>
+                <button type="submit" style={{ background: '#10b981', color: '#fff', border: 'none' }}>Confirm Complete</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmId && (
@@ -7210,7 +7379,7 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
     syllabus: parseSubjects(teacher.syllabus), // Boards
     languages: parseSubjects(teacher.languages), // Mediums
 
-    experience_level: teacher.experience_level || 'fresher',
+    experience_level: teacher.experience_level || '',
     experience_type: teacher.experience_type || '',
     experience_duration: teacher.experience_duration || '',
     per_hour_rate: teacher.per_hour_rate || '',
@@ -7317,7 +7486,7 @@ function EditTeacherModal({ teacher, onClose, onSave }) {
   };
 
 
-  const isExperienced = formData.experience_level !== 'fresher';
+  const isExperienced = formData.experience_level !== '' && formData.experience_level !== 'Fresher';
 
   return (
     <div className="modal-overlay">

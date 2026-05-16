@@ -1133,7 +1133,7 @@ export async function handleFinance(req, res, url) {
 
       // Create an expense
       const expense = {
-        expense_date: nowIso().slice(0, 10),
+        expense_date: payload.payment_date || nowIso().slice(0, 10),
         category: 'salary',
         amount: request.total_amount,
         description: `Salary Payment — ${request.year}/${String(request.month).padStart(2, '0')}`,
