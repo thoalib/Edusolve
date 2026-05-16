@@ -598,6 +598,71 @@ export async function handleSessions(req, res, url) {
       return true;
     }
 
+    // ── POST /academic/sessions/:id/force-complete ──
+    if (req.method === 'POST' && parts.length === 4 && parts[0] === 'academic' && parts[1] === 'sessions' && parts[3] === 'force-complete') {
+      if (!['academic_coordinator', 'super_admin'].includes(actor.role)) {
+        sendJson(res, 403, { ok: false, error: 'Not allowed to force complete sessions' });
+        return true;
+      }
+      const sessionId = parts[2];
+      const rawBody = await readJson(req);
+      const actualHours = Number(rawBody.actual_hours);
+      
+      if (isNaN(actualHours) || actualHours <= 0) {
+        sendJson(res, 400, { ok: false, error: 'Invalid actual_hours' });
+        return true;
+      }
+
+      const { data: session } = await adminClient.from('academic_sessions').select('*').eq('id', sessionId).single();
+      if (!session) {
+        sendJson(res, 404, { ok: false, error: 'Session not found' });
+        return true;
+      }
+      if (session.status === 'completed') {
+        sendJson(res, 400, { ok: false, error: 'Session is already completed' });
+        return true;
+      }
+      
+      // Update session status
+      const { error: updateErr } = await adminClient.from('academic_sessions').update({ status: 'completed' }).eq('id', sessionId);
+      if (updateErr) throw new Error('Failed to update session: ' + updateErr.message);
+
+      // Delete any pending verifications
+      await adminClient.from('session_verifications').delete().eq('session_id', sessionId).neq('status', 'approved');
+
+      // Insert approved verification
+      const { error: vErr } = await adminClient.from('session_verifications').insert({
+        session_id: sessionId,
+        verifier_id: actor.userId,
+        status: 'approved',
+        type: 'approval',
+        reason: 'Force completed by ' + actor.role,
+        new_duration: actualHours,
+        verified_at: nowIso()
+      });
+      if (vErr) throw new Error('Failed to create verification: ' + vErr.message);
+
+      // Update student hours
+      if (session.student_id) {
+        const { data: student } = await adminClient.from('students').select('id, remaining_hours').eq('id', session.student_id).maybeSingle();
+        if (student) {
+          const remaining = Number(student.remaining_hours || 0) - actualHours;
+          await adminClient.from('students').update({ remaining_hours: remaining, updated_at: nowIso() }).eq('id', session.student_id);
+
+          await adminClient.from('hour_ledger').insert({
+            student_id: session.student_id,
+            hours_delta: -actualHours,
+            entry_type: 'student_debit',
+            notes: `Force completed session (SID: ${sessionId})`,
+            created_at: nowIso()
+          });
+        }
+      }
+
+      sendJson(res, 200, { ok: true, message: 'Session force completed' });
+      return true;
+    }
+
     if (req.method === 'DELETE' && parts.length === 2 && parts[0] === 'sessions') {
       if (!['academic_coordinator', 'super_admin'].includes(actor.role)) {
         sendJson(res, 403, { ok: false, error: 'Not allowed to delete sessions' });
