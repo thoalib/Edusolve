@@ -201,11 +201,11 @@ export class WaappaService {
         return JSON.parse(responseText);
     }
 
-    async downloadAndStoreMedia(messageId) {
+    async downloadAndStoreMedia(messageId, apiKey = null) {
         // 1. Get temporary decrypted URL from Waappa
         const res = await fetch(`${this.baseUrl}/api/media`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: this.getHeaders(apiKey),
             body: JSON.stringify({ messageId })
         });
 

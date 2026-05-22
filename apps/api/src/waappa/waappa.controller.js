@@ -444,10 +444,14 @@ export class WaappaController {
     async downloadMedia(req, res, messageId) {
         try {
             // Find the message
-            const { data: msgRow, error: findErr } = await supabase.from('whatsapp_messages').select('id').eq('id', messageId).maybeSingle();
+            const { data: msgRow, error: findErr } = await supabase.from('whatsapp_messages').select('id, session_name').eq('id', messageId).maybeSingle();
             if (findErr || !msgRow) throw new Error('Message not found');
 
-            const uploadRes = await waappaService.downloadAndStoreMedia(messageId);
+            const { data: sessRow } = msgRow.session_name
+                ? await supabase.from('whatsapp_sessions').select('api_key').eq('session_name', msgRow.session_name).maybeSingle()
+                : { data: null };
+
+            const uploadRes = await waappaService.downloadAndStoreMedia(messageId, sessRow?.api_key);
             if (uploadRes && uploadRes.url) {
                 // Update DB with the new media info
                 await supabase.from('whatsapp_messages').update({
@@ -541,7 +545,12 @@ export class WaappaController {
                 // Decrypt Media and Store to R2 (ASYNC - DO NOT AWAIT)
                 // If we await this here, Waappa's webhook timeout might trigger and cause fetch ConnectTimeoutError
                 if (hasMedia) {
-                    waappaService.downloadAndStoreMedia(id).then(async (uploadRes) => {
+                    (async () => {
+                        const { data: sessRow } = session
+                            ? await supabase.from('whatsapp_sessions').select('api_key').eq('session_name', session).maybeSingle()
+                            : { data: null };
+                        return waappaService.downloadAndStoreMedia(id, sessRow?.api_key);
+                    })().then(async (uploadRes) => {
                         if (uploadRes && uploadRes.url) {
                             // console.log(`[webhook async] Successfully downloaded media for ${id}`);
                             await supabase.from('whatsapp_messages').update({

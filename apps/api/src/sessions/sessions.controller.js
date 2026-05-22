@@ -31,7 +31,7 @@ function verificationStatusOf(session) {
 }
 
 export async function handleSessions(req, res, url) {
-  if (!url.pathname.startsWith('/sessions')) return false;
+  if (!url.pathname.startsWith('/sessions') && !url.pathname.startsWith('/academic/sessions')) return false;
 
   const adminClient = getSupabaseAdminClient();
   if (!adminClient) {
@@ -649,13 +649,24 @@ export async function handleSessions(req, res, url) {
           const remaining = Number(student.remaining_hours || 0) - actualHours;
           await adminClient.from('students').update({ remaining_hours: remaining, updated_at: nowIso() }).eq('id', session.student_id);
 
-          await adminClient.from('hour_ledger').insert({
-            student_id: session.student_id,
-            hours_delta: -actualHours,
-            entry_type: 'student_debit',
-            notes: `Force completed session (SID: ${sessionId})`,
-            created_at: nowIso()
-          });
+          await adminClient.from('hour_ledger').insert([
+            {
+              student_id: session.student_id,
+              teacher_id: session.teacher_id,
+              session_id: session.id,
+              hours_delta: -actualHours,
+              entry_type: 'student_debit',
+              created_at: nowIso()
+            },
+            {
+              student_id: session.student_id,
+              teacher_id: session.teacher_id,
+              session_id: session.id,
+              hours_delta: actualHours,
+              entry_type: 'teacher_credit',
+              created_at: nowIso()
+            }
+          ]);
         }
       }
 
