@@ -2,7 +2,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { apiFetch } from '../../lib/api.js';
 
-function MobileSalesCard({ row }) {
+function MobileSalesCard({ row, labels }) {
     const [expanded, setExpanded] = useState(false);
 
     return (
@@ -13,13 +13,13 @@ function MobileSalesCard({ row }) {
                         {row.name}
                     </h4>
                     <div style={{ fontSize: '13px', color: '#6b7280' }}>
-                        Conversion: <strong style={{ color: '#10b981' }}>{row.conversionRate}</strong>
+                        {labels.conversion}: <strong style={{ color: '#10b981' }}>{row.conversionRate}</strong>
                     </div>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', cursor: 'pointer' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '14px', fontWeight: 700, color: '#10b981' }}>{row.joined} Won</span>
+                        <span style={{ fontSize: '14px', fontWeight: 700, color: '#10b981' }}>{row.joined} Joined</span>
                         <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '24px', height: '24px', borderRadius: '50%', background: '#f3f4f6', color: '#6b7280', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
                         </span>
@@ -30,10 +30,10 @@ function MobileSalesCard({ row }) {
             {expanded && (
                 <div style={{ marginTop: '12px', animation: 'fadeIn 0.2s ease-in' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px', borderTop: '1px solid #e5e7eb', paddingTop: '12px' }}>
-                        <div><span style={{ color: '#888' }}>Total Leads:</span> <div style={{ fontWeight: 600, fontSize: '14px' }}>{row.total}</div></div>
-                        <div><span style={{ color: '#888' }}>Active:</span> <div style={{ fontWeight: 600, fontSize: '14px' }}>{row.active}</div></div>
-                        <div><span style={{ color: '#888' }}>Joined (Won):</span> <div style={{ fontWeight: 600, fontSize: '14px', color: '#10b981' }}>{row.joined}</div></div>
-                        <div><span style={{ color: '#888' }}>Dropped (Lost):</span> <div style={{ fontWeight: 600, fontSize: '14px', color: '#ef4444' }}>{row.dropped}</div></div>
+                        <div><span style={{ color: '#888' }}>{labels.total}:</span> <div style={{ fontWeight: 600, fontSize: '14px' }}>{row.total}</div></div>
+                        <div><span style={{ color: '#888' }}>{labels.active}:</span> <div style={{ fontWeight: 600, fontSize: '14px' }}>{row.active}</div></div>
+                        <div><span style={{ color: '#888' }}>{labels.joined}:</span> <div style={{ fontWeight: 600, fontSize: '14px', color: '#10b981' }}>{row.joined}</div></div>
+                        <div><span style={{ color: '#888' }}>{labels.dropped}:</span> <div style={{ fontWeight: 600, fontSize: '14px', color: '#ef4444' }}>{row.dropped}</div></div>
                     </div>
                 </div>
             )}
@@ -59,8 +59,9 @@ export function CounselorReportsPage() {
         setError('');
         try {
             const query = new URLSearchParams();
-            if (fromDate) query.append('from', new Date(fromDate).toISOString());
-            if (toDate) query.append('to', new Date(toDate).toISOString());
+            if (fromDate) query.append('from', fromDate);
+            if (toDate) query.append('to', toDate);
+            query.append('date_basis', 'event');
 
             const data = await apiFetch(`/counselors/stats?${query.toString()}`);
             setStats(data.stats);
@@ -93,6 +94,14 @@ export function CounselorReportsPage() {
         }).sort((a, b) => b.joined - a.joined); // Default sort by joined
     }, [stats, counselors]);
 
+    const labels = {
+        total: 'New Leads',
+        active: 'Active Events',
+        joined: 'Joined Events',
+        dropped: 'Dropped Events',
+        conversion: 'Event Conversion'
+    };
+
     return (
         <section className="panel">
 
@@ -120,11 +129,11 @@ export function CounselorReportsPage() {
                         <thead>
                             <tr>
                                 <th>Counselor</th>
-                                <th>Total Leads</th>
-                                <th>Active</th>
-                                <th>Joined (Won)</th>
-                                <th>Dropped (Lost)</th>
-                                <th>Conversion Rate</th>
+                                <th>{labels.total}</th>
+                                <th>{labels.active}</th>
+                                <th>{labels.joined}</th>
+                                <th>{labels.dropped}</th>
+                                <th>{labels.conversion}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -152,6 +161,7 @@ export function CounselorReportsPage() {
                     <MobileSalesCard
                         key={row.id}
                         row={row}
+                        labels={labels}
                     />
                 ))}
                 {!reportData.length && !loading && (

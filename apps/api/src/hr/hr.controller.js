@@ -17,6 +17,27 @@ function isHR(actor) {
   return actor.role === 'hr' || actor.role === 'super_admin';
 }
 
+function getSalesDateRange(url) {
+  const year = parseInt(url.searchParams.get('year') || new Date().getFullYear(), 10);
+  const month = parseInt(url.searchParams.get('month') || (new Date().getMonth() + 1), 10);
+  const fromParam = url.searchParams.get('from');
+  const toParam = url.searchParams.get('to');
+
+  if (fromParam && toParam) {
+    return {
+      startDate: fromParam.split('T')[0],
+      endDate: toParam.split('T')[0]
+    };
+  }
+  if (fromParam === '' && toParam === '') {
+    return { startDate: '1970-01-01', endDate: '2100-12-31' };
+  }
+  return {
+    startDate: `${year}-${String(month).padStart(2, '0')}-01`,
+    endDate: new Date(year, month, 0).toISOString().split('T')[0]
+  };
+}
+
 export async function handleHR(req, res, url) {
   if (!url.pathname.startsWith('/hr')) return false;
 
@@ -33,6 +54,7 @@ export async function handleHR(req, res, url) {
     '/hr/councilor-profiles',
     '/hr/councilor-levels',
     '/hr/councilors/sales-report',
+    '/hr/councilors/sales-details',
     '/hr/attendance/report'
   ].some(p => url.pathname.startsWith(p));
   const isCounselorRole = actor.role === 'counselor' || actor.role === 'counselor_head';
@@ -706,25 +728,7 @@ export async function handleHR(req, res, url) {
 
     // -- 1.5 Counselor Sales Report --
     if (req.method === 'GET' && url.pathname === '/hr/councilors/sales-report') {
-      const year = parseInt(url.searchParams.get('year') || new Date().getFullYear(), 10);
-      const month = parseInt(url.searchParams.get('month') || (new Date().getMonth() + 1), 10);
-      
-      const fromParam = url.searchParams.get('from');
-      const toParam = url.searchParams.get('to');
-
-      // Use DATE boundaries for effective_date filtering
-      let startDate, endDate;
-      if (fromParam && toParam) {
-        startDate = fromParam.split('T')[0];
-        endDate = toParam.split('T')[0];
-      } else if (fromParam === '' && toParam === '') {
-        // Skip date boundaries for "All" selection
-        startDate = '1970-01-01';
-        endDate = '2100-12-31';
-      } else {
-        startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-        endDate = new Date(year, month, 0).toISOString().split('T')[0];
-      }
+      const { startDate, endDate } = getSalesDateRange(url);
 
       const endDateFull = endDate + 'T23:59:59.999Z';
 
@@ -787,6 +791,10 @@ export async function handleHR(req, res, url) {
       }
 
       const salesMap = {};
+      const addSale = (cId, amount) => {
+        if (!cId || !amount) return;
+        salesMap[cId] = (salesMap[cId] || 0) + amount;
+      };
 
       // Process Initial Requests - Only count the balance remaining after subtracting ALL its installments
       (vPs || []).forEach(p => {
@@ -796,7 +804,7 @@ export async function handleHR(req, res, url) {
           if (cId) {
             const installmentTotal = allInstallmentsMap[p.id] || 0;
             const initialAmount = Math.max(0, Number(p.amount || 0) - installmentTotal);
-            salesMap[cId] = (salesMap[cId] || 0) + initialAmount;
+            addSale(cId, initialAmount);
           }
         }
       });
@@ -809,7 +817,7 @@ export async function handleHR(req, res, url) {
           if (cId) {
             const installmentTotal = allInstallmentsMap[t.id] || 0;
             const initialAmount = Math.max(0, Number(t.amount || 0) - installmentTotal);
-            salesMap[cId] = (salesMap[cId] || 0) + initialAmount;
+            addSale(cId, initialAmount);
           }
         }
       });
@@ -819,13 +827,164 @@ export async function handleHR(req, res, url) {
         const iDateStr = inst.effective_date || inst.verified_at?.split('T')[0];
         if (iDateStr >= startDate && iDateStr <= endDate) {
           const cId = installmentMetadata[inst.reference_id];
-          if (cId) {
-            salesMap[cId] = (salesMap[cId] || 0) + Number(inst.amount || 0);
-          }
+          addSale(cId, Number(inst.amount || 0));
         }
       });
 
       sendJson(res, 200, { ok: true, report: salesMap });
+      return true;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/hr/councilors/sales-details') {
+      const counselorId = url.searchParams.get('counselor_id');
+      if (!counselorId) {
+        sendJson(res, 400, { ok: false, error: 'counselor_id is required' });
+        return true;
+      }
+
+      const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '20', 10), 1), 50);
+      const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10), 0);
+      const { startDate, endDate } = getSalesDateRange(url);
+      const endDateFull = endDate + 'T23:59:59.999Z';
+
+      const { data: vPs } = await adminClient
+        .from('payment_requests')
+        .select('id, amount, leads!inner(counselor_id,student_name,contact_number), effective_date, verified_at')
+        .eq('status', 'verified')
+        .eq('leads.counselor_id', counselorId)
+        .or(`effective_date.gte.${startDate},and(effective_date.is.null,verified_at.gte.${startDate})`)
+        .or(`effective_date.lte.${endDate},and(effective_date.is.null,verified_at.lte.${endDateFull})`);
+
+      const { data: vTs } = await adminClient
+        .from('student_topups')
+        .select('id, amount, requested_by, effective_date, verified_at, students(student_name,student_code)')
+        .eq('status', 'verified')
+        .eq('requested_by', counselorId)
+        .or(`effective_date.gte.${startDate},and(effective_date.is.null,verified_at.gte.${startDate})`)
+        .or(`effective_date.lte.${endDate},and(effective_date.is.null,verified_at.lte.${endDateFull})`);
+
+      const initialParentIds = [...new Set([
+        ...(vPs || []).map(p => p.id),
+        ...(vTs || []).map(t => t.id)
+      ])];
+
+      let allInstallmentsMap = {};
+      if (initialParentIds.length > 0) {
+        const { data: allInsts } = await adminClient
+          .from('installment_payments')
+          .select('reference_id, amount')
+          .eq('status', 'verified')
+          .in('reference_id', initialParentIds);
+        (allInsts || []).forEach(i => {
+          if (!allInstallmentsMap[i.reference_id]) allInstallmentsMap[i.reference_id] = 0;
+          allInstallmentsMap[i.reference_id] += Number(i.amount || 0);
+        });
+      }
+
+      const { data: allCounselorPrs } = await adminClient
+        .from('payment_requests')
+        .select('id, leads!inner(counselor_id,student_name,contact_number)')
+        .eq('leads.counselor_id', counselorId);
+
+      const { data: allCounselorTopups } = await adminClient
+        .from('student_topups')
+        .select('id, requested_by, students(student_name,student_code)')
+        .eq('requested_by', counselorId);
+
+      const allCounselorParentIds = [...new Set([
+        ...(allCounselorPrs || []).map(p => p.id),
+        ...(allCounselorTopups || []).map(t => t.id)
+      ])];
+
+      let vInsts = [];
+      if (allCounselorParentIds.length > 0) {
+        const { data: rangedInsts } = await adminClient
+          .from('installment_payments')
+          .select('id, amount, reference_type, reference_id, effective_date, verified_at')
+          .eq('status', 'verified')
+          .in('reference_id', allCounselorParentIds)
+          .or(`effective_date.gte.${startDate},and(effective_date.is.null,verified_at.gte.${startDate})`)
+          .or(`effective_date.lte.${endDate},and(effective_date.is.null,verified_at.lte.${endDateFull})`);
+        vInsts = rangedInsts || [];
+      }
+
+      const metadata = {};
+      (allCounselorPrs || []).forEach(p => {
+        metadata[p.id] = {
+          person_name: p.leads?.student_name || 'Lead',
+          person_code: p.leads?.contact_number || '',
+          payment_type: 'Installment - onboarding'
+        };
+      });
+      (allCounselorTopups || []).forEach(t => {
+        metadata[t.id] = {
+          person_name: t.students?.student_name || 'Student',
+          person_code: t.students?.student_code || '',
+          payment_type: 'Installment - top-up'
+        };
+      });
+
+      const details = [];
+      const pushDetail = (amount, detail) => {
+        if (!amount || amount <= 0) return;
+        details.push({
+          amount,
+          payment_type: detail.payment_type,
+          person_name: detail.person_name || 'Unknown',
+          person_code: detail.person_code || '',
+          payment_date: detail.payment_date || null,
+          reference_id: detail.reference_id || null
+        });
+      };
+
+      (vPs || []).forEach(p => {
+        const pDateStr = p.effective_date || p.verified_at?.split('T')[0];
+        const installmentTotal = allInstallmentsMap[p.id] || 0;
+        const initialAmount = Math.max(0, Number(p.amount || 0) - installmentTotal);
+        pushDetail(initialAmount, {
+          payment_type: 'Onboarding payment',
+          person_name: p.leads?.student_name,
+          person_code: p.leads?.contact_number,
+          payment_date: pDateStr,
+          reference_id: p.id
+        });
+      });
+
+      (vTs || []).forEach(t => {
+        const tDateStr = t.effective_date || t.verified_at?.split('T')[0];
+        const installmentTotal = allInstallmentsMap[t.id] || 0;
+        const initialAmount = Math.max(0, Number(t.amount || 0) - installmentTotal);
+        pushDetail(initialAmount, {
+          payment_type: 'Student top-up',
+          person_name: t.students?.student_name,
+          person_code: t.students?.student_code,
+          payment_date: tDateStr,
+          reference_id: t.id
+        });
+      });
+
+      (vInsts || []).forEach(inst => {
+        const meta = metadata[inst.reference_id] || {};
+        pushDetail(Number(inst.amount || 0), {
+          payment_type: meta.payment_type || 'Installment',
+          person_name: meta.person_name,
+          person_code: meta.person_code,
+          payment_date: inst.effective_date || inst.verified_at?.split('T')[0],
+          reference_id: inst.id
+        });
+      });
+
+      details.sort((a, b) => String(b.payment_date || '').localeCompare(String(a.payment_date || '')));
+      const items = details.slice(offset, offset + limit);
+
+      sendJson(res, 200, {
+        ok: true,
+        items,
+        total: details.length,
+        limit,
+        offset,
+        has_more: offset + limit < details.length
+      });
       return true;
     }
 

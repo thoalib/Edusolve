@@ -36,7 +36,8 @@ export async function handleCounselors(req, res, url) {
             const to = url.searchParams.get('to');
             const userId = url.searchParams.get('user_id');
             const leadType = url.searchParams.get('lead_type');
-            const stats = await counselorsService.getStats({ from, to, userId, actorRole: role, actorId: req.headers['x-user-id'], leadType });
+            const dateBasis = url.searchParams.get('date_basis') || 'lead_created';
+            const stats = await counselorsService.getStats({ from, to, userId, actorRole: role, actorId: req.headers['x-user-id'], leadType, dateBasis });
             if (stats.error) {
                 sendJson(res, 500, { error: stats.error });
                 return true;
