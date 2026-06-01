@@ -62,6 +62,77 @@ const CHART_STYLES = `
     font-weight: 700;
   }
 
+  .target-row {
+    position: relative;
+  }
+  .target-breakdown {
+    width: 100%;
+    max-height: 280px;
+    overflow-y: auto;
+    background: #111827;
+    color: #f9fafb;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.28);
+    padding: 10px;
+    margin-top: 8px;
+  }
+  .target-breakdown-item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+  }
+  .target-breakdown-item:last-child {
+    border-bottom: 0;
+  }
+  .target-breakdown-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.25;
+  }
+  .target-breakdown-meta {
+    font-size: 11px;
+    color: #9ca3af;
+    margin-top: 2px;
+  }
+  .target-breakdown-amount {
+    font-size: 12px;
+    font-weight: 800;
+    color: #86efac;
+    white-space: nowrap;
+  }
+  .target-expand-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #111827;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.15s ease;
+  }
+  .target-expand-btn:hover {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+  }
+  .target-expand-btn.expanded {
+    background: #eef2ff;
+    border-color: #6366f1;
+    color: #312e81;
+  }
+  .target-expand-btn.expanded svg {
+    transform: rotate(180deg);
+  }
+  .target-expand-btn svg {
+    transition: transform 0.15s ease;
+  }
+
   .dashboard-charts .chart-point {
     fill: #4338ca;
     stroke: #fff;
@@ -199,6 +270,134 @@ function LeadTypeSelect({ value, onChange, leadTypes, style }) {
       <option value="all">All Lead Types</option>
       {leadTypes.map(t => <option key={t} value={t}>{t}</option>)}
     </select>
+  );
+}
+
+function SalesBreakdownTooltip({ details = [], loading, error, total = 0, hasMore = false }) {
+  return (
+    <div className="target-breakdown" role="tooltip">
+      <div style={{ fontSize: 11, color: '#d1d5db', fontWeight: 700, marginBottom: 6 }}>
+        Target calculation
+      </div>
+      {loading ? (
+        <div style={{ fontSize: 12, color: '#d1d5db', padding: '10px 0' }}>Loading payment details...</div>
+      ) : null}
+      {error ? (
+        <div style={{ fontSize: 12, color: '#fecaca', padding: '10px 0' }}>{error}</div>
+      ) : null}
+      {!loading && !error && details.length ? details.map((item, idx) => (
+        <div className="target-breakdown-item" key={`${item.reference_id || idx}-${idx}`}>
+          <div>
+            <div className="target-breakdown-title">{item.person_name || 'Unknown'}</div>
+            <div className="target-breakdown-meta">
+              {item.payment_type || 'Payment'}{item.person_code ? ` · ${item.person_code}` : ''}
+            </div>
+            <div className="target-breakdown-meta">{item.payment_date || 'No date'}</div>
+          </div>
+          <div className="target-breakdown-amount">₹{Number(item.amount || 0).toLocaleString()}</div>
+        </div>
+      )) : null}
+      {!loading && !error && !details.length ? (
+        <div style={{ fontSize: 12, color: '#d1d5db', padding: '8px 0' }}>No payment rows found for this range.</div>
+      ) : null}
+      {hasMore ? <div style={{ fontSize: 11, color: '#9ca3af', paddingTop: 6 }}>Showing {details.length} of {total} rows</div> : null}
+    </div>
+  );
+}
+
+function TargetLeaderboardRow({ item, index, isCurrentUser, dateRange }) {
+  const [expanded, setExpanded] = useState(false);
+  const [details, setDetails] = useState([]);
+  const [detailsTotal, setDetailsTotal] = useState(0);
+  const [hasMoreDetails, setHasMoreDetails] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState('');
+  const [detailsLoaded, setDetailsLoaded] = useState(false);
+
+  useEffect(() => {
+    setExpanded(false);
+    setDetails([]);
+    setDetailsTotal(0);
+    setHasMoreDetails(false);
+    setDetailsError('');
+    setDetailsLoaded(false);
+  }, [item.id, dateRange?.from, dateRange?.to]);
+
+  async function loadDetails() {
+    setDetailsLoading(true);
+    setDetailsError('');
+    try {
+      const query = new URLSearchParams({
+        counselor_id: item.id,
+        from: dateRange?.from || '',
+        to: dateRange?.to || '',
+        limit: '20',
+        offset: '0'
+      });
+      const data = await apiFetch(`/hr/councilors/sales-details?${query.toString()}`);
+      setDetails(data.items || []);
+      setDetailsTotal(data.total || 0);
+      setHasMoreDetails(Boolean(data.has_more));
+      setDetailsLoaded(true);
+    } catch (err) {
+      setDetailsError(err.message);
+    } finally {
+      setDetailsLoading(false);
+    }
+  }
+
+  async function toggleExpanded() {
+    const nextExpanded = !expanded;
+    setExpanded(nextExpanded);
+    if (nextExpanded && !detailsLoaded && !detailsLoading) {
+      await loadDetails();
+    }
+  }
+
+  return (
+    <div className="target-row" style={{ padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+          <span style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', borderRadius: '50%',
+            background: index === 0 ? '#fef08a' : index === 1 ? '#e2e8f0' : index === 2 ? '#fed7aa' : '#f3f4f6',
+            color: index === 0 ? '#ca8a04' : index === 1 ? '#64748b' : index === 2 ? '#c2410c' : '#9ca3af',
+            fontSize: '11px', fontWeight: 'bold', flex: '0 0 auto'
+          }}>{index + 1}</span>
+          <span style={{ fontSize: '13px', fontWeight: isCurrentUser ? '600' : '500', color: isCurrentUser ? '#4f46e5' : 'inherit', minWidth: 0 }}>
+            {item.name} {isCurrentUser && '(You)'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto' }}>
+          <span style={{ fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+            ₹{item.achieved.toLocaleString()} / ₹{item.targetAmt.toLocaleString()} <span style={{ color: item.progress >= 100 ? '#10b981' : '#6366f1' }}>({item.progress}%)</span>
+          </span>
+          <button
+            type="button"
+            className={expanded ? 'target-expand-btn expanded' : 'target-expand-btn'}
+            aria-label={expanded ? 'Hide target calculation' : 'Show target calculation'}
+            aria-expanded={expanded}
+            onClick={toggleExpanded}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div style={{ background: '#f3f4f6', height: '4px', borderRadius: '2px', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${item.progress}%`, background: item.progress >= 100 ? '#10b981' : '#6366f1' }}></div>
+      </div>
+      {expanded ? (
+        <SalesBreakdownTooltip
+          details={details}
+          loading={detailsLoading}
+          error={detailsError}
+          total={detailsTotal}
+          hasMore={hasMoreDetails}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -506,25 +705,7 @@ export function CounselorDashboardPage({ targetUserId }) {
           <h3 style={{ margin: '0 0 12px', fontSize: '15px' }}>Target Leaderboard</h3>
           <div style={{ maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
             {leaderboard.length ? leaderboard.map((l, index) => (
-              <div key={l.id} style={{ padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', borderRadius: '50%',
-                      background: index === 0 ? '#fef08a' : index === 1 ? '#e2e8f0' : index === 2 ? '#fed7aa' : '#f3f4f6',
-                      color: index === 0 ? '#ca8a04' : index === 1 ? '#64748b' : index === 2 ? '#c2410c' : '#9ca3af',
-                      fontSize: '11px', fontWeight: 'bold'
-                    }}>{index + 1}</span>
-                    <span style={{ fontSize: '13px', fontWeight: l.id === targetUserId ? '600' : '500', color: l.id === targetUserId ? '#4f46e5' : 'inherit' }}>
-                      {l.name} {l.id === targetUserId && '(You)'}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: '12px', fontWeight: 'bold' }}>₹{l.achieved.toLocaleString()} <span style={{ color: l.progress >= 100 ? '#10b981' : '#6366f1' }}>({l.progress}%)</span></span>
-                </div>
-                <div style={{ background: '#f3f4f6', height: '4px', borderRadius: '2px', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${l.progress}%`, background: l.progress >= 100 ? '#10b981' : '#6366f1' }}></div>
-                </div>
-              </div>
+              <TargetLeaderboardRow key={l.id} item={l} index={index} isCurrentUser={l.id === targetUserId} dateRange={dateRange} />
             )) : <p className="text-muted" style={{ fontSize: '13px' }}>Loading board...</p>}
           </div>
         </article>
@@ -828,7 +1009,8 @@ export function CounselorHeadDashboardPage({ targetUserId }) {
   const trendColors = ['#6366f1', '#10b981', '#f59e0b', '#3b82f6', '#ec4899', '#8b5cf6', '#f97316', '#14b8a6', '#e11d48', '#a855f7'];
 
   return (
-    <section className="panel">
+    <section className="panel dashboard-charts">
+      <style dangerouslySetInnerHTML={{ __html: CHART_STYLES }} />
       <DashboardDateFilter onChange={setDateRange} />
 
       {/* Stat Cards */}
@@ -856,25 +1038,7 @@ export function CounselorHeadDashboardPage({ targetUserId }) {
         <article className="card" style={{ padding: '20px' }}>
           <h3 style={{ margin: '0 0 12px', fontSize: '15px' }}>Target Leaderboard</h3>
           {targetLeaderboard.length ? targetLeaderboard.map((l, index) => (
-            <div key={l.id} style={{ padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', borderRadius: '50%',
-                    background: index === 0 ? '#fef08a' : index === 1 ? '#e2e8f0' : index === 2 ? '#fed7aa' : '#f3f4f6',
-                    color: index === 0 ? '#ca8a04' : index === 1 ? '#64748b' : index === 2 ? '#c2410c' : '#9ca3af',
-                    fontSize: '11px', fontWeight: 'bold'
-                  }}>{index + 1}</span>
-                  <span style={{ fontSize: '14px', fontWeight: l.id === targetUserId ? '600' : '500', color: l.id === targetUserId ? '#4f46e5' : 'inherit' }}>
-                    {l.name} {l.id === targetUserId && '(You)'}
-                  </span>
-                </div>
-                <span style={{ fontSize: '13px', fontWeight: 'bold' }}>₹{l.achieved.toLocaleString()} / ₹{l.targetAmt.toLocaleString()} <span style={{ color: l.progress >= 100 ? '#10b981' : '#6366f1' }}>({l.progress}%)</span></span>
-              </div>
-              <div style={{ background: '#f3f4f6', height: '4px', borderRadius: '2px', overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${l.progress}%`, background: l.progress >= 100 ? '#10b981' : '#6366f1' }}></div>
-              </div>
-            </div>
+            <TargetLeaderboardRow key={l.id} item={l} index={index} isCurrentUser={l.id === targetUserId} dateRange={dateRange} />
           )) : <p className="text-muted" style={{ fontSize: '13px' }}>Loading board...</p>}
         </article>
       </div>

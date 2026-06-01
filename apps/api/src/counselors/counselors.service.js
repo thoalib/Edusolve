@@ -104,9 +104,37 @@ export class CounselorsService {
         return data;
     }
 
+    emptyStats() {
+        return {
+            total: 0, active: 0, new: 0, contacted: 0,
+            demo_scheduled: 0, demo_done: 0, payment_pending: 0,
+            payment_verification: 0, joined: 0, dropped: 0,
+            dropReasons: {}
+        };
+    }
+
+    ensureStatsBucket(stats, cid) {
+        if (!stats[cid]) stats[cid] = this.emptyStats();
+        return stats[cid];
+    }
+
+    applyLeadAccess(query, { userId, actorRole, actorId }) {
+        if (userId && actorRole === 'super_admin') {
+            return query.eq('counselor_id', userId);
+        }
+        if (actorRole !== 'super_admin' && actorRole !== 'counselor_head' && actorRole !== 'hr') {
+            return query.eq('counselor_id', actorId);
+        }
+        return query;
+    }
+
     // Get aggregated stats for all counselors
-    async getStats({ from, to, userId, actorRole, actorId, leadType } = {}) {
+    async getStats({ from, to, userId, actorRole, actorId, leadType, dateBasis = 'lead_created' } = {}) {
         if (!this.admin) return { error: 'Admin client not available' };
+
+        if (dateBasis === 'event') {
+            return this.getEventDateStats({ from, to, userId, actorRole, actorId, leadType });
+        }
 
         let query = this.admin
             .from('leads')
@@ -119,11 +147,7 @@ export class CounselorsService {
             query = query.lte('created_at', toDate);
         }
         if (leadType && leadType !== 'all') query = query.eq('lead_type', leadType);
-        if (userId && actorRole === 'super_admin') {
-            query = query.eq('counselor_id', userId);
-        } else if (actorRole !== 'super_admin' && actorRole !== 'counselor_head' && actorRole !== 'hr') {
-             query = query.eq('counselor_id', actorId);
-        }
+        query = this.applyLeadAccess(query, { userId, actorRole, actorId });
 
         const { data: leads, error } = await query;
 
@@ -133,12 +157,7 @@ export class CounselorsService {
 
         for (const lead of leads) {
             const cid = lead.counselor_id || 'unassigned';
-            if (!stats[cid]) stats[cid] = {
-                total: 0, active: 0, new: 0, contacted: 0,
-                demo_scheduled: 0, demo_done: 0, payment_pending: 0,
-                payment_verification: 0, joined: 0, dropped: 0,
-                dropReasons: {}
-            };
+            this.ensureStatsBucket(stats, cid);
 
             stats[cid].total++;
             if (stats[cid][lead.status] !== undefined) stats[cid][lead.status]++;
@@ -146,6 +165,78 @@ export class CounselorsService {
 
             if (lead.status === 'dropped' && lead.drop_reason) {
                 stats[cid].dropReasons[lead.drop_reason] = (stats[cid].dropReasons[lead.drop_reason] || 0) + 1;
+            }
+        }
+
+        return stats;
+    }
+
+    async getEventDateStats({ from, to, userId, actorRole, actorId, leadType } = {}) {
+        const stats = {};
+
+        let createdQuery = this.admin
+            .from('leads')
+            .select('id, counselor_id, status, created_at, lead_type')
+            .or('source.neq."AC Direct Onboarding",source.is.null');
+
+        if (from) createdQuery = createdQuery.gte('created_at', from);
+        if (to) {
+            const toDate = to.includes('T') ? to : to + 'T23:59:59.999Z';
+            createdQuery = createdQuery.lte('created_at', toDate);
+        }
+        if (leadType && leadType !== 'all') createdQuery = createdQuery.eq('lead_type', leadType);
+        createdQuery = this.applyLeadAccess(createdQuery, { userId, actorRole, actorId });
+
+        const { data: createdLeads, error: createdError } = await createdQuery;
+        if (createdError) return { error: createdError.message };
+
+        for (const lead of createdLeads || []) {
+            const bucket = this.ensureStatsBucket(stats, lead.counselor_id || 'unassigned');
+            bucket.total++;
+            bucket.new++;
+        }
+
+        let historyQuery = this.admin
+            .from('lead_status_history')
+            .select('lead_id, to_status, created_at')
+            .not('to_status', 'is', null);
+
+        if (from) historyQuery = historyQuery.gte('created_at', from);
+        if (to) {
+            const toDate = to.includes('T') ? to : to + 'T23:59:59.999Z';
+            historyQuery = historyQuery.lte('created_at', toDate);
+        }
+
+        const { data: events, error: historyError } = await historyQuery;
+        if (historyError) return { error: historyError.message };
+
+        const leadIds = [...new Set((events || []).map(e => e.lead_id).filter(Boolean))];
+        if (!leadIds.length) return stats;
+
+        let leadQuery = this.admin
+            .from('leads')
+            .select('id, counselor_id, lead_type, source, deleted_at, drop_reason')
+            .in('id', leadIds)
+            .or('source.neq."AC Direct Onboarding",source.is.null');
+
+        if (leadType && leadType !== 'all') leadQuery = leadQuery.eq('lead_type', leadType);
+        leadQuery = this.applyLeadAccess(leadQuery, { userId, actorRole, actorId });
+
+        const { data: leads, error: leadError } = await leadQuery;
+        if (leadError) return { error: leadError.message };
+
+        const leadMap = new Map((leads || []).map(lead => [lead.id, lead]));
+
+        for (const event of events || []) {
+            const lead = leadMap.get(event.lead_id);
+            if (!lead) continue;
+
+            const status = event.to_status;
+            const bucket = this.ensureStatsBucket(stats, lead.counselor_id || 'unassigned');
+            if (bucket[status] !== undefined) bucket[status]++;
+            if (status && !['joined', 'dropped'].includes(status)) bucket.active++;
+            if (status === 'dropped' && lead.drop_reason) {
+                bucket.dropReasons[lead.drop_reason] = (bucket.dropReasons[lead.drop_reason] || 0) + 1;
             }
         }
 
